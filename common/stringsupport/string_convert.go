@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"golang.org/x/text/encoding/japanese"
+	"golang.org/x/text/encoding/korean"
 	"golang.org/x/text/transform"
 )
 
@@ -41,14 +42,20 @@ func SJISToUTF8(b []byte) (string, error) {
 	return string(result), nil
 }
 
-// SJISToUTF8Lossy decodes Shift-JIS bytes to a UTF-8 string, logging
-// any decoding error at debug level instead of returning it.
+// SJISToUTF8Lossy decodes Shift-JIS bytes to a UTF-8 string, falling back to
+// EUC-KR/CP949 if Shift-JIS decoding fails (e.g. Korean client input).
 func SJISToUTF8Lossy(b []byte) string {
 	s, err := SJISToUTF8(b)
-	if err != nil {
-		slog.Debug("SJIS decode failed", "error", err, "raw_len", len(b))
+	if err == nil {
+		return s
 	}
-	return s
+	d := korean.EUCKR.NewDecoder()
+	result, err2 := io.ReadAll(transform.NewReader(bytes.NewReader(b), d))
+	if err2 != nil {
+		slog.Debug("SJIS/CP949 decode both failed", "sjis_err", err, "cp949_err", err2, "raw_len", len(b))
+		return ""
+	}
+	return string(result)
 }
 
 // ToNGWord converts a UTF-8 string into a slice of uint16 values in the
