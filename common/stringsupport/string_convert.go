@@ -42,20 +42,28 @@ func SJISToUTF8(b []byte) (string, error) {
 	return string(result), nil
 }
 
-// SJISToUTF8Lossy decodes Shift-JIS bytes to a UTF-8 string, falling back to
-// EUC-KR/CP949 if Shift-JIS decoding fails (e.g. Korean client input).
+// SJISToUTF8Lossy decodes player-typed bytes (chat messages, character names)
+// to a UTF-8 string. EUC-KR/CP949 is tried first, falling back to Shift-JIS.
+//
+// Order matters: this mod's client only ever sends Korean (CP949) or ASCII
+// text here, never genuine Japanese. Most CP949 Hangul lead bytes (0xB0-0xC8)
+// fall inside Shift-JIS's single-byte half-width-katakana range (0xA1-0xDF),
+// so a Shift-JIS decode of Korean text "succeeds" without error — it just
+// silently splits each 2-byte Hangul syllable into two bogus katakana glyphs
+// instead of erroring, so a SJIS-first/CP949-fallback order never reaches the
+// fallback. Trying CP949 first avoids this trap.
 func SJISToUTF8Lossy(b []byte) string {
-	s, err := SJISToUTF8(b)
-	if err == nil {
-		return s
-	}
 	d := korean.EUCKR.NewDecoder()
-	result, err2 := io.ReadAll(transform.NewReader(bytes.NewReader(b), d))
+	result, err := io.ReadAll(transform.NewReader(bytes.NewReader(b), d))
+	if err == nil {
+		return string(result)
+	}
+	s, err2 := SJISToUTF8(b)
 	if err2 != nil {
-		slog.Debug("SJIS/CP949 decode both failed", "sjis_err", err, "cp949_err", err2, "raw_len", len(b))
+		slog.Debug("CP949/SJIS decode both failed", "cp949_err", err, "sjis_err", err2, "raw_len", len(b))
 		return ""
 	}
-	return string(result)
+	return s
 }
 
 // ToNGWord converts a UTF-8 string into a slice of uint16 values in the
