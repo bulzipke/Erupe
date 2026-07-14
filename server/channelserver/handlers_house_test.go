@@ -328,6 +328,29 @@ func TestLoadHouse_OwnHouse_Destination9(t *testing.T) {
 	}
 }
 
+// TestLoadHouse_OwnHouse_NilFurniture_FailsCleanly is a regression test for
+// issue #192: a freshly-created character has house_furniture=NULL until
+// they place something, and the ZZ client crashes on the 20-zero-byte
+// placeholder that used to be sent in that case. The handler must now fail
+// the request cleanly instead of sending an unparseable payload.
+func TestLoadHouse_OwnHouse_NilFurniture_FailsCleanly(t *testing.T) {
+	_, _, session, charID := setupHouseTest(t)
+	// No UpdateInterior call: house_furniture stays NULL, as for any
+	// never-decorated character.
+
+	pkt := &mhfpacket.MsgMhfLoadHouse{
+		AckHandle:   14,
+		CharID:      charID,
+		Destination: 9, // Own house
+	}
+	handleMsgMhfLoadHouse(session, pkt)
+
+	ack := readAck(t, session)
+	if ack.ErrorCode == 0 {
+		t.Fatal("expected a fail ACK for nil house_furniture, got success (this is the #192 crash payload)")
+	}
+}
+
 func TestLoadHouse_WrongPassword_Fails(t *testing.T) {
 	_, _, session, charID := setupHouseTest(t)
 

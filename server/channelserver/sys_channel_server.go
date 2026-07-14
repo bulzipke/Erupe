@@ -77,6 +77,7 @@ type Server struct {
 	scenarioRepo       ScenarioRepo
 	mercenaryRepo      MercenaryRepo
 	tournamentRepo     TournamentRepo
+	caravanRepo        CaravanRepo
 	mailService        *MailService
 	guildService       *GuildService
 	achievementService *AchievementService
@@ -171,6 +172,7 @@ func NewServer(config *Config) *Server {
 	s.scenarioRepo = NewScenarioRepository(config.DB)
 	s.mercenaryRepo = NewMercenaryRepository(config.DB)
 	s.tournamentRepo = NewTournamentRepository(config.DB)
+	s.caravanRepo = NewCaravanRepository(config.DB)
 
 	s.mailService = NewMailService(s.mailRepo, s.guildRepo, s.logger)
 	s.guildService = NewGuildService(s.guildRepo, s.mailService, s.charRepo, s.logger)

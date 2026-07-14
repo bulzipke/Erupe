@@ -509,12 +509,15 @@ func CompileQuestJSON(data []byte, lang string) ([]byte, error) {
 
 	// Reward tables: compute size.
 	rewardPtr := afterSupply
-	rewardBuf := buildRewardTables(q.Rewards)
+	rewardBuf := buildRewardTables(q.Rewards, rewardPtr)
 	afterRewards := align4(rewardPtr + uint32(len(rewardBuf)))
 
-	// Large monster spawns: each is 60 bytes + 1-byte terminator.
+	// Large monster spawns: fixed-size pointer block (see buildMonsterSpawns).
 	largeMonsterPtr := afterRewards
-	monsterBuf := buildMonsterSpawns(q.LargeMonsters)
+	monsterBuf, err := buildMonsterSpawns(q.LargeMonsters, largeMonsterPtr)
+	if err != nil {
+		return nil, err
+	}
 	afterMonsters := align4(largeMonsterPtr + uint32(len(monsterBuf)))
 
 	// ── Assemble file ────────────────────────────────────────────────────
@@ -1057,7 +1060,11 @@ func CompileQuestJSON(data []byte, lang string) ([]byte, error) {
 //
 //	RewardTable[] { u8 tableId, u8 pad, u16 pad, u32 tableOffset } terminated by int16(-1)
 //	RewardItem[]  { u16 rate, u16 item, u16 quantity }             terminated by int16(-1)
-func buildRewardTables(tables []QuestRewardTableJSON) []byte {
+//
+// basePtr is the absolute file offset of the reward section (rewardPtr in the
+// header); tableOffset is an absolute file offset, matching retail quest
+// binaries (see parseRewardTables).
+func buildRewardTables(tables []QuestRewardTableJSON, basePtr uint32) []byte {
 	if len(tables) == 0 {
 		// Empty: just the terminator.
 		b := [2]byte{0xFF, 0xFF}
@@ -1071,8 +1078,7 @@ func buildRewardTables(tables []QuestRewardTableJSON) []byte {
 	headerArraySize := uint32(len(tables)*8 + 2)
 
 	for _, t := range tables {
-		// tableOffset is relative to the start of rewardPtr in the file.
-		tableOffset := headerArraySize + uint32(itemData.Len())
+		tableOffset := basePtr + headerArraySize + uint32(itemData.Len())
 
 		headers.WriteByte(t.TableID)
 		headers.WriteByte(0)      // padding
@@ -1093,11 +1099,48 @@ func buildRewardTables(tables []QuestRewardTableJSON) []byte {
 	return append(headers.Bytes(), itemData.Bytes()...)
 }
 
-// buildMonsterSpawns serialises the large monster spawn list.
-// Each entry is 60 bytes; terminated with a 0xFF byte.
-func buildMonsterSpawns(monsters []QuestMonsterJSON) []byte {
+// maxLargeMonsters is the fixed slot count of the retail large-monster
+// pointer block (see buildMonsterSpawns/parseMonsterSpawns) — confirmed
+// against bin/quests/*.bin, where up to 5 slots are populated.
+const maxLargeMonsters = 5
+
+// buildMonsterSpawns serialises the large monster pointer block: an 8-byte
+// header (retail always writes 01 00 00 00 00 00 00 00 here), a u32 absolute
+// pointer to a fixed 5-slot MonsterID array, and a u32 absolute pointer to a
+// fixed 5-slot, 60-byte-per-entry spawn array. basePtr is the absolute file
+// offset of the block (largeMonsterPtr). Unused ID slots are zero-filled;
+// unused spawn slots are marked with ID 0xFF (matching retail exactly).
+func buildMonsterSpawns(monsters []QuestMonsterJSON, basePtr uint32) ([]byte, error) {
+	if len(monsters) > maxLargeMonsters {
+		return nil, fmt.Errorf("too many large monster spawns: %d (max %d)", len(monsters), maxLargeMonsters)
+	}
+
+	const headerSize = 16
+	const idsSize = maxLargeMonsters * 4
+	idsPtr := basePtr + headerSize
+	spawnsPtr := idsPtr + idsSize
+
 	buf := &bytes.Buffer{}
-	for _, m := range monsters {
+	buf.Write([]byte{0x01, 0, 0, 0, 0, 0, 0, 0})
+	writeUint32LE(buf, idsPtr)
+	writeUint32LE(buf, spawnsPtr)
+
+	for i := 0; i < maxLargeMonsters; i++ {
+		if i < len(monsters) {
+			buf.WriteByte(monsters[i].ID)
+		} else {
+			buf.WriteByte(0)
+		}
+		pad(buf, 3)
+	}
+
+	for i := 0; i < maxLargeMonsters; i++ {
+		if i >= len(monsters) {
+			buf.Write([]byte{0xFF, 0xFF})
+			pad(buf, 58)
+			continue
+		}
+		m := monsters[i]
 		buf.WriteByte(m.ID)
 		pad(buf, 3)                       // +0x01 padding[3]
 		writeUint32LE(buf, m.SpawnAmount) // +0x04
@@ -1109,6 +1152,5 @@ func buildMonsterSpawns(monsters []QuestMonsterJSON) []byte {
 		writeFloat32LE(buf, m.Z)          // +0x28
 		pad(buf, 16)                      // +0x2C padding[0x10]
 	}
-	buf.WriteByte(0xFF) // terminator
-	return buf.Bytes()
+	return buf.Bytes(), nil
 }

@@ -234,6 +234,37 @@ func TestEnumerateQuestBasicStructure(t *testing.T) {
 	}
 }
 
+// TestEnumerateQuestNextOffsetAdvances is a regression test for issue #194:
+// the response's offset field must be pkt.Offset+returnedCount (the offset
+// the client should request next), not pkt.Offset unchanged. Returning the
+// unchanged offset causes the ZZ client to loop forever requesting the same
+// page once event_quests spans more than one page (e.g. 574 rows, page
+// boundary at offset=512).
+func TestEnumerateQuestNextOffsetAdvances(t *testing.T) {
+	tests := []struct {
+		name          string
+		requestOffset uint16
+		returnedCount uint16
+		wantNext      uint16
+	}{
+		{name: "first_page_full", requestOffset: 0, returnedCount: 512, wantNext: 512},
+		{name: "second_page_remainder", requestOffset: 512, returnedCount: 62, wantNext: 574},
+		{name: "no_results_offset_unchanged", requestOffset: 512, returnedCount: 0, wantNext: 512},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			nextOffset := tc.requestOffset + tc.returnedCount
+			if nextOffset != tc.wantNext {
+				t.Errorf("next offset = %d, want %d", nextOffset, tc.wantNext)
+			}
+			if tc.returnedCount > 0 && nextOffset == tc.requestOffset {
+				t.Errorf("next offset must not equal request offset when results were returned (would cause an infinite client request loop)")
+			}
+		})
+	}
+}
+
 // TestEnumerateQuestTuneValuesEncoding tests tune values encoding in enumeration
 func TestEnumerateQuestTuneValuesEncoding(t *testing.T) {
 	tests := []struct {

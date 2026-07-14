@@ -249,6 +249,16 @@ type RengokuRepo interface {
 	GetRanking(leaderboard uint32, guildID uint32) ([]RengokuScore, error)
 }
 
+// CaravanRepo defines the contract for caravan/ryoudama points and ranking data access.
+type CaravanRepo interface {
+	GetPoints(charID uint32) (CaravanPoints, error)
+	AddPoints(charID uint32, delta int32) error
+	GetPersonalRanking() ([]CaravanRankEntry, error)
+	GetGuildPoints(guildID uint32) (int32, error)
+	AddGuildPoints(guildID uint32, delta int32) error
+	GetGuildRanking() ([]CaravanGuildRankEntry, error)
+}
+
 // MailRepo defines the contract for in-game mail data access.
 type MailRepo interface {
 	SendMail(senderID, recipientID uint32, subject, body string, itemID, itemAmount uint16, isGuildInvite, isSystemMessage bool) error

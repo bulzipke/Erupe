@@ -47,10 +47,15 @@ func handleMsgMhfGetUdTacticsPoint(s *Session, p mhfpacket.MHFPacket) {
 	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
 }
 
-// udTacticsQuestFileIDs is the allowed range of interception quest file IDs.
+// udTacticsQuestMin/Max bound the interception (Diva Defense) quest file IDs.
+// Every ripped 58xxx quest_id in EventQuests.sql (quest_type 46/47/48, see
+// isDivaDefenseQuestType in constants_quest.go) falls in 58043-58128; the
+// previous 58079-58083 bound only covered one event batch out of 65 rows.
+// This range isn't gap-free (a handful of unused IDs in between are also
+// accepted), but that's harmless since no real quest ever sends them here.
 const (
-	udTacticsQuestMin = 58079
-	udTacticsQuestMax = 58083
+	udTacticsQuestMin = 58043
+	udTacticsQuestMax = 58128
 )
 
 func handleMsgMhfAddUdTacticsPoint(s *Session, p mhfpacket.MHFPacket) {
@@ -161,4 +166,14 @@ func handleMsgMhfGetUdTacticsRanking(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfSetUdTacticsFollower(s *Session, p mhfpacket.MHFPacket) {} // stub: unimplemented
 
-func handleMsgMhfGetUdTacticsLog(s *Session, p mhfpacket.MHFPacket) {} // stub: unimplemented
+// handleMsgMhfGetUdTacticsLog was previously a bare stub, which meant it sent
+// no ack at all -- since the packet carries an AckHandle, that silence is a
+// client softlock (see CLAUDE.md's ack requirement), not just a missing
+// feature. The real log entry format hasn't been reverse engineered yet, so
+// this returns an empty result via the same "no results" convention used
+// elsewhere in this file (e.g. handleMsgMhfGetUdTacticsRemainingPoint)
+// rather than fabricate a layout.
+func handleMsgMhfGetUdTacticsLog(s *Session, p mhfpacket.MHFPacket) {
+	pkt := p.(*mhfpacket.MsgMhfGetUdTacticsLog)
+	stubEnumerateNoResults(s, pkt.AckHandle)
+}

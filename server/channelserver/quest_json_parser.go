@@ -160,6 +160,12 @@ func ParseQuestBinary(data []byte) (*QuestJSON, error) {
 		for i := range strPtrs {
 			strPtrs[i] = int(u32(questStringsPtr + i*4))
 		}
+		// A handful of retail quests (observed on arena-style quests with no
+		// day/night variants, e.g. 64551/64552) leave optional slots such as
+		// successCond/failCond holding leftover non-pointer data instead of a
+		// clean 0. Treat an unreadable slot as "no text" rather than failing
+		// the whole quest, matching how a literal null pointer is already
+		// handled below.
 		texts := make([]string, 8)
 		for i, ptr := range strPtrs {
 			if ptr == 0 {
@@ -167,7 +173,7 @@ func ParseQuestBinary(data []byte) (*QuestJSON, error) {
 			}
 			s, err := readSJIS(ptr)
 			if err != nil {
-				return nil, fmt.Errorf("string[%d]: %w", i, err)
+				continue
 			}
 			texts[i] = s
 		}
@@ -411,7 +417,10 @@ func readSupplySlots(data []byte, off, n int) []QuestSupplyItemJSON {
 
 // parseRewardTables reads the reward table array starting at baseOff.
 // Header array: {u8 tableId, u8 pad, u16 pad, u32 tableOffset} per entry,
-// terminated by int16(-1). tableOffset is relative to baseOff.
+// terminated by int16(-1). tableOffset is an absolute offset into the file
+// (confirmed against retail quest binaries and the questfile.bin.hexpat
+// pattern, which places RewardItem[] directly `@ tableOffset` with no base
+// added), not relative to baseOff.
 // Each item list: {u16 rate, u16 item, u16 quantity} terminated by int16(-1).
 func parseRewardTables(data []byte, baseOff int) ([]QuestRewardTableJSON, error) {
 	var tables []QuestRewardTableJSON
@@ -427,7 +436,7 @@ func parseRewardTables(data []byte, baseOff int) ([]QuestRewardTableJSON, error)
 			return nil, fmt.Errorf("reward table header entry truncated at 0x%X", off)
 		}
 		tableID := data[off]
-		tableOff := int(binary.LittleEndian.Uint32(data[off+4:])) + baseOff
+		tableOff := int(binary.LittleEndian.Uint32(data[off+4:]))
 		off += 8
 
 		items, err := parseRewardItems(data, tableOff)
@@ -461,21 +470,29 @@ func parseRewardItems(data []byte, off int) ([]QuestRewardItemJSON, error) {
 	return items, nil
 }
 
-// parseMonsterSpawns reads large monster spawn entries at baseOff.
-// Each entry is 60 bytes; the list is terminated by a 0xFF byte.
+// parseMonsterSpawns reads the large monster pointer block at baseOff:
+// an 8-byte header (constant 01 00 00 00 00 00 00 00 in every retail quest
+// observed), a u32 absolute pointer to a fixed 5-slot MonsterID array
+// (unused here — it duplicates each spawn slot's own ID and is zero where
+// unused), and a u32 absolute pointer to a fixed 5-slot, 60-byte-per-entry
+// spawn array. A spawn slot with ID 0xFF is unused.
 func parseMonsterSpawns(data []byte, baseOff int, f32fn func(int) float32) ([]QuestMonsterJSON, error) {
-	var monsters []QuestMonsterJSON
-	off := baseOff
+	const slotCount = 5
 	const entrySize = 60
-	for {
-		if off >= len(data) {
-			return nil, fmt.Errorf("monster spawn list unterminated at end of file")
+
+	if baseOff+16 > len(data) {
+		return nil, fmt.Errorf("large monster pointer block at 0x%X truncated", baseOff)
+	}
+	spawnsPtr := int(binary.LittleEndian.Uint32(data[baseOff+12:]))
+
+	var monsters []QuestMonsterJSON
+	for i := 0; i < slotCount; i++ {
+		off := spawnsPtr + i*entrySize
+		if off+entrySize > len(data) {
+			return nil, fmt.Errorf("monster spawn slot %d at 0x%X truncated", i, off)
 		}
 		if data[off] == 0xFF {
-			break
-		}
-		if off+entrySize > len(data) {
-			return nil, fmt.Errorf("monster spawn entry at 0x%X truncated", off)
+			continue
 		}
 		m := QuestMonsterJSON{
 			ID:          data[off],
@@ -489,7 +506,6 @@ func parseMonsterSpawns(data []byte, baseOff int, f32fn func(int) float32) ([]Qu
 			// +0x2C padding[16]
 		}
 		monsters = append(monsters, m)
-		off += entrySize
 	}
 	return monsters, nil
 }

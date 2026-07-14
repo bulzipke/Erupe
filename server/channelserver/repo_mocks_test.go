@@ -1039,6 +1039,42 @@ func (m *mockTowerRepo) DonateGuildTowerRP(_ uint32, rp uint16) error {
 	return m.donateErr
 }
 
+// --- mockCaravanRepo ---
+
+type mockCaravanRepo struct {
+	points        CaravanPoints
+	pointsErr     error
+	addedPoints   int32
+	addPointsErr  error
+	personalRank  []CaravanRankEntry
+	personalErr   error
+	guildPoints   int32
+	guildPtsErr   error
+	addedGuildPts int32
+	addGuildErr   error
+	guildRank     []CaravanGuildRankEntry
+	guildRankErr  error
+}
+
+func (m *mockCaravanRepo) GetPoints(_ uint32) (CaravanPoints, error) { return m.points, m.pointsErr }
+func (m *mockCaravanRepo) AddPoints(_ uint32, delta int32) error {
+	m.addedPoints = delta
+	return m.addPointsErr
+}
+func (m *mockCaravanRepo) GetPersonalRanking() ([]CaravanRankEntry, error) {
+	return m.personalRank, m.personalErr
+}
+func (m *mockCaravanRepo) GetGuildPoints(_ uint32) (int32, error) {
+	return m.guildPoints, m.guildPtsErr
+}
+func (m *mockCaravanRepo) AddGuildPoints(_ uint32, delta int32) error {
+	m.addedGuildPts = delta
+	return m.addGuildErr
+}
+func (m *mockCaravanRepo) GetGuildRanking() ([]CaravanGuildRankEntry, error) {
+	return m.guildRank, m.guildRankErr
+}
+
 // --- mockFestaRepo ---
 
 type mockFestaRepo struct {
