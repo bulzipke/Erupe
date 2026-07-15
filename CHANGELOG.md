@@ -7,13 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- `stable/v9.2.x` branch and its `SECURITY.md` supported-version entry — the branch had been untouched since 2026-02-08 and 9.2.x is well past the current 9.4.x release line.
+
+## [9.4.1] - 2026-07-15
+
 ### Changed
 
-- Default `LoginNotices` banner (`config.reference.json`) now reads "9.4.1-dev" instead of the stale "SU9.3".
+- Default `LoginNotices` banner (`config.reference.json`) now reads "9.4.1" instead of the stale "SU9.3".
+- Default `LoginNotices` banner bullet points: "Report bugs on Discord" → "Get help on Discord", "Fork the code on GitHub" → "Find the code on Mezeporta/Erupe (GitHub)", dropped "Test everything", added a "Maintained with love by the Mogapedia and Mezeporta communities" closing line, and reworded the intro from "Erupe is experimental software" to "Erupe is a community implementation for the Frontier server".
 
 ### Added
 
 - `DebugOptions.QuestTools`'s `MSG_SYS_CAST_BINARY` quest-payload logging now also dumps the full raw hex (plus sender char ID) alongside the existing best-effort XYZ decode, so the real struct layout can be read directly instead of guessed. Used this to confirm the payload bundles one position record per party slot (player + AI companions), each tagged with an incrementing slot ID — the existing fixed-offset decode was only ever reading slot 1.
+
+### Removed
+
+- Orphaned `schemas/bundled-schema/` directory, superseded by `server/migrations/seed/` and drifted out of sync with it; also its dead volume mount in `docker/docker-compose.test.yml`.
+- Orphaned root-level `savedata/` placeholder directory (unused by any code path); also its `cp` step in `release.yml` and its `.gitignore` rule.
+- Stale `www/` references (`.gitignore`, `Dockerfile` comment, CI artifact upload) left over from the removed LauncherServer, plus the never-present `config.json` from the same CI artifact list.
 
 ### Fixed
 

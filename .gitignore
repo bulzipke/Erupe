@@ -1,9 +1,7 @@
 .idea/
 
-www/jp/
 vendor/
 *.bin
-savedata/*/
 *.exe
 *.lnk
 *.bat
