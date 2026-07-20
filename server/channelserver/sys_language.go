@@ -141,7 +141,7 @@ func (i *i18n) beadDescription(beadType int) string {
 // supportedLangs lists the language codes the server can serve. Kept in one
 // place so the !lang command validator and future API handlers stay in sync
 // with getLangStringsFor.
-var supportedLangs = []string{"en", "jp", "fr", "es", "zh"}
+var supportedLangs = []string{"en", "jp", "fr", "es", "zh", "ko"}
 
 // isSupportedLang reports whether the given code is one the server can serve.
 func isSupportedLang(code string) bool {
@@ -170,6 +170,8 @@ func getLangStringsFor(lang string) i18n {
 		return langChinese()
 	case "en":
 		return langEnglish()
+	case "ko":
+		return langKorean()
 	default:
 		return langEnglish()
 	}

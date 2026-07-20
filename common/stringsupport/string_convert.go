@@ -13,21 +13,25 @@ import (
 	"golang.org/x/text/transform"
 )
 
-// UTF8ToSJIS encodes a UTF-8 string to Shift-JIS bytes, silently dropping any
-// runes that cannot be represented in Shift-JIS.
+// UTF8ToSJIS encodes a UTF-8 string for the wire, silently dropping any runes
+// that cannot be represented.
+//
+// Korean-mod note: the client is CP949-patched, so the wire encoding here is
+// EUC-KR/CP949 (Go's korean.EUCKR == Windows-949), NOT Shift-JIS. Hangul now
+// survives; half-width kana (absent from CP949) is dropped by the filter.
 func UTF8ToSJIS(x string) []byte {
-	e := japanese.ShiftJIS.NewEncoder()
+	e := korean.EUCKR.NewEncoder()
 	xt, _, err := transform.String(e, x)
 	if err != nil {
-		// Filter out runes that can't be encoded to Shift-JIS instead of
-		// crashing the server (see PR #116).
+		// Filter out runes that can't be encoded instead of crashing the
+		// server (see PR #116).
 		var filtered []rune
 		for _, r := range x {
-			if _, _, err := transform.String(japanese.ShiftJIS.NewEncoder(), string(r)); err == nil {
+			if _, _, err := transform.String(korean.EUCKR.NewEncoder(), string(r)); err == nil {
 				filtered = append(filtered, r)
 			}
 		}
-		xt, _, _ = transform.String(japanese.ShiftJIS.NewEncoder(), string(filtered))
+		xt, _, _ = transform.String(korean.EUCKR.NewEncoder(), string(filtered))
 	}
 	return []byte(xt)
 }
@@ -90,7 +94,7 @@ func ToNGWord(x string) []uint16 {
 // size. If t is true the string is first encoded to Shift-JIS.
 func PaddedString(x string, size uint, t bool) []byte {
 	if t {
-		e := japanese.ShiftJIS.NewEncoder()
+		e := korean.EUCKR.NewEncoder() // Korean-mod: wire is CP949
 		xt, _, err := transform.String(e, x)
 		if err != nil {
 			return make([]byte, size)
