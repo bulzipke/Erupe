@@ -179,6 +179,13 @@ func handleMsgMhfLoadHouse(s *Session, p mhfpacket.MHFPacket) {
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
+	if pkt.Destination == 9 && houseFurniture == nil {
+		// The ZZ client crashes on a 20-zero-byte placeholder here (the real
+		// empty-state encoding hasn't been reverse-engineered yet), so fail
+		// the request cleanly instead of sending a payload it can't parse.
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
 	if houseFurniture == nil {
 		houseFurniture = make([]byte, 20)
 	}

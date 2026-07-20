@@ -56,11 +56,21 @@ type TournamentReward struct {
 	Unk2 uint16
 }
 
+// tournamentIsValid reports whether a tournament row has plausible timestamps.
+// A row with any non-positive timestamp is treated as malformed — emitting it
+// to the ZZ client (especially with state=3) is known to crash quest counters
+// (see Mezeporta/Erupe#193).
+func tournamentIsValid(t *Tournament) bool {
+	return t != nil &&
+		t.StartTime > 0 && t.EntryEnd > 0 &&
+		t.RankingEnd > 0 && t.RewardEnd > 0
+}
+
 // tournamentState returns the state byte for the EnumerateRanking response.
 // 0 = no tournament / before start, 1 = registration open, 2 = hunting active,
 // 3 = ranking/reward period.
 func tournamentState(now int64, t *Tournament) uint8 {
-	if t == nil || now < t.StartTime {
+	if !tournamentIsValid(t) || now < t.StartTime {
 		return 0
 	}
 	if now <= t.EntryEnd {
@@ -82,7 +92,16 @@ func handleMsgMhfEnumerateRanking(s *Session, p mhfpacket.MHFPacket) {
 		s.logger.Error("Failed to get active tournament for EnumerateRanking", zap.Error(err))
 	}
 
-	if tournament == nil {
+	if !tournamentIsValid(tournament) {
+		if tournament != nil {
+			s.logger.Warn("Skipping tournament with invalid timestamps",
+				zap.Uint32("id", tournament.ID),
+				zap.Int64("start_time", tournament.StartTime),
+				zap.Int64("entry_end", tournament.EntryEnd),
+				zap.Int64("ranking_end", tournament.RankingEnd),
+				zap.Int64("reward_end", tournament.RewardEnd),
+			)
+		}
 		// No active tournament: write zeroed timestamps, current time, state 0, empty data.
 		bf.WriteBytes(make([]byte, 16))
 		bf.WriteUint32(uint32(now))
@@ -187,7 +206,7 @@ func handleMsgMhfInfoTournament(s *Session, p mhfpacket.MHFPacket) {
 			s.logger.Error("Failed to get active tournament for InfoTournament type 0", zap.Error(err))
 		}
 		bf.WriteUint32(0) // unk header
-		if tournament == nil {
+		if !tournamentIsValid(tournament) {
 			bf.WriteUint32(0) // count = 0
 			break
 		}
@@ -217,7 +236,7 @@ func handleMsgMhfInfoTournament(s *Session, p mhfpacket.MHFPacket) {
 		if err != nil {
 			s.logger.Error("Failed to get active tournament for InfoTournament type 1", zap.Error(err))
 		}
-		if tournament == nil {
+		if !tournamentIsValid(tournament) {
 			bf.WriteUint32(0) // tournamentID
 			bf.WriteUint32(0) // entryID
 			bf.WriteUint32(0)
@@ -262,7 +281,7 @@ func handleMsgMhfEntryTournament(s *Session, p mhfpacket.MHFPacket) {
 		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
-	if tournament == nil {
+	if !tournamentIsValid(tournament) {
 		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}

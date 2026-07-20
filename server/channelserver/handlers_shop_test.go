@@ -183,6 +183,37 @@ func TestHandleMsgMhfEnumerateShop_Case10_ShopItems(t *testing.T) {
 	}
 }
 
+// TestHandleMsgMhfEnumerateShop_Case10_CapsOversizedTab is a regression test
+// for issue #190: an oversized ShopType=10 (item shop) tab used to be sent to
+// the client uncapped (beyond the client's advertised Limit), which crashes
+// mhf.exe a couple seconds after entering the forge. The handler now caps
+// ShopType=10 rows to a conservative 256 regardless of the client's Limit.
+func TestHandleMsgMhfEnumerateShop_Case10_CapsOversizedTab(t *testing.T) {
+	server := createMockServer()
+	server.erupeConfig.RealClientMode = cfg.ZZ
+
+	items := make([]ShopItem, 420)
+	for i := range items {
+		items[i] = ShopItem{ID: uint32(i + 1), ItemID: uint32(i + 1), Cost: 100, Quantity: 1}
+	}
+	server.shopRepo = &mockShopRepo{shopItems: items}
+
+	session := createMockSession(1, server)
+	pkt := &mhfpacket.MsgMhfEnumerateShop{
+		AckHandle: 100,
+		ShopType:  10,
+		ShopID:    0,
+		Limit:     512, // the client's own advertised (but unsafe) limit
+	}
+	handleMsgMhfEnumerateShop(session, pkt)
+
+	ack := readAck(t, session)
+	count := byteframe.NewByteFrameFromBytes(ack.Payload).ReadUint16()
+	if count > 256 {
+		t.Errorf("expected item count capped at 256, got %d (this is the #190 crash payload)", count)
+	}
+}
+
 func TestHandleMsgMhfEnumerateShop_Cases3to9(t *testing.T) {
 	for _, shopType := range []uint8{3, 4, 5, 6, 7, 8, 9} {
 		server := createMockServer()

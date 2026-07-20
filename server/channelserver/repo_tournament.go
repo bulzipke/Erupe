@@ -19,12 +19,17 @@ func NewTournamentRepository(db *sqlx.DB) *TournamentRepository {
 
 // GetActive returns the most recently started tournament that is still within its
 // reward window (reward_end >= now), or nil if no active tournament exists.
+//
+// Rows with any non-positive timestamp are skipped: emitting them to the ZZ
+// client crashes every quest counter (see Mezeporta/Erupe#193).
 func (r *TournamentRepository) GetActive(now int64) (*Tournament, error) {
 	var t Tournament
 	err := r.db.QueryRowx(
 		`SELECT id, name, start_time, entry_end, ranking_end, reward_end
 		 FROM tournaments
-		 WHERE start_time <= $1 AND reward_end >= $1
+		 WHERE start_time > 0 AND entry_end > 0
+		   AND ranking_end > 0 AND reward_end > 0
+		   AND start_time <= $1 AND reward_end >= $1
 		 ORDER BY start_time DESC
 		 LIMIT 1`,
 		now,

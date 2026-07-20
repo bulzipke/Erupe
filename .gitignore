@@ -1,9 +1,7 @@
 .idea/
 
-www/jp/
 vendor/
 *.bin
-savedata/*/
 *.exe
 *.lnk
 *.bat
@@ -17,6 +15,7 @@ screenshots/*
 /erupe-ce
 /erupe
 /protbot
+/positiontap
 /tools/loganalyzer/loganalyzer
 
 # config is install dependent

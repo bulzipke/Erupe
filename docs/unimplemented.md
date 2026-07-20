@@ -15,7 +15,7 @@ All empty handlers carry an inline comment — `// stub: unimplemented` for real
 
 ---
 
-## Unimplemented (65 handlers)
+## Unimplemented (64 handlers)
 
 Grouped by handler file / game subsystem. Handlers with an open branch are marked **[branch]**.
 
@@ -27,12 +27,6 @@ Grouped by handler file / game subsystem. Handlers with an open branch are marke
 | `handleMsgMhfPaymentAchievement` | Achievement reward payout (currency/items) |
 | `handleMsgMhfGetCaAchievementHist` | Fetch CA (cross-platform?) achievement history |
 | `handleMsgMhfSetCaAchievement` | Set CA achievement state |
-
-### Caravan (`handlers_caravan.go`)
-
-| Handler | Notes |
-|---------|-------|
-| `handleMsgMhfPostRyoudama` | Post/submit Ryoudama (Caravan jewel) data |
 
 ### Cast Binary (`handlers_cast_binary.go`)
 
