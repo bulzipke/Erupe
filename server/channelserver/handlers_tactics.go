@@ -88,11 +88,27 @@ func handleMsgMhfAddUdTacticsPoint(s *Session, p mhfpacket.MHFPacket) {
 	doAckSimpleSucceed(s, pkt.AckHandle, []byte{0x00, 0x00, 0x00, 0x00})
 }
 
+// divaPrizeListMax is the client's per-list table capacity. The retail parser
+// fills fixed 512-entry tables (stride 0x10) and performs NO bounds check on
+// the count it reads, so an oversized count is a direct global buffer overflow
+// inside the client. The server must clamp.
+const divaPrizeListMax = 512
+
+// writeDivaPrizeList emits one prize list in the layout the retail client
+// expects: u16 count, then 11 bytes per entry.
+//
+// The count is u16 and ItemType is u8. Writing them as u32/u16 (as this did
+// previously) both inflated the count the client reads — 13 rows were read as
+// 3328, overflowing the 512-entry table by 45KB — and made the entry stride 12
+// instead of 11, desyncing every field after it.
 func writeDivaPrizeList(bf *byteframe.ByteFrame, prizes []DivaPrize) {
-	bf.WriteUint32(uint32(len(prizes)))
+	if len(prizes) > divaPrizeListMax {
+		prizes = prizes[:divaPrizeListMax]
+	}
+	bf.WriteUint16(uint16(len(prizes)))
 	for _, p := range prizes {
 		bf.WriteUint32(uint32(p.PointsReq))
-		bf.WriteUint16(uint16(p.ItemType))
+		bf.WriteUint8(uint8(p.ItemType))
 		bf.WriteUint16(uint16(p.ItemID))
 		bf.WriteUint16(uint16(p.Quantity))
 		if p.GR {
@@ -122,8 +138,16 @@ func handleMsgMhfGetUdTacticsRewardList(s *Session, p mhfpacket.MHFPacket) {
 	}
 
 	bf := byteframe.NewByteFrame()
+	// Leading status byte: the client skips parsing entirely when this is
+	// non-zero. It was missing, so the client consumed the first byte of the
+	// personal count as the status and read every subsequent field shifted.
+	bf.WriteUint8(0)
 	writeDivaPrizeList(bf, personal)
 	writeDivaPrizeList(bf, guild)
+	// Third list: ranking rewards (13-byte entries). Unimplemented, but the
+	// count field itself is mandatory — without it the client reads past the
+	// end of the payload looking for it.
+	bf.WriteUint16(0)
 
 	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
 }
@@ -140,16 +164,20 @@ func handleMsgMhfGetUdTacticsBonusQuest(s *Session, p mhfpacket.MHFPacket) {
 	doAckBufSucceed(s, pkt.AckHandle, data)
 }
 
-// udTacticsFirstQuestBonuses are the static first-quest bonus point values.
-var udTacticsFirstQuestBonuses = []uint32{1500, 2000, 2500, 3500, 4500}
+// udTacticsFirstQuestBonuses are the static first-quest bonus point values,
+// matching the retail capture (1500/2000/2500/3000/4500).
+var udTacticsFirstQuestBonuses = []uint32{1500, 2000, 2500, 3000, 4500}
 
 func handleMsgMhfGetUdTacticsFirstQuestBonus(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetUdTacticsFirstQuestBonus)
 	bf := byteframe.NewByteFrame()
-	bf.WriteUint32(uint32(len(udTacticsFirstQuestBonuses)))
+	// Wire layout is u8 count, then {u8 index, u32 value} per entry. Writing a
+	// u32 count made the client (which reads a u8) see 0 and skip the whole
+	// table, and the index/value order was inverted.
+	bf.WriteUint8(uint8(len(udTacticsFirstQuestBonuses)))
 	for i, bonus := range udTacticsFirstQuestBonuses {
+		bf.WriteUint8(uint8(i))
 		bf.WriteUint32(bonus)
-		bf.WriteUint32(uint32(i))
 	}
 	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
 }
