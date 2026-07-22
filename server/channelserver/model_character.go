@@ -2,6 +2,7 @@ package channelserver
 
 import (
 	"encoding/binary"
+	"unicode/utf8"
 
 	"erupe-ce/common/bfutil"
 	"erupe-ce/common/stringsupport"
@@ -270,6 +271,27 @@ func (save *CharacterSaveData) updateStructWithSaveData() {
 func (save *CharacterSaveData) isHouseTierCorrupted() bool {
 	for _, b := range save.HouseTier {
 		if b == 0xFF {
+			return true
+		}
+	}
+	return false
+}
+
+// hasCorruptName reports whether the name decoded out of the save blob is
+// structurally impossible for a real character name, which means the blob
+// itself arrived damaged rather than merely encoded differently.
+//
+// The name lives at a fixed offset (saveFieldNameOffset) and is decoded as
+// CP949 with a Shift-JIS fallback, so a legitimate name in any supported
+// locale yields printable text. Control characters or U+FFFD can only appear
+// when the bytes at that offset are not a name at all — e.g. the observed
+// f7 fc 59 78 0b, which decoded to "販Yx\v".
+//
+// This deliberately does NOT flag a plain mismatch: a name that merely differs
+// from the session name is the SJIS/UTF-8 encoding case the caller repairs.
+func hasCorruptName(name string) bool {
+	for _, r := range name {
+		if r < 0x20 || r == 0x7F || r == utf8.RuneError {
 			return true
 		}
 	}

@@ -42,10 +42,19 @@ func (s *Server) GetRaviMultiplier() float64 {
 		} else {
 			minPlayers = 4
 		}
-		if len(raviSema.clients) > minPlayers {
+		players := len(raviSema.clients)
+		// Guard against a division by zero in the window between the last
+		// player leaving and the semaphore being torn down.
+		if players <= 0 {
 			return 1
 		}
-		return float64(minPlayers / len(raviSema.clients))
+		if players > minPlayers {
+			return 1
+		}
+		// Both operands must be converted before dividing: an integer division
+		// here truncates the ratio (e.g. 13 of 24 players yielded 1 instead of
+		// 1.85), which silently disabled scaling for most under-populated runs.
+		return float64(minPlayers) / float64(players)
 	}
 	return 0
 }

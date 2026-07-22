@@ -112,6 +112,23 @@ func handleMsgMhfSavedata(s *Session, p mhfpacket.MHFPacket) {
 		s.Name = characterSaveData.Name
 	}
 
+	// A name containing control characters or U+FFFD is not an encoding
+	// difference — the blob itself is damaged (observed after abandoning an
+	// event quest: the name field held f7 fc 59 78 0b -> "販Yx\v"). Refuse the
+	// write so the last good save survives; the name-repair path below would
+	// otherwise relabel the garbage and persist it.
+	if !characterSaveData.IsNewCharacter && hasCorruptName(characterSaveData.Name) {
+		s.logger.Error("Refusing to save corrupted savedata",
+			zap.String("savedata_name", characterSaveData.Name),
+			zap.String("session_name", s.Name),
+			zap.Uint32("charID", s.charID),
+			zap.Int("decompressed_len", len(characterSaveData.decompSave)),
+		)
+		dumpSaveData(s, characterSaveData.decompSave, "corrupt-savedata")
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+
 	// Force name to match session to prevent corruption detection false positives
 	// This handles SJIS/UTF-8 encoding differences and ensures saves succeed across all game versions
 	if characterSaveData.Name != s.Name && !characterSaveData.IsNewCharacter {

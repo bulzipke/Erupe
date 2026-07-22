@@ -161,6 +161,19 @@ func saveAllCharacterData(s *Session, rpToAdd int) error {
 		return nil
 	}
 
+	// Same guard as handleMsgMhfSavedata: if the blob loaded for this character
+	// is structurally damaged, do not write it back on logout. Without this the
+	// disconnect path re-persists the same garbage that the in-session save
+	// already rejected.
+	if !characterSaveData.IsNewCharacter && hasCorruptName(characterSaveData.Name) {
+		s.logger.Error("Refusing to save corrupted savedata at logout",
+			zap.String("savedata_name", characterSaveData.Name),
+			zap.String("session_name", s.Name),
+			zap.Uint32("charID", s.charID),
+		)
+		return fmt.Errorf("corrupted savedata for charID %d, save skipped", s.charID)
+	}
+
 	// Force name to match to prevent corruption detection issues
 	// This handles SJIS/UTF-8 encoding differences across game versions
 	if characterSaveData.Name != s.Name {
