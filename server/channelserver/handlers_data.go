@@ -1,6 +1,9 @@
 package channelserver
 
 import (
+	"bytes"
+	"encoding/hex"
+	"erupe-ce/common/bfutil"
 	"erupe-ce/common/stringsupport"
 	cfg "erupe-ce/config"
 	"fmt"
@@ -16,6 +19,55 @@ import (
 
 	"go.uber.org/zap"
 )
+
+// nullcompHeader is the 16-byte magic that marks a genuinely null-compressed
+// savedata payload. nullcomp.Decompress returns the input verbatim (no error)
+// when this header is absent, so a payload lacking it was NOT produced by the
+// normal client save path — a strong signal for hypothesis #2 (the client sent
+// a non-standard/garbage blob) versus #3 (server-side framing desync).
+var nullcompHeader = []byte("cmp\x2020110113\x20\x20\x20\x00")
+
+// traceSaveBlob logs the structurally load-bearing regions of an incoming save
+// so a single abandoned-quest reproduction reveals where the corruption is.
+// Gated behind DebugOptions.TraceSaveCorruption so it is silent in production.
+//
+// Read the log for one save:
+//   - had_nullcomp_header=false  -> the client sent an un-nullcomp'd payload
+//     (points at hypothesis #2 / client, not a server framing desync).
+//   - name_region_hex already showing garbage (e.g. f7fc597878...0b) here, at
+//     the very first point the server sees the decompressed blob, means the
+//     damage arrived from the wire — this handler only persists it.
+//   - decoded_name control chars / U+FFFD -> corrupt blob confirmed at ingest.
+func traceSaveBlob(s *Session, stage string, rawPayload []byte, blob []byte) {
+	if !s.server.erupeConfig.DebugOptions.TraceSaveCorruption {
+		return
+	}
+	region := func(b []byte, from, to int) string {
+		if from < 0 || from >= len(b) {
+			return "<oob>"
+		}
+		if to > len(b) {
+			to = len(b)
+		}
+		return hex.EncodeToString(b[from:to])
+	}
+	name := ""
+	if len(blob) >= saveFieldNameOffset+saveFieldNameLen {
+		name = stringsupport.SJISToUTF8Lossy(
+			bfutil.UpToNull(blob[saveFieldNameOffset : saveFieldNameOffset+saveFieldNameLen]))
+	}
+	s.logger.Warn("TRACE savedata blob",
+		zap.String("stage", stage),
+		zap.Uint32("charID", s.charID),
+		zap.String("session_name", s.Name),
+		zap.Int("raw_payload_len", len(rawPayload)),
+		zap.Int("decompressed_len", len(blob)),
+		zap.Bool("had_nullcomp_header", bytes.HasPrefix(rawPayload, nullcompHeader)),
+		zap.String("head_0x00_0x20_hex", region(blob, 0, 32)),
+		zap.String("name_0x50_0x68_hex", region(blob, 0x50, 0x68)), // offset 80..104, name is at 88
+		zap.String("decoded_name", name),
+	)
+}
 
 // Save data size limits.
 // The largest known decompressed savedata is ZZ at ~147KB. We use generous
@@ -73,6 +125,7 @@ func handleMsgMhfSavedata(s *Session, p mhfpacket.MHFPacket) {
 			return
 		}
 		characterSaveData.decompSave = patched
+		traceSaveBlob(s, "diff-patched", pkt.RawDataPayload, characterSaveData.decompSave)
 	} else {
 		dumpSaveData(s, pkt.RawDataPayload, "savedata")
 		// Regular blob update.
@@ -87,6 +140,7 @@ func handleMsgMhfSavedata(s *Session, p mhfpacket.MHFPacket) {
 		}
 		s.logger.Info("Updating save with blob")
 		characterSaveData.decompSave = saveData
+		traceSaveBlob(s, "full-blob", pkt.RawDataPayload, characterSaveData.decompSave)
 	}
 	characterSaveData.updateStructWithSaveData()
 

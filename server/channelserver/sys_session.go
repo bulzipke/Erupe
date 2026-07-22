@@ -287,12 +287,20 @@ func (s *Session) recvLoop() {
 			logoutPlayer(s)
 			return
 		}
-		s.handlePacketGroup(pkt)
+		s.handlePacketGroup(pkt, 0)
 		time.Sleep(time.Duration(s.server.erupeConfig.LoopDelay) * time.Millisecond)
 	}
 }
 
-func (s *Session) handlePacketGroup(pktGroup []byte) {
+// handlePacketGroup dispatches every packet concatenated in one decrypted group.
+// depth is the position within the group (0 = first packet); packets after the
+// first are re-sliced purely by how many bytes the previous packet's Parse()
+// consumed, with no length prefix, so an under-reading Parse shifts everything
+// after it. The depth threads through so the TraceSaveCorruption logging can
+// tell whether a MSG_MHF_SAVEDATA was the sole packet in its group (depth 0,
+// cannot be desynced) or batched behind another packet (depth > 0, the only
+// situation in which server-side framing could misalign its body).
+func (s *Session) handlePacketGroup(pktGroup []byte, depth int) {
 	s.lastPacket = time.Now()
 	bf := byteframe.NewByteFrameFromBytes(pktGroup)
 	opcodeUint16 := bf.ReadUint16()
@@ -352,8 +360,26 @@ func (s *Session) handlePacketGroup(pktGroup []byte) {
 	handler(s, mhfPkt)
 	// If there is more data on the stream that the .Parse method didn't read, then read another packet off it.
 	remainingData := bf.DataFromCurrent()
+
+	// Corruption trace: record how many bytes THIS packet consumed within the
+	// group. A savedata packet at depth>0 whose predecessor under-read is the
+	// exact mechanism of hypothesis #3 (server framing desync). We only log the
+	// interesting cases (batched groups + every savedata) to avoid drowning in
+	// per-frame position spam.
+	if s.server.erupeConfig.DebugOptions.TraceSaveCorruption &&
+		(depth > 0 || len(remainingData) >= 2 || opcode == network.MSG_MHF_SAVEDATA) {
+		s.logger.Warn("TRACE packet group frame",
+			zap.Int("depth", depth),
+			zap.Stringer("opcode", opcode),
+			zap.Int("group_len", len(pktGroup)),
+			zap.Int("consumed_by_this_packet", len(pktGroup)-len(remainingData)),
+			zap.Int("remaining_after", len(remainingData)),
+			zap.Uint32("charID", s.charID),
+		)
+	}
+
 	if len(remainingData) >= 2 {
-		s.handlePacketGroup(remainingData)
+		s.handlePacketGroup(remainingData, depth+1)
 	}
 }
 

@@ -140,6 +140,7 @@ type DebugOptions struct {
 	DisableTokenCheck   bool   // Disables checking login token exists in the DB (security risk!)
 	QuestTools          bool   // Enable various quest debug logs
 	AutoQuestBackport   bool   // Automatically backport quest files
+	TraceSaveCorruption bool   // Log savedata blob offsets + per-packet group framing to trace corruption
 	ProxyPort           uint16 // Forces the game to connect to a channel server proxy
 	CapLink             CapLinkOptions
 }
@@ -393,6 +394,7 @@ func registerDefaults() {
 	viper.SetDefault("DebugOptions.DivaOverride", -1)
 	viper.SetDefault("DebugOptions.FestaOverride", -1)
 	viper.SetDefault("DebugOptions.AutoQuestBackport", true)
+	viper.SetDefault("DebugOptions.TraceSaveCorruption", false)
 	viper.SetDefault("DebugOptions.CapLink", CapLinkOptions{
 		Values: []uint16{51728, 20000, 51729, 1, 20000},
 		Port:   80,
