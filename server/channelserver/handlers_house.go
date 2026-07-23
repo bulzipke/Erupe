@@ -179,14 +179,15 @@ func handleMsgMhfLoadHouse(s *Session, p mhfpacket.MHFPacket) {
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
-	if pkt.Destination == 9 && houseFurniture == nil {
-		// The ZZ client crashes on a 20-zero-byte placeholder here (the real
-		// empty-state encoding hasn't been reverse-engineered yet), so fail
-		// the request cleanly instead of sending a payload it can't parse.
-		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
-		return
-	}
 	if houseFurniture == nil {
+		// Never-decorated character: house_furniture is NULL until the client
+		// first sends MSG_MHF_UPDATE_INTERIOR. The interior blob is a fixed
+		// 20-byte struct, and an all-zero blob is the empty interior. The
+		// upstream hard-fail here (bc52649, #192) locked every undecorated
+		// character out of their own house, while the placeholder is known
+		// to work on this server's clients.
+		s.logger.Debug("house_furniture is NULL, sending empty interior placeholder",
+			zap.Uint32("charID", pkt.CharID), zap.Uint8("destination", pkt.Destination))
 		houseFurniture = make([]byte, 20)
 	}
 

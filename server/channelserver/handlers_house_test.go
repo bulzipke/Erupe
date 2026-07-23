@@ -328,12 +328,12 @@ func TestLoadHouse_OwnHouse_Destination9(t *testing.T) {
 	}
 }
 
-// TestLoadHouse_OwnHouse_NilFurniture_FailsCleanly is a regression test for
-// issue #192: a freshly-created character has house_furniture=NULL until
-// they place something, and the ZZ client crashes on the 20-zero-byte
-// placeholder that used to be sent in that case. The handler must now fail
-// the request cleanly instead of sending an unparseable payload.
-func TestLoadHouse_OwnHouse_NilFurniture_FailsCleanly(t *testing.T) {
+// TestLoadHouse_OwnHouse_NilFurniture_SendsPlaceholder: a never-decorated
+// character has house_furniture=NULL until the client first saves an
+// interior. The handler must send the 20-zero-byte empty interior instead
+// of a fail ACK — the upstream hard-fail (bc52649, #192) locked every
+// undecorated character out of their own house ("データの取得に失敗しました").
+func TestLoadHouse_OwnHouse_NilFurniture_SendsPlaceholder(t *testing.T) {
 	_, _, session, charID := setupHouseTest(t)
 	// No UpdateInterior call: house_furniture stays NULL, as for any
 	// never-decorated character.
@@ -346,8 +346,19 @@ func TestLoadHouse_OwnHouse_NilFurniture_FailsCleanly(t *testing.T) {
 	handleMsgMhfLoadHouse(session, pkt)
 
 	ack := readAck(t, session)
-	if ack.ErrorCode == 0 {
-		t.Fatal("expected a fail ACK for nil house_furniture, got success (this is the #192 crash payload)")
+	if ack.ErrorCode != 0 {
+		t.Fatalf("expected success ACK with placeholder interior, got error code %d", ack.ErrorCode)
+	}
+	if !ack.IsBufferResponse {
+		t.Fatal("expected buffer response")
+	}
+	if len(ack.Payload) != 20 {
+		t.Fatalf("expected 20-byte empty interior payload, got %d bytes", len(ack.Payload))
+	}
+	for i, b := range ack.Payload {
+		if b != 0 {
+			t.Fatalf("expected all-zero placeholder, byte %d = %#x", i, b)
+		}
 	}
 }
 
