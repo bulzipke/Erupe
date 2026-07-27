@@ -72,6 +72,26 @@ func TestGetEventQuestsReturnsRows(t *testing.T) {
 	if quests[1].InactiveDays != 3 {
 		t.Errorf("Expected second quest inactive_days 3, got: %d", quests[1].InactiveDays)
 	}
+	if quests[0].CollabScope != "" {
+		t.Errorf("Expected first quest empty collab scope, got: %q", quests[0].CollabScope)
+	}
+}
+
+func TestGetEventQuestsReturnsCollabScope(t *testing.T) {
+	repo, db := setupEventRepo(t)
+
+	id := insertEventQuest(t, db, 1, 100, time.Now(), 0, 0)
+	if _, err := db.Exec("UPDATE event_quests SET collab_scope = 'nier' WHERE id = $1", id); err != nil {
+		t.Fatalf("Failed to set collab scope: %v", err)
+	}
+
+	quests, err := repo.GetEventQuests()
+	if err != nil {
+		t.Fatalf("GetEventQuests failed: %v", err)
+	}
+	if len(quests) != 1 || quests[0].CollabScope != "nier" {
+		t.Fatalf("Expected one nier quest, got: %#v", quests)
+	}
 }
 
 func TestGetEventQuestsOrderByQuestID(t *testing.T) {

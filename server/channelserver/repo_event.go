@@ -18,6 +18,7 @@ type EventQuest struct {
 	StartTime    time.Time `db:"start_time"`
 	ActiveDays   int       `db:"active_days"`
 	InactiveDays int       `db:"inactive_days"`
+	CollabScope  string    `db:"collab_scope"`
 }
 
 // EventRepository centralizes all database access for event-related tables.
@@ -65,7 +66,7 @@ func (r *EventRepository) UpdateLoginBoost(charID uint32, weekReq uint8, expirat
 // GetEventQuests returns all event quest rows ordered by quest_id.
 func (r *EventRepository) GetEventQuests() ([]EventQuest, error) {
 	var result []EventQuest
-	err := r.db.Select(&result, "SELECT id, COALESCE(max_players, 4) AS max_players, quest_type, quest_id, COALESCE(mark, 0) AS mark, COALESCE(flags, -1) AS flags, start_time, COALESCE(active_days, 0) AS active_days, COALESCE(inactive_days, 0) AS inactive_days FROM event_quests ORDER BY quest_id")
+	err := r.db.Select(&result, "SELECT id, COALESCE(max_players, 4) AS max_players, quest_type, quest_id, COALESCE(mark, 0) AS mark, COALESCE(flags, -1) AS flags, start_time, COALESCE(active_days, 0) AS active_days, COALESCE(inactive_days, 0) AS inactive_days, COALESCE(collab_scope, '') AS collab_scope FROM event_quests ORDER BY quest_id")
 	return result, err
 }
 

@@ -496,6 +496,7 @@ func TestEntranceServerInfo(t *testing.T) {
 		Recommended:        0,
 		Name:               "Server 1",
 		Description:        "Main server",
+		CollabEvent:        "kaiji",
 		AllowedClientFlags: 4096,
 		Channels: []EntranceChannelInfo{
 			{Port: 10001, MaxPlayers: 4, CurrentPlayers: 2},
@@ -508,8 +509,25 @@ func TestEntranceServerInfo(t *testing.T) {
 	if info.Type != 1 {
 		t.Error("EntranceServerInfo.Type mismatch")
 	}
+	if info.CollabEvent != "kaiji" {
+		t.Error("EntranceServerInfo.CollabEvent mismatch")
+	}
 	if len(info.Channels) != 1 {
 		t.Error("EntranceServerInfo.Channels length mismatch")
+	}
+}
+
+func TestIsValidCollabEvent(t *testing.T) {
+	for _, value := range []string{"", "none", "kaiji", "higanjima", "nier"} {
+		if !IsValidCollabEvent(value) {
+			t.Errorf("IsValidCollabEvent(%q) = false, want true", value)
+		}
+	}
+
+	for _, value := range []string{"Kaiji", "all", "disabled"} {
+		if IsValidCollabEvent(value) {
+			t.Errorf("IsValidCollabEvent(%q) = true, want false", value)
+		}
 	}
 }
 

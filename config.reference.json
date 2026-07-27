@@ -238,34 +238,34 @@
     "Port": 53310,
     "Entries": [
       {
-        "Name": "Newbie", "Description": "", "IP": "", "Type": 3, "Recommended": 2, "AllowedClientFlags": 0,
+        "Name": "Newbie", "Description": "", "IP": "", "Type": 3, "Recommended": 2, "CollabEvent": "none", "AllowedClientFlags": 0,
         "Channels": [
           { "Port": 54001, "MaxPlayers": 100, "Enabled": true },
           { "Port": 54002, "MaxPlayers": 100, "Enabled": true }
         ]
       }, {
-        "Name": "Normal", "Description": "", "IP": "", "Type": 1, "Recommended": 0, "AllowedClientFlags": 0,
+        "Name": "Normal", "Description": "", "IP": "", "Type": 1, "Recommended": 0, "CollabEvent": "none", "AllowedClientFlags": 0,
         "Channels": [
           { "Port": 54003, "MaxPlayers": 100, "Enabled": true },
           { "Port": 54004, "MaxPlayers": 100, "Enabled": true }
         ]
       }, {
-        "Name": "Cities", "Description": "", "IP": "", "Type": 2, "Recommended": 0, "AllowedClientFlags": 0,
+        "Name": "Cities", "Description": "", "IP": "", "Type": 2, "Recommended": 0, "CollabEvent": "none", "AllowedClientFlags": 0,
         "Channels": [
           { "Port": 54005, "MaxPlayers": 100, "Enabled": true }
         ]
       }, {
-        "Name": "Tavern", "Description": "", "IP": "", "Type": 4, "Recommended": 0, "AllowedClientFlags": 0,
+        "Name": "Tavern", "Description": "", "IP": "", "Type": 4, "Recommended": 0, "CollabEvent": "none", "AllowedClientFlags": 0,
         "Channels": [
           { "Port": 54006, "MaxPlayers": 100, "Enabled": true }
         ]
       }, {
-        "Name": "Return", "Description": "", "IP": "", "Type": 5, "Recommended": 0, "AllowedClientFlags": 0,
+        "Name": "Return", "Description": "", "IP": "", "Type": 5, "Recommended": 0, "CollabEvent": "none", "AllowedClientFlags": 0,
         "Channels": [
           { "Port": 54007, "MaxPlayers": 100, "Enabled": true }
         ]
       }, {
-        "Name": "MezFes", "Description": "", "IP": "", "Type": 6, "Recommended": 6, "AllowedClientFlags": 0,
+        "Name": "MezFes", "Description": "", "IP": "", "Type": 6, "Recommended": 6, "CollabEvent": "none", "AllowedClientFlags": 0,
         "Channels": [
           { "Port": 54008, "MaxPlayers": 100, "Enabled": true }
         ]

@@ -32,6 +32,7 @@ type Config struct {
 	ErupeConfig *cfg.Config
 	Name        string
 	Enable      bool
+	CollabEvent string
 }
 
 // Server is a MHF channel server.
@@ -85,6 +86,7 @@ type Server struct {
 	towerService       *TowerService
 	festaService       *FestaService
 	erupeConfig        *cfg.Config
+	collabEvent        string
 	acceptConns        chan net.Conn
 	deleteConns        chan net.Conn
 	sessions           map[net.Conn]*Session
@@ -130,6 +132,7 @@ func NewServer(config *Config) *Server {
 		logger:         config.Logger,
 		db:             config.DB,
 		erupeConfig:    config.ErupeConfig,
+		collabEvent:    config.CollabEvent,
 		acceptConns:    make(chan net.Conn),
 		deleteConns:    make(chan net.Conn),
 		done:           make(chan struct{}),

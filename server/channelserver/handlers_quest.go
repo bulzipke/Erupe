@@ -455,6 +455,10 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 		var updates []EventQuestUpdate
 
 		for i, eq := range quests {
+			if !s.server.allowsCollabQuest(eq.CollabScope) {
+				continue
+			}
+
 			// Use the Event Cycling system
 			if eq.ActiveDays > 0 {
 				cycleLength := (time.Duration(eq.ActiveDays) + time.Duration(eq.InactiveDays)) * 24 * time.Hour
@@ -621,17 +625,7 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 		tuneValues = append(tuneValues, tuneValue{1037, 1})
 	}
 
-	if s.server.erupeConfig.GameplayOptions.EnableKaijiEvent {
-		tuneValues = append(tuneValues, tuneValue{1106, 1})
-	}
-
-	if s.server.erupeConfig.GameplayOptions.EnableHiganjimaEvent {
-		tuneValues = append(tuneValues, tuneValue{1144, 1})
-	}
-
-	if s.server.erupeConfig.GameplayOptions.EnableNierEvent {
-		tuneValues = append(tuneValues, tuneValue{1153, 1})
-	}
+	tuneValues = s.server.appendCollabTuneValues(tuneValues)
 
 	if s.server.erupeConfig.GameplayOptions.DisableRoad {
 		tuneValues = append(tuneValues, tuneValue{1155, 1})

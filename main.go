@@ -359,6 +359,7 @@ func main() {
 					ErupeConfig: config,
 					DB:          db,
 					DiscordBot:  discordBot,
+					CollabEvent: ee.CollabEvent,
 				})
 				if ee.IP == "" {
 					c.IP = config.Host
