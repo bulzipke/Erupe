@@ -12,7 +12,6 @@ import (
 	"erupe-ce/network/mhfpacket"
 	"fmt"
 	"math"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -307,35 +306,16 @@ func parseChatCommand(s *Session, command string) {
 				for _, course := range mhfcourse.Courses() {
 					for _, alias := range course.Aliases() {
 						if strings.EqualFold(args[1], alias) {
-							if slices.Contains(s.server.erupeConfig.Courses, cfg.Course{Name: course.Aliases()[0], Enabled: true}) {
-								var delta uint32
-								if mhfcourse.CourseExists(course.ID, s.courses) {
-									ei := slices.IndexFunc(s.courses, func(c mhfcourse.Course) bool {
-										for _, alias := range c.Aliases() {
-											if strings.EqualFold(args[1], alias) {
-												return true
-											}
-										}
-										return false
-									})
-									if ei != -1 {
-										delta = uint32(-1 * math.Pow(2, float64(course.ID)))
-										sendServerChatMessage(s, fmt.Sprintf(s.I18n().commands.course.disabled, course.Aliases()[0]))
-									}
-								} else {
-									delta = uint32(math.Pow(2, float64(course.ID)))
-									sendServerChatMessage(s, fmt.Sprintf(s.I18n().commands.course.enabled, course.Aliases()[0]))
-								}
-								rightsInt, err := s.server.userRepo.GetRights(s.userID)
-								if err == nil {
-									if err := s.server.userRepo.SetRights(s.userID, rightsInt+delta); err != nil {
-										s.logger.Error("Failed to update user rights", zap.Error(err))
-									}
-								}
-								updateRights(s)
-							} else {
-								sendServerChatMessage(s, fmt.Sprintf(s.I18n().commands.course.locked, course.Aliases()[0]))
-							}
+							// Courses are now managed entirely by config
+							// (EnabledCourseBitmask auto-grants the enabled ones to
+							// everyone on each rights refresh). Per-user toggling is
+							// therefore disabled: an enabled course cannot be turned
+							// off (it is reapplied every refresh), and disabled
+							// courses were never user-grantable. Actually mutating
+							// rights here also underflowed the uint32 rights word and
+							// persisted a corrupt near-max value, so this command no
+							// longer writes rights at all — it is informational only.
+							sendServerChatMessage(s, fmt.Sprintf(s.I18n().commands.course.locked, course.Aliases()[0]))
 							return
 						}
 					}

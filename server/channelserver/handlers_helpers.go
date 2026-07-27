@@ -112,6 +112,8 @@ func updateRights(s *Session) {
 	if err != nil {
 		rightsInt = 2
 	}
+	// Auto-grant courses enabled server-wide in config (no !course command needed).
+	rightsInt |= s.server.erupeConfig.EnabledCourseBitmask()
 	s.courses, rightsInt = mhfcourse.GetCourseStruct(rightsInt, s.server.erupeConfig.DefaultCourses)
 	update := &mhfpacket.MsgSysUpdateRight{
 		ClientRespAckHandle: 0,

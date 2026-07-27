@@ -3,6 +3,7 @@ package mhfcourse
 import (
 	"math"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -42,6 +43,20 @@ var aliases = map[uint16][]string{
 // Aliases returns the human-readable names for this course (e.g. "HunterLife", "HL").
 func (c Course) Aliases() []string {
 	return aliases[c.ID]
+}
+
+// CourseIDFromAlias resolves a human-readable course name (any alias, case-
+// insensitive) to its course ID. The second return value is false when the
+// name matches no known course.
+func CourseIDFromAlias(name string) (uint16, bool) {
+	for id, names := range aliases {
+		for _, alias := range names {
+			if strings.EqualFold(name, alias) {
+				return id, true
+			}
+		}
+	}
+	return 0, false
 }
 
 // Courses returns all 32 possible course slots with zero-value expiry times.

@@ -118,8 +118,13 @@ func (s *APIServer) newAuthData(userID uint32, userRights uint32, userTokenID ui
 	for i := range resp.Characters {
 		resp.Characters[i].Returning = time.Unix(int64(resp.Characters[i].LastLogin), 0).Before(ninetyDaysAgo)
 	}
-	// Derive active courses from user rights
-	courses, _ := mhfcourse.GetCourseStruct(userRights, s.erupeConfig.DefaultCourses)
+	// Derive active courses from user rights, including courses enabled
+	// server-wide in config (matches the sign/channel servers).
+	userRights |= s.erupeConfig.EnabledCourseBitmask()
+	courses, recomputedRights := mhfcourse.GetCourseStruct(userRights, s.erupeConfig.DefaultCourses)
+	// Keep the reported rights word consistent with resp.Courses and with the
+	// sign server, which returns the same recomputed value.
+	resp.User.Rights = recomputedRights
 	resp.Courses = make([]CourseInfo, 0, len(courses))
 	for _, c := range courses {
 		name := ""

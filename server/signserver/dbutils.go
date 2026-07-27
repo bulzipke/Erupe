@@ -91,6 +91,9 @@ func (s *Server) getUserRights(uid uint32) uint32 {
 		s.logger.Warn("Failed to get user rights", zap.Uint32("uid", uid), zap.Error(err))
 		return 0
 	}
+	// Auto-grant courses enabled server-wide in config (no !course command needed).
+	// Must match the channel server so the client sees consistent rights.
+	rights |= s.erupeConfig.EnabledCourseBitmask()
 	_, rights = mhfcourse.GetCourseStruct(rights, s.erupeConfig.DefaultCourses)
 	return rights
 }

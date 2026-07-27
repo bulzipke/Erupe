@@ -5,6 +5,8 @@ import (
 	"net"
 	"strings"
 
+	"erupe-ce/common/mhfcourse"
+
 	"github.com/spf13/viper"
 )
 
@@ -233,6 +235,25 @@ type Command struct {
 type Course struct {
 	Name    string
 	Enabled bool
+}
+
+// EnabledCourseBitmask returns the OR of the rights-bit values of every course
+// marked Enabled in the config. OR-ing this into a user's rights before
+// GetCourseStruct grants those courses to every player automatically (with a
+// proper future expiry and the correct companion-course side effects), so
+// server-wide courses can be turned on purely by config, without the !course
+// chat command. Unknown course names are skipped.
+func (config *Config) EnabledCourseBitmask() uint32 {
+	var mask uint32
+	for _, c := range config.Courses {
+		if !c.Enabled {
+			continue
+		}
+		if id, ok := mhfcourse.CourseIDFromAlias(c.Name); ok {
+			mask |= uint32(1) << id
+		}
+	}
+	return mask
 }
 
 // Database holds the postgres database config.
