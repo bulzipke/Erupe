@@ -225,6 +225,7 @@ func (s *Server) Start() error {
 	go s.acceptClients()
 	go s.manageSessions()
 	go s.invalidateSessions()
+	go s.raviAutoStart() // no-op unless GameplayOptions.RaviAutoStartSeconds > 0
 
 	// Start the discord bot for chat integration.
 	if s.erupeConfig.Discord.Enabled && s.discordBot != nil {

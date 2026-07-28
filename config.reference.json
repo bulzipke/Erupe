@@ -78,6 +78,7 @@
     "BonusQuestAllowance": 3,
     "DailyQuestAllowance": 1,
     "LowLatencyRaviente": false,
+    "RaviAutoStartSeconds": 0,
     "RegularRavienteMaxPlayers": 8,
     "ViolentRavienteMaxPlayers": 8,
     "BerserkRavienteMaxPlayers": 32,

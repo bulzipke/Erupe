@@ -3,6 +3,7 @@ package channelserver
 import (
 	"strings"
 	"sync"
+	"time"
 
 	"erupe-ce/common/byteframe"
 	ps "erupe-ce/common/pascalstring"
@@ -125,4 +126,126 @@ func (s *Server) getRaviSemaphore() *Semaphore {
 		}
 	}
 	return nil
+}
+
+// raviAutoStart optionally auto-starts a Raviente siege when its gathering room
+// would otherwise fail to gather (モジ集失敗) with too few players. It performs
+// the exact same flip as "!ravi start" — general register[1] = register[3] —
+// on a server-side timer, then pushes the change to every gathered client.
+//
+// This exists because the gathering countdown is entirely client-side and the
+// server has no register to watch (there is no countdown value in any register
+// array), so a self-armed timer is the only way to detect "the room is about to
+// give up". There is no hard client abandon deadline: on too few players the
+// client keeps the room open and re-evaluates every frame, so firing a little
+// late is harmless — the only requirement is to flip register[1] while players
+// are still present.
+//
+// Disabled (no-op) unless GameplayOptions.RaviAutoStartSeconds > 0.
+func (s *Server) raviAutoStart() {
+	seconds := s.erupeConfig.GameplayOptions.RaviAutoStartSeconds
+	if seconds <= 0 {
+		return // feature disabled
+	}
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	var armed bool
+	var armedID uint16
+	var deadline time.Time
+
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-ticker.C:
+		}
+
+		// Semaphore liveness + player count. getRaviSemaphore iterates the
+		// semaphore map, so guard it with the semaphore lock.
+		s.semaphoreLock.RLock()
+		sema := s.getRaviSemaphore()
+		players := 0
+		if sema != nil {
+			players = len(sema.clients)
+		}
+		s.semaphoreLock.RUnlock()
+
+		// Register snapshot under the raviente lock. Never cache the slice:
+		// resetRaviente reallocates it.
+		s.raviente.Lock()
+		id := s.raviente.id
+		started := s.raviente.register[1] != 0
+		target := s.raviente.register[3]
+		s.raviente.Unlock()
+
+		// "Gathering active, not started" = a ravi room is alive, the host has
+		// populated the start value (register[3] != 0, written at gather setup),
+		// and the started flag (register[1]) is still 0.
+		if sema == nil || target == 0 || started {
+			armed = false
+			continue
+		}
+
+		// (Re)arm on a fresh gathering session (new raviente.id after reset) or
+		// when not yet armed.
+		if !armed || armedID != id {
+			armed, armedID = true, id
+			deadline = time.Now().Add(time.Duration(seconds) * time.Second)
+			continue
+		}
+		if time.Now().Before(deadline) {
+			continue
+		}
+
+		// Timer elapsed. Starting an empty room is pointless; the whole point is
+		// to start with FEWER players than the client's own 4/24 gate demands.
+		if players < 1 {
+			armed = false
+			continue
+		}
+
+		// Fire: replicate the command exactly, under the lock, re-verifying the
+		// preconditions so we never race a natural or manual start, and never
+		// touch a session that reset() has since torn down (id changed).
+		s.raviente.Lock()
+		if s.raviente.id == id && s.raviente.register[1] == 0 && s.raviente.register[3] != 0 {
+			s.raviente.register[1] = s.raviente.register[3]
+			startVal := s.raviente.register[1]
+			s.raviente.Unlock()
+			s.logger.Info("Raviente auto-start fired",
+				zap.Int("players", players), zap.Uint32("startValue", startVal))
+			s.broadcastRaviAutoStart()
+		} else {
+			s.raviente.Unlock()
+		}
+		armed = false
+	}
+}
+
+// broadcastRaviAutoStart pushes the register change to all gathered clients,
+// working regardless of LowLatencyRaviente. notifyRavi is a *Session method
+// whose non-low-latency path only self-notifies the calling session, so we
+// snapshot the sessions and call notifyRavi per session (each self-push reaches
+// its own client). Even with no push at all the clients pick up register[1] on
+// their next LOAD_REGISTER poll, so this is a promptness belt-and-suspenders.
+func (s *Server) broadcastRaviAutoStart() {
+	s.semaphoreLock.RLock()
+	sema := s.getRaviSemaphore()
+	var clients []*Session
+	if sema != nil {
+		clients = make([]*Session, 0, len(sema.clients))
+		for session := range sema.clients {
+			clients = append(clients, session)
+		}
+	}
+	s.semaphoreLock.RUnlock()
+
+	lowLatency := s.erupeConfig.GameplayOptions.LowLatencyRaviente
+	for _, session := range clients {
+		session.notifyRavi()
+		if lowLatency {
+			break // one low-latency notify already reaches everyone
+		}
+	}
 }
