@@ -2,6 +2,9 @@ package mhfpacket
 
 import (
 	"errors"
+	"fmt"
+
+	"erupe-ce/common/bfutil"
 	"erupe-ce/common/byteframe"
 	cfg "erupe-ce/config"
 	"erupe-ce/network"
@@ -28,8 +31,18 @@ func (m *MsgSysCreateAcquireSemaphore) Parse(bf *byteframe.ByteFrame, ctx *clien
 	if ctx.RealClientMode >= cfg.S7 { // Assuming this was added with Ravi?
 		m.PlayerCount = bf.ReadUint8()
 	}
-	bf.ReadUint8() // SemaphoreID length
-	m.SemaphoreID = string(bf.ReadNullTerminatedBytes())
+	semaphoreIDLength := bf.ReadUint8()
+	if semaphoreIDLength == 0 || semaphoreIDLength > 64 {
+		return fmt.Errorf("invalid semaphore ID length %d", semaphoreIDLength)
+	}
+	semaphoreID := bf.ReadBytes(uint(semaphoreIDLength))
+	if err := bf.Err(); err != nil {
+		return err
+	}
+	if semaphoreID[len(semaphoreID)-1] != 0 {
+		return fmt.Errorf("semaphore ID is not null terminated")
+	}
+	m.SemaphoreID = string(bfutil.UpToNull(semaphoreID))
 	return nil
 }
 

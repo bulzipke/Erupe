@@ -65,24 +65,30 @@ func ReadWarehouseItem(bf *byteframe.ByteFrame) MHFItemStack {
 // matching by warehouse ID. New items receive a random ID; items with zero
 // quantity in the old list are removed.
 func DiffItemStacks(o []MHFItemStack, u []MHFItemStack) []MHFItemStack {
-	// o = old, u = update, f = final
-	var f []MHFItemStack
+	existing := make(map[uint32]struct{}, len(o))
+	for i := range o {
+		existing[o[i].WarehouseID] = struct{}{}
+	}
+
+	// Only the final quantity matters when a client repeats an update for an
+	// existing warehouse ID. Recording it once avoids an update-by-old nested
+	// loop while preserving the original result.
+	quantities := make(map[uint32]uint16, len(u))
+	f := make([]MHFItemStack, 0, len(o)+len(u))
 	for _, uItem := range u {
-		exists := false
-		for i := range o {
-			if o[i].WarehouseID == uItem.WarehouseID {
-				exists = true
-				o[i].Quantity = uItem.Quantity
-			}
-		}
-		if !exists {
+		if _, exists := existing[uItem.WarehouseID]; exists {
+			quantities[uItem.WarehouseID] = uItem.Quantity
+		} else {
 			uItem.WarehouseID = token.RNG.Uint32()
 			f = append(f, uItem)
 		}
 	}
-	for _, oItem := range o {
-		if oItem.Quantity > 0 {
-			f = append(f, oItem)
+	for i := range o {
+		if quantity, updated := quantities[o[i].WarehouseID]; updated {
+			o[i].Quantity = quantity
+		}
+		if o[i].Quantity > 0 {
+			f = append(f, o[i])
 		}
 	}
 	return f

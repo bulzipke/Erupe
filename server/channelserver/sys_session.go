@@ -36,6 +36,7 @@ type Session struct {
 	cryptConn     network.Conn
 	sendPackets   chan packet
 	clientContext *clientctx.ClientContext
+	lastPacketMu  sync.RWMutex
 	lastPacket    time.Time
 
 	objectID    uint16
@@ -82,6 +83,11 @@ type Session struct {
 	Name           string
 	closed         atomic.Bool
 	hidden         atomic.Bool // Set via MsgSysHideClient; excludes this session from MsgSysEnumerateClient's "All" results.
+	closeOnce      sync.Once
+	logoutOnce     sync.Once
+	lifecycleMu    sync.Mutex
+	done           chan struct{}
+	ackMu          sync.Mutex
 	ackStart       map[uint32]time.Time
 	captureConn    *pcap.RecordingConn // non-nil when capture is active
 	captureCleanup func()              // Called on session close to flush/close capture file
@@ -101,6 +107,7 @@ func NewSession(server *Server, conn net.Conn) *Session {
 		sendPackets:      make(chan packet, 20),
 		clientContext:    &clientctx.ClientContext{RealClientMode: server.erupeConfig.RealClientMode},
 		lastPacket:       time.Now(),
+		done:             make(chan struct{}),
 		objectID:         server.getObjectId(),
 		sessionStart:     TimeAdjusted().Unix(),
 		stageMoveStack:   stringstack.New(),
@@ -179,14 +186,23 @@ func (s *Session) Start() {
 
 // QueueSend queues a packet (raw []byte) to be sent.
 func (s *Session) QueueSend(data []byte) {
+	if s.closed.Load() {
+		return
+	}
 	if len(data) >= 2 {
 		s.logMessage(binary.BigEndian.Uint16(data[0:2]), data, "Server", s.Name)
 	}
-	s.sendPackets <- packet{data, true}
+	select {
+	case s.sendPackets <- packet{data, true}:
+	case <-s.done:
+	}
 }
 
 // QueueSendNonBlocking queues a packet (raw []byte) to be sent, dropping the packet entirely if the queue is full.
 func (s *Session) QueueSendNonBlocking(data []byte) {
+	if s.closed.Load() {
+		return
+	}
 	select {
 	case s.sendPackets <- packet{data, true}:
 		if len(data) >= 2 {
@@ -233,6 +249,10 @@ func (s *Session) QueueAck(ackHandle uint32, data []byte) {
 }
 
 func (s *Session) sendLoop() {
+	loopDelay := time.Duration(s.server.erupeConfig.LoopDelay) * time.Millisecond
+	if loopDelay < time.Millisecond {
+		loopDelay = time.Millisecond
+	}
 	for {
 		if s.closed.Load() {
 			return
@@ -240,12 +260,24 @@ func (s *Session) sendLoop() {
 		// Send each packet individually with its own terminator
 		for len(s.sendPackets) > 0 {
 			pkt := <-s.sendPackets
-			err := s.cryptConn.SendPacket(append(pkt.data, []byte{0x00, 0x10}...))
+			if s.rawConn != nil {
+				if err := s.rawConn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+					s.logger.Debug("Failed to set channel write deadline", zap.Error(err))
+				}
+			}
+			framed := make([]byte, len(pkt.data)+2)
+			copy(framed, pkt.data)
+			framed[len(pkt.data)] = 0x00
+			framed[len(pkt.data)+1] = 0x10
+			err := s.cryptConn.SendPacket(framed)
 			if err != nil {
 				s.logger.Warn("Failed to send packet", zap.Error(err))
+				s.markClosed()
+				s.closeConnection()
+				return
 			}
 		}
-		time.Sleep(time.Duration(s.server.erupeConfig.LoopDelay) * time.Millisecond)
+		time.Sleep(loopDelay)
 	}
 }
 
@@ -260,6 +292,11 @@ func (s *Session) recvLoop() {
 			)
 			logoutPlayer(s)
 			return
+		}
+		if s.rawConn != nil {
+			if err := s.rawConn.SetReadDeadline(time.Now().Add(35 * time.Second)); err != nil {
+				s.logger.Debug("Failed to set channel read deadline", zap.Error(err))
+			}
 		}
 		pkt, err := s.cryptConn.ReadPacket()
 		if err == io.EOF {
@@ -288,9 +325,15 @@ func (s *Session) recvLoop() {
 			return
 		}
 		s.handlePacketGroup(pkt, 0)
-		time.Sleep(time.Duration(s.server.erupeConfig.LoopDelay) * time.Millisecond)
+		loopDelay := time.Duration(s.server.erupeConfig.LoopDelay) * time.Millisecond
+		if loopDelay < time.Millisecond {
+			loopDelay = time.Millisecond
+		}
+		time.Sleep(loopDelay)
 	}
 }
+
+const maxPacketGroupDepth = 1024
 
 // handlePacketGroup dispatches every packet concatenated in one decrypted group.
 // depth is the position within the group (0 = first packet); packets after the
@@ -301,11 +344,20 @@ func (s *Session) recvLoop() {
 // cannot be desynced) or batched behind another packet (depth > 0, the only
 // situation in which server-side framing could misalign its body).
 func (s *Session) handlePacketGroup(pktGroup []byte, depth int) {
-	s.lastPacket = time.Now()
+	if depth >= maxPacketGroupDepth {
+		s.logger.Warn("Packet group exceeds maximum depth",
+			zap.Int("depth", depth),
+			zap.Int("remainingBytes", len(pktGroup)))
+		s.markClosed()
+		s.closeConnection()
+		return
+	}
+
+	s.touchLastPacket()
 	bf := byteframe.NewByteFrameFromBytes(pktGroup)
 	opcodeUint16 := bf.ReadUint16()
 	if len(bf.Data()) >= 6 {
-		s.ackStart[bf.ReadUint32()] = time.Now()
+		s.recordAckStart(bf.ReadUint32())
 		_, _ = bf.Seek(2, io.SeekStart)
 	}
 	opcode := network.PacketID(opcodeUint16)
@@ -319,13 +371,15 @@ func (s *Session) handlePacketGroup(pktGroup []byte, depth int) {
 				zap.Any("panic", r),
 				zap.String("stack", string(debug.Stack())),
 			)
+			s.markClosed()
+			s.closeConnection()
 		}
 	}()
 
 	s.logMessage(opcodeUint16, pktGroup, s.Name, "Server")
 
 	if opcode == network.MSG_SYS_LOGOUT {
-		s.closed.Store(true)
+		s.markClosed()
 		return
 	}
 	// Get the packet parser and handler for this opcode.
@@ -420,8 +474,10 @@ func (s *Session) logMessage(opcode uint16, data []byte, sender string, recipien
 		zap.Stringer("opcode_name", opcodePID),
 		zap.Int("data_bytes", len(data)),
 	}
-	if t, ok := s.ackStart[ackHandle]; ok {
-		fields = append(fields, zap.Duration("ack_latency", time.Since(t)))
+	if sender == "Server" {
+		if t, ok := s.takeAckStart(ackHandle); ok {
+			fields = append(fields, zap.Duration("ack_latency", time.Since(t)))
+		}
 	}
 	if s.server.erupeConfig.DebugOptions.LogMessageData {
 		if len(data) <= s.server.erupeConfig.DebugOptions.MaxHexdumpLength {
@@ -429,6 +485,65 @@ func (s *Session) logMessage(opcode uint16, data []byte, sender string, recipien
 		}
 	}
 	s.logger.Debug("Packet", fields...)
+}
+
+func (s *Session) markClosed() {
+	s.closed.Store(true)
+	if s.done != nil {
+		s.closeOnce.Do(func() {
+			close(s.done)
+		})
+	}
+}
+
+func (s *Session) closeConnection() {
+	if s.rawConn != nil {
+		_ = s.rawConn.Close()
+	}
+}
+
+func (s *Session) touchLastPacket() {
+	s.lastPacketMu.Lock()
+	s.lastPacket = time.Now()
+	s.lastPacketMu.Unlock()
+}
+
+func (s *Session) lastPacketAt() time.Time {
+	s.lastPacketMu.RLock()
+	last := s.lastPacket
+	s.lastPacketMu.RUnlock()
+	return last
+}
+
+const maxPendingAckTimings = 4096
+
+func (s *Session) recordAckStart(handle uint32) {
+	if !s.server.erupeConfig.DebugOptions.LogOutboundMessages {
+		return
+	}
+	now := time.Now()
+	s.ackMu.Lock()
+	if s.ackStart == nil {
+		s.ackStart = make(map[uint32]time.Time)
+	}
+	if len(s.ackStart) >= maxPendingAckTimings {
+		for pendingHandle := range s.ackStart {
+			delete(s.ackStart, pendingHandle)
+			break
+		}
+	}
+	s.ackStart[handle] = now
+	s.ackMu.Unlock()
+}
+
+func (s *Session) takeAckStart(handle uint32) (time.Time, bool) {
+	s.ackMu.Lock()
+	started, ok := s.ackStart[handle]
+	if ok {
+		delete(s.ackStart, handle)
+	}
+	s.ackMu.Unlock()
+	return started, ok
 }
 
 func (s *Session) getObjectId() uint32 {

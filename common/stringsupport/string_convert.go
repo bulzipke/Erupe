@@ -76,7 +76,14 @@ func ToNGWord(x string) []uint16 {
 	var w []uint16
 	for _, r := range x {
 		if r > 0xFF {
-			t := UTF8ToSJIS(string(r))
+			// The NG-word tables are part of the original Japanese protocol
+			// and still use Shift-JIS even when player-entered text uses the
+			// Korean client's CP949 wire encoding.
+			encoded, _, err := transform.String(japanese.ShiftJIS.NewEncoder(), string(r))
+			if err != nil {
+				continue
+			}
+			t := []byte(encoded)
 			if len(t) > 1 {
 				w = append(w, uint16(t[1])<<8|uint16(t[0]))
 			} else if len(t) == 1 {
@@ -93,6 +100,9 @@ func ToNGWord(x string) []uint16 {
 // PaddedString returns a fixed-width null-terminated byte slice of the given
 // size. If t is true the string is first encoded to Shift-JIS.
 func PaddedString(x string, size uint, t bool) []byte {
+	if size == 0 {
+		return nil
+	}
 	if t {
 		e := korean.EUCKR.NewEncoder() // Korean-mod: wire is CP949
 		xt, _, err := transform.String(e, x)

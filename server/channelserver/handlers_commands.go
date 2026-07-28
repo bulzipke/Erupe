@@ -194,9 +194,34 @@ func parseChatCommand(s *Session, command string) {
 	case commands["Reload"].Prefix:
 		if commands["Reload"].Enabled || s.isOp() {
 			sendServerChatMessage(s, s.I18n().commands.reload)
+			s.Lock()
+			stage := s.stage
+			s.Unlock()
+			if stage == nil {
+				return
+			}
+			type reloadObject struct {
+				id          uint32
+				ownerCharID uint32
+				x, y, z     float32
+			}
+			stage.RLock()
+			objects := make([]reloadObject, 0, len(stage.objects))
+			for _, object := range stage.objects {
+				objects = append(objects, reloadObject{
+					id:          object.id,
+					ownerCharID: object.ownerCharID,
+					x:           object.x,
+					y:           object.y,
+					z:           object.z,
+				})
+			}
+			stage.RUnlock()
+			sessions := s.server.sessionSnapshot()
+
 			var temp mhfpacket.MHFPacket
 			deleteNotif := byteframe.NewByteFrame()
-			for _, object := range s.stage.objects {
+			for _, object := range objects {
 				if object.ownerCharID == s.charID {
 					continue
 				}
@@ -204,7 +229,7 @@ func parseChatCommand(s *Session, command string) {
 				deleteNotif.WriteUint16(uint16(temp.Opcode()))
 				_ = temp.Build(deleteNotif, s.clientContext)
 			}
-			for _, session := range s.server.sessions {
+			for _, session := range sessions {
 				if s == session {
 					continue
 				}
@@ -216,7 +241,7 @@ func parseChatCommand(s *Session, command string) {
 			s.QueueSendNonBlocking(deleteNotif.Data())
 			time.Sleep(500 * time.Millisecond)
 			reloadNotif := byteframe.NewByteFrame()
-			for _, session := range s.server.sessions {
+			for _, session := range sessions {
 				if s == session {
 					continue
 				}
@@ -232,7 +257,7 @@ func parseChatCommand(s *Session, command string) {
 					_ = temp.Build(reloadNotif, s.clientContext)
 				}
 			}
-			for _, obj := range s.stage.objects {
+			for _, obj := range objects {
 				if obj.ownerCharID == s.charID {
 					continue
 				}
@@ -332,8 +357,13 @@ func parseChatCommand(s *Session, command string) {
 				if s.server.getRaviSemaphore() != nil {
 					switch args[1] {
 					case "start":
-						if s.server.raviente.register[1] == 0 {
+						s.server.raviente.Lock()
+						canStart := s.server.raviente.register[1] == 0
+						if canStart {
 							s.server.raviente.register[1] = s.server.raviente.register[3]
+						}
+						s.server.raviente.Unlock()
+						if canStart {
 							sendServerChatMessage(s, s.I18n().commands.ravi.start.success)
 							s.notifyRavi()
 						} else {
@@ -345,22 +375,31 @@ func parseChatCommand(s *Session, command string) {
 						if s.server.erupeConfig.RealClientMode == cfg.ZZ {
 							switch args[1] {
 							case "sr", "sendres", "resurrection":
-								if s.server.raviente.state[28] > 0 {
-									sendServerChatMessage(s, s.I18n().commands.ravi.res.success)
+								s.server.raviente.Lock()
+								hasResurrection := s.server.raviente.state[28] > 0
+								if hasResurrection {
 									s.server.raviente.state[28] = 0
+								}
+								s.server.raviente.Unlock()
+								if hasResurrection {
+									sendServerChatMessage(s, s.I18n().commands.ravi.res.success)
 								} else {
 									sendServerChatMessage(s, s.I18n().commands.ravi.res.error)
 								}
 							case "ss", "sendsed":
+								// Total BerRavi HP
+								s.server.raviente.Lock()
+								hp := s.server.raviente.state[0] + s.server.raviente.state[1] + s.server.raviente.state[2] + s.server.raviente.state[3] + s.server.raviente.state[4]
+								s.server.raviente.support[1] = hp
+								s.server.raviente.Unlock()
 								sendServerChatMessage(s, s.I18n().commands.ravi.sed.success)
-								// Total BerRavi HP
-								HP := s.server.raviente.state[0] + s.server.raviente.state[1] + s.server.raviente.state[2] + s.server.raviente.state[3] + s.server.raviente.state[4]
-								s.server.raviente.support[1] = HP
 							case "rs", "reqsed":
-								sendServerChatMessage(s, s.I18n().commands.ravi.request)
 								// Total BerRavi HP
-								HP := s.server.raviente.state[0] + s.server.raviente.state[1] + s.server.raviente.state[2] + s.server.raviente.state[3] + s.server.raviente.state[4]
-								s.server.raviente.support[1] = HP + 1
+								s.server.raviente.Lock()
+								hp := s.server.raviente.state[0] + s.server.raviente.state[1] + s.server.raviente.state[2] + s.server.raviente.state[3] + s.server.raviente.state[4]
+								s.server.raviente.support[1] = hp + 1
+								s.server.raviente.Unlock()
+								sendServerChatMessage(s, s.I18n().commands.ravi.request)
 							}
 						} else {
 							sendServerChatMessage(s, s.I18n().commands.ravi.version)

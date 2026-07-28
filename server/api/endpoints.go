@@ -37,6 +37,15 @@ const (
 	NotificationNew
 )
 
+const (
+	maxAuthRequestBody    = 4 << 10
+	maxAuthUsernameLength = 256
+	maxAuthPasswordLength = 72
+	screenshotTokenLength = 40
+)
+
+var screenshotTokenPattern = regexp.MustCompile(`^[A-Za-z0-9]+$`)
+
 // LauncherResponse is the JSON payload returned by the /launcher endpoint,
 // containing banners, messages, and links for the game launcher UI.
 type LauncherResponse struct {
@@ -201,6 +210,7 @@ func (s *APIServer) Launcher(w http.ResponseWriter, r *http.Request) {
 // and returning a session token with character data.
 func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	r.Body = http.MaxBytesReader(w, r.Body, maxAuthRequestBody)
 	var reqData struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -208,6 +218,14 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&reqData); err != nil {
 		s.logger.Error("JSON decode error", zap.Error(err))
 		writeError(w, http.StatusBadRequest, "invalid_request", "Malformed request body")
+		return
+	}
+	if reqData.Username == "" || reqData.Password == "" {
+		writeError(w, http.StatusBadRequest, "missing_fields", "Username and password required")
+		return
+	}
+	if len(reqData.Username) > maxAuthUsernameLength || len(reqData.Password) > maxAuthPasswordLength {
+		writeError(w, http.StatusBadRequest, "invalid_request", "Username or password is too long")
 		return
 	}
 	userID, password, userRights, err := s.userRepo.GetCredentials(ctx, reqData.Username)
@@ -248,6 +266,7 @@ func (s *APIServer) Login(w http.ResponseWriter, r *http.Request) {
 // a session token.
 func (s *APIServer) Register(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	r.Body = http.MaxBytesReader(w, r.Body, maxAuthRequestBody)
 	var reqData struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -259,6 +278,10 @@ func (s *APIServer) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	if reqData.Username == "" || reqData.Password == "" {
 		writeError(w, http.StatusBadRequest, "missing_fields", "Username and password required")
+		return
+	}
+	if len(reqData.Username) > maxAuthUsernameLength || len(reqData.Password) > maxAuthPasswordLength {
+		writeError(w, http.StatusBadRequest, "invalid_request", "Username or password is too long")
 		return
 	}
 	s.logger.Info("Creating account", zap.String("username", reqData.Username))
@@ -415,11 +438,10 @@ func (s *APIServer) ExportSave(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) ScreenShotGet(w http.ResponseWriter, r *http.Request) {
 	// Get the 'id' parameter from the URL
 	token := mux.Vars(r)["id"]
-	var tokenPattern = regexp.MustCompile(`[A-Za-z0-9]+`)
 
-	if !tokenPattern.MatchString(token) || token == "" {
+	if len(token) != screenshotTokenLength || !screenshotTokenPattern.MatchString(token) {
 		http.Error(w, "Not Valid Token", http.StatusBadRequest)
-
+		return
 	}
 	// Open the image file
 	safePath := s.erupeConfig.Screenshots.OutputDir
@@ -474,16 +496,37 @@ func (s *APIServer) ScreenShot(w http.ResponseWriter, r *http.Request) {
 		writeResult("405")
 		return
 	}
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		writeResult("400")
+		return
+	}
+	if r.MultipartForm != nil {
+		defer func() { _ = r.MultipartForm.RemoveAll() }()
+	}
 
-	var tokenPattern = regexp.MustCompile(`^[A-Za-z0-9]+$`)
 	token := r.FormValue("token")
-	if !tokenPattern.MatchString(token) {
+	if len(token) != screenshotTokenLength || !screenshotTokenPattern.MatchString(token) {
 		writeResult("401")
 		return
 	}
 
 	file, _, err := r.FormFile("img")
 	if err != nil {
+		writeResult("400")
+		return
+	}
+	defer func() { _ = file.Close() }()
+
+	imageConfig, _, err := image.DecodeConfig(file)
+	const maxScreenshotPixels int64 = 16 * 1024 * 1024
+	width := int64(imageConfig.Width)
+	height := int64(imageConfig.Height)
+	if err != nil || width <= 0 || height <= 0 ||
+		width > maxScreenshotPixels/height {
+		writeResult("400")
+		return
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		writeResult("400")
 		return
 	}
@@ -495,15 +538,14 @@ func (s *APIServer) ScreenShot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	safePath := s.erupeConfig.Screenshots.OutputDir
-	path := filepath.Join(safePath, fmt.Sprintf("%s.jpg", token))
-	verified, err := verifyPath(path, safePath, s.logger)
-	if err != nil {
+	if err := os.MkdirAll(safePath, os.ModePerm); err != nil {
+		s.logger.Error("Error writing screenshot, could not create folder", zap.Error(err))
 		writeResult("500")
 		return
 	}
-
-	if err := os.MkdirAll(safePath, os.ModePerm); err != nil {
-		s.logger.Error("Error writing screenshot, could not create folder", zap.Error(err))
+	path := filepath.Join(safePath, fmt.Sprintf("%s.jpg", token))
+	verified, err := verifyPath(path, safePath, s.logger)
+	if err != nil {
 		writeResult("500")
 		return
 	}
@@ -660,7 +702,7 @@ func (s *APIServer) ImportSave(w http.ResponseWriter, r *http.Request) {
 
 	// Compute savedata hash server-side.
 	if len(blobs.Savedata) > 0 {
-		decompressed, err := nullcomp.Decompress(blobs.Savedata)
+		decompressed, err := nullcomp.DecompressWithLimit(blobs.Savedata, maxImportedSavedata)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "invalid_request", "savedata decompression failed")
 			return

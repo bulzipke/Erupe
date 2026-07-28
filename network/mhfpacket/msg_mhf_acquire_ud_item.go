@@ -2,6 +2,7 @@ package mhfpacket
 
 import (
 	"errors"
+	"fmt"
 
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network"
@@ -38,10 +39,16 @@ func (m *MsgMhfAcquireUdItem) Parse(bf *byteframe.ByteFrame, ctx *clientctx.Clie
 	m.Unk0 = bf.ReadUint8()
 	m.RewardType = bf.ReadUint8()
 	m.ItemIDCount = bf.ReadUint8()
+	if err := bf.Err(); err != nil {
+		return err
+	}
+	if int(m.ItemIDCount) > len(bf.DataFromCurrent())/4 {
+		return fmt.Errorf("UD item ID count %d exceeds packet data", m.ItemIDCount)
+	}
 	for i := uint8(0); i < m.ItemIDCount; i++ {
 		bf.ReadUint32()
 	}
-	return nil
+	return bf.Err()
 }
 
 // Build builds a binary packet from the current data.

@@ -2,6 +2,7 @@ package channelserver
 
 import (
 	"bytes"
+	"fmt"
 	"net"
 	"sync"
 	"testing"
@@ -12,6 +13,69 @@ import (
 )
 
 const raceTestCompletionMsg = "Test completed. No race conditions with fixed locking - verified with -race flag"
+
+func TestDestructEmptyStagesShortIDDoesNotPanic(t *testing.T) {
+	server := createMockServer()
+	session := createMockSession(1, server)
+	server.stages.Store("x", NewStage("x"))
+
+	destructEmptyStages(session)
+}
+
+func TestDoStageTransferConcurrentCapacity(t *testing.T) {
+	server := createMockServer()
+	stageID := "abcde_capacity"
+	stage := NewStage(stageID)
+	stage.maxPlayers = 1
+	server.stages.Store(stageID, stage)
+
+	first := createMockSession(1, server)
+	second := createMockSession(2, server)
+	results := make(chan bool, 2)
+	var wg sync.WaitGroup
+	for _, session := range []*Session{first, second} {
+		wg.Add(1)
+		go func(session *Session) {
+			defer wg.Done()
+			results <- doStageTransfer(session, 1, stageID)
+		}(session)
+	}
+	wg.Wait()
+	close(results)
+
+	successes := 0
+	for success := range results {
+		if success {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("successful transfers = %d, want 1", successes)
+	}
+	stage.RLock()
+	clientCount := len(stage.clients)
+	stage.RUnlock()
+	if clientCount != 1 {
+		t.Fatalf("stage client count = %d, want 1", clientCount)
+	}
+}
+
+func TestCreateStagePerSessionLimit(t *testing.T) {
+	server := createMockServer()
+	session := createMockSession(1, server)
+	session.sendPackets = make(chan packet, maxHostedStagesPerSession+1)
+
+	for i := 0; i < maxHostedStagesPerSession+1; i++ {
+		handleMsgSysCreateStage(session, &mhfpacket.MsgSysCreateStage{
+			StageID:     fmt.Sprintf("abcde_%d", i),
+			PlayerCount: 4,
+			AckHandle:   uint32(i),
+		})
+	}
+	if got := hostedStageCount(session); got != maxHostedStagesPerSession {
+		t.Fatalf("hosted stage count = %d, want %d", got, maxHostedStagesPerSession)
+	}
+}
 
 // TestCreateStageSuccess verifies stage creation with valid parameters
 func TestCreateStageSuccess(t *testing.T) {
@@ -993,21 +1057,33 @@ func TestHandleMsgSysSetStageBinary_MissingStage(t *testing.T) {
 func TestHandleMsgSysUnlockStage_WithReservation(t *testing.T) {
 	server := createMockServer()
 	session := createMockSession(100, server)
+	reservedSession := createMockSession(200, server)
+	reservedConn := &mockConn{}
+	server.sessions[reservedConn] = reservedSession
 
 	stage := &Stage{
 		id:                  "test_stage",
-		reservedClientSlots: map[uint32]bool{100: false},
+		reservedClientSlots: map[uint32]bool{100: false, 200: false},
 		rawBinaryData:       make(map[stageBinaryKey][]byte),
 		clients:             make(map[*Session]uint32),
 	}
 	server.stages.Store("test_stage", stage)
 	session.reservationStage = stage
+	reservedSession.reservationStage = stage
 
 	pkt := &mhfpacket.MsgSysUnlockStage{}
 	handleMsgSysUnlockStage(session, pkt)
 
 	if _, exists := server.stages.Get("test_stage"); exists {
 		t.Error("stage should have been deleted")
+	}
+	if reservedSession.reservationStage != nil {
+		t.Error("reservation pointer should be cleared for notified sessions")
+	}
+	select {
+	case <-reservedSession.sendPackets:
+	default:
+		t.Error("reserved session should receive stage destruct notification")
 	}
 }
 

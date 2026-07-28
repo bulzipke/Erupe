@@ -2,8 +2,10 @@ package channelserver
 
 import (
 	"testing"
+	"time"
 
 	"erupe-ce/common/byteframe"
+	"erupe-ce/network/mhfpacket"
 )
 
 // createMockServerWithRaviente creates a mock server with raviente and semaphore
@@ -73,6 +75,33 @@ func TestRavienteMutex(t *testing.T) {
 
 	if val != 42 {
 		t.Errorf("register[0] = %d, want 42", val)
+	}
+}
+
+func TestOperateRegisterInvalidIndexDoesNotPoisonMutex(t *testing.T) {
+	server := createMockServerWithRaviente()
+	session := createMockSession(1, server)
+	packet := &mhfpacket.MsgSysOperateRegister{
+		AckHandle:   1,
+		SemaphoreID: 0x40000,
+		RawDataPayload: []byte{
+			2, 30, 0, 0, 0, 1,
+			0,
+		},
+	}
+
+	handleMsgSysOperateRegister(session, packet)
+
+	acquired := make(chan struct{})
+	go func() {
+		server.raviente.Lock()
+		server.raviente.Unlock()
+		close(acquired)
+	}()
+	select {
+	case <-acquired:
+	case <-time.After(time.Second):
+		t.Fatal("Raviente mutex remained locked after an invalid register index")
 	}
 }
 

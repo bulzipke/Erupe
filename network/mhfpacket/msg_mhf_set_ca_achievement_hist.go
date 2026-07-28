@@ -2,6 +2,7 @@ package mhfpacket
 
 import (
 	"errors"
+	"fmt"
 
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network"
@@ -32,13 +33,20 @@ func (m *MsgMhfSetCaAchievementHist) Parse(bf *byteframe.ByteFrame, ctx *clientc
 	m.AckHandle = bf.ReadUint32()
 	m.Unk0 = bf.ReadUint16()
 	m.Unk1 = bf.ReadUint8()
+	if err := bf.Err(); err != nil {
+		return err
+	}
+	if int(m.Unk1) > len(bf.DataFromCurrent())/5 {
+		return fmt.Errorf("CA achievement history count %d exceeds packet data", m.Unk1)
+	}
+	m.Unk2 = make([]CaAchievementHist, 0, int(m.Unk1))
 	for i := 0; i < int(m.Unk1); i++ {
 		var temp CaAchievementHist
 		temp.Unk0 = bf.ReadUint32()
 		temp.Unk1 = bf.ReadUint8()
 		m.Unk2 = append(m.Unk2, temp)
 	}
-	return nil
+	return bf.Err()
 }
 
 // Build builds a binary packet from the current data.

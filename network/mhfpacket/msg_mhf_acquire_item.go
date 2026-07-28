@@ -2,6 +2,7 @@ package mhfpacket
 
 import (
 	"errors"
+	"fmt"
 
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network"
@@ -24,10 +25,20 @@ func (m *MsgMhfAcquireItem) Parse(bf *byteframe.ByteFrame, ctx *clientctx.Client
 	m.AckHandle = bf.ReadUint32()
 	bf.ReadUint16() // Zeroed
 	ids := bf.ReadUint16()
+	if err := bf.Err(); err != nil {
+		return err
+	}
+	if ids > maxClientBatchEntries {
+		return fmt.Errorf("reward ID count %d exceeds maximum %d", ids, maxClientBatchEntries)
+	}
+	if int(ids) > len(bf.DataFromCurrent())/4 {
+		return fmt.Errorf("reward ID count %d exceeds packet data", ids)
+	}
+	m.RewardIDs = make([]uint32, 0, ids)
 	for i := uint16(0); i < ids; i++ {
 		m.RewardIDs = append(m.RewardIDs, bf.ReadUint32())
 	}
-	return nil
+	return bf.Err()
 }
 
 // Build builds a binary packet from the current data.

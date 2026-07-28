@@ -24,7 +24,7 @@ func (m *MsgSysEnterStage) Opcode() network.PacketID {
 func (m *MsgSysEnterStage) Parse(bf *byteframe.ByteFrame, ctx *clientctx.ClientContext) error {
 	m.AckHandle = bf.ReadUint32()
 	m.IsQuest = bf.ReadBool()
-	bf.ReadUint8() // Length StageID
+	bf.ReadUint8() // Stage ID length excludes the null terminator on this packet.
 	m.StageID = string(bf.ReadNullTerminatedBytes())
 	return nil
 }

@@ -263,6 +263,18 @@ func TestCryptConn_ReadPacket_Success(t *testing.T) {
 	}
 }
 
+func TestCryptConn_ReadPacketRejectsInvalidExtendedSizeHeader(t *testing.T) {
+	header := &CryptPacketHeader{Pf0: 0}
+	headerBytes, err := header.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cc := NewCryptConn(newMockConn(headerBytes), cfg.Z1, nil)
+	if _, err := cc.ReadPacket(); err == nil {
+		t.Fatal("ReadPacket accepted an invalid extended-size header")
+	}
+}
+
 func TestCryptConn_ReadPacket_KeyRotation(t *testing.T) {
 	testData := []byte{0x01, 0x02, 0x03, 0x04}
 	key := uint32(995117)

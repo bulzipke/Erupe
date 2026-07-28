@@ -1,6 +1,7 @@
 package entranceserver
 
 import (
+	"encoding/binary"
 	"fmt"
 	"strings"
 	"testing"
@@ -202,6 +203,31 @@ func TestMakeUsrResp_NilSessionRepo(t *testing.T) {
 	result := makeUsrResp(pkt, server)
 	if len(result) == 0 {
 		t.Error("makeUsrResp returned empty result")
+	}
+}
+
+func TestMakeUsrResp_CapsDatabaseLookups(t *testing.T) {
+	repo := &mockEntranceSessionRepo{serverID: 1234}
+	server := &Server{
+		logger:      zap.NewNop(),
+		erupeConfig: &cfg.Config{RealClientMode: cfg.Z1},
+		sessionRepo: repo,
+	}
+
+	const requestedEntries = maxEntranceUserLookups + 1
+	pkt := make([]byte, 7+requestedEntries*4)
+	copy(pkt, []byte{'A', 'L', 'L', '+', 0})
+	binary.BigEndian.PutUint16(pkt[5:7], requestedEntries)
+	for i := 0; i < requestedEntries; i++ {
+		binary.BigEndian.PutUint32(pkt[7+i*4:], uint32(i+1))
+	}
+
+	result := makeUsrResp(pkt, server)
+	if repo.calls != maxEntranceUserLookups {
+		t.Fatalf("database lookups = %d, want %d", repo.calls, maxEntranceUserLookups)
+	}
+	if len(result) > 2048 {
+		t.Fatalf("bounded USR response unexpectedly large: %d bytes", len(result))
 	}
 }
 

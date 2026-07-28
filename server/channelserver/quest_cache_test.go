@@ -36,6 +36,9 @@ func TestQuestCache_Expiry(t *testing.T) {
 	if ok {
 		t.Error("expected cache miss when TTL is 0")
 	}
+	if len(c.data) != 0 || len(c.expiry) != 0 {
+		t.Fatal("TTL=0 cache retained an entry")
+	}
 }
 
 func TestQuestCache_ExpiryElapsed(t *testing.T) {
@@ -56,6 +59,9 @@ func TestQuestCache_ExpiryElapsed(t *testing.T) {
 	// Should miss after expiry
 	if _, ok := c.Get(1, "jp"); ok {
 		t.Error("expected cache miss after expiry")
+	}
+	if len(c.data) != 0 || len(c.expiry) != 0 {
+		t.Fatal("expired cache entry was not removed")
 	}
 }
 

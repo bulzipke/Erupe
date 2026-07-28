@@ -3,6 +3,7 @@ package mhfpacket
 import (
 	"errors"
 	cfg "erupe-ce/config"
+	"fmt"
 
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network"
@@ -39,6 +40,21 @@ func (m *MsgSysTerminalLog) Parse(bf *byteframe.ByteFrame, ctx *clientctx.Client
 	m.LogID = bf.ReadUint32()
 	entryCount := int(bf.ReadUint16())
 	bf.ReadUint16() // Zeroed
+	if err := bf.Err(); err != nil {
+		return err
+	}
+	if entryCount > maxTerminalLogEntries {
+		return fmt.Errorf("terminal log entry count %d exceeds maximum %d", entryCount, maxTerminalLogEntries)
+	}
+	entrySize := 20
+	if ctx.RealClientMode >= cfg.G1 {
+		entrySize += 16
+	}
+	available := len(bf.DataFromCurrent()) / entrySize
+	if entryCount > available {
+		return fmt.Errorf("terminal log count %d exceeds %d available entries", entryCount, available)
+	}
+	m.Entries = make([]TerminalLogEntry, 0, entryCount)
 
 	for i := 0; i < entryCount; i++ {
 		var e TerminalLogEntry
@@ -57,7 +73,7 @@ func (m *MsgSysTerminalLog) Parse(bf *byteframe.ByteFrame, ctx *clientctx.Client
 		m.Entries = append(m.Entries, e)
 	}
 
-	return nil
+	return bf.Err()
 }
 
 // Build builds a binary packet from the current data.

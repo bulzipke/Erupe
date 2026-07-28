@@ -41,7 +41,12 @@ var Commit = func() string {
 	if info, ok := debug.ReadBuildInfo(); ok {
 		for _, setting := range info.Settings {
 			if setting.Key == "vcs.revision" {
-				return setting.Value[:7]
+				if len(setting.Value) >= 7 {
+					return setting.Value[:7]
+				}
+				if setting.Value != "" {
+					return setting.Value
+				}
 			}
 		}
 	}
@@ -140,7 +145,7 @@ func main() {
 
 	// Create the postgres DB pool.
 	connectString := fmt.Sprintf(
-		"host='%s' port='%d' user='%s' password='%s' dbname='%s' sslmode=disable",
+		"host='%s' port='%d' user='%s' password='%s' dbname='%s' sslmode=disable connect_timeout=10",
 		config.Database.Host,
 		config.Database.Port,
 		config.Database.User,
@@ -157,7 +162,9 @@ func main() {
 	}
 
 	// Test the DB connection.
-	err = db.Ping()
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	err = db.PingContext(pingCtx)
+	pingCancel()
 	if err != nil {
 		dbAddr := fmt.Sprintf("%s:%d", config.Database.Host, config.Database.Port)
 		var hint string
@@ -332,7 +339,15 @@ func main() {
 	var channels []*channelserver.Server
 
 	if config.Channel.Enabled {
-		channelQuery := ""
+		type pendingChannel struct {
+			server      *channelserver.Server
+			serverID    int
+			worldName   string
+			description string
+			land        int
+			number      int
+		}
+		var pending []pendingChannel
 		si := 0
 		ci := 0
 		count := 1
@@ -353,7 +368,7 @@ func main() {
 					continue
 				}
 				seenPorts[ce.Port] = fmt.Sprintf("channel %d", count)
-				c := *channelserver.NewServer(&channelserver.Config{
+				c := channelserver.NewServer(&channelserver.Config{
 					ID:          uint16(sid),
 					Logger:      logger.Named("channel-" + fmt.Sprint(count)),
 					ErupeConfig: config,
@@ -368,30 +383,44 @@ func main() {
 				}
 				c.Port = ce.Port
 				c.GlobalID = fmt.Sprintf("%02d%02d", j+1, i+1)
-				err = c.Start()
-				if err != nil {
-					preventClose(config, fmt.Sprintf("Channel: Failed to start, %s", err.Error()))
-				} else {
-					channelQuery += fmt.Sprintf(
-						`INSERT INTO servers (server_id, current_players, world_name, world_description, land) VALUES (%d, 0, '%s', '%s', %d);`,
-						sid, ee.Name, ee.Description, i+1,
-					)
-					channels = append(channels, &c)
-					logger.Info(fmt.Sprintf("Channel %d (%d): Started successfully", count, ce.Port))
-					count++
-				}
+				channels = append(channels, c)
+				pending = append(pending, pendingChannel{
+					server:      c,
+					serverID:    sid,
+					worldName:   ee.Name,
+					description: ee.Description,
+					land:        i + 1,
+					number:      count,
+				})
+				count++
 				ci++
 			}
 			ci = 0
 			si++
 		}
 
-		// Register all servers in DB
-		_ = db.MustExec(channelQuery)
-
+		// Every channel must see a fully initialized, immutable registry before
+		// its accept loop starts. This also avoids copying a Server containing
+		// an already-used sync.Map.
 		registry := channelserver.NewLocalChannelRegistry(channels)
 		for _, c := range channels {
 			c.Registry = registry
+		}
+		for _, candidate := range pending {
+			if err = candidate.server.Start(); err != nil {
+				preventClose(config, fmt.Sprintf("Channel: Failed to start, %s", err.Error()))
+			}
+			if _, err = db.Exec(
+				`INSERT INTO servers (server_id, current_players, world_name, world_description, land)
+				 VALUES ($1, 0, $2, $3, $4)`,
+				candidate.serverID,
+				candidate.worldName,
+				candidate.description,
+				candidate.land,
+			); err != nil {
+				preventClose(config, fmt.Sprintf("Channel: Failed to register in database, %s", err.Error()))
+			}
+			logger.Info(fmt.Sprintf("Channel %d (%d): Started successfully", candidate.number, candidate.server.Port))
 		}
 	}
 

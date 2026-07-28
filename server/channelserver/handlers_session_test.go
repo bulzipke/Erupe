@@ -1740,6 +1740,76 @@ func TestLogoutPlayer_HostDisconnect(t *testing.T) {
 	}
 }
 
+func TestLogoutPlayer_DoesNotRemoveReplacementSession(t *testing.T) {
+	server, charRepo, _, _ := setupLogoutServer()
+	charRepo.loadSaveDataData = nil
+
+	oldSession, _ := setupLogoutSession(42, server)
+	replacementSession, _ := setupLogoutSession(42, server)
+
+	stage := NewStage("sl2Ns001")
+	stage.host = oldSession
+	stage.clients[oldSession] = oldSession.charID
+	stage.clients[replacementSession] = replacementSession.charID
+	oldSession.stage = stage
+	replacementSession.stage = stage
+	server.stages.Store(stage.id, stage)
+
+	logoutPlayer(oldSession)
+
+	stage.RLock()
+	_, oldExists := stage.clients[oldSession]
+	_, replacementExists := stage.clients[replacementSession]
+	host := stage.host
+	stage.RUnlock()
+	if oldExists {
+		t.Error("old session remained in stage")
+	}
+	if !replacementExists {
+		t.Error("replacement session was removed by the old session logout")
+	}
+	if host != replacementSession {
+		t.Error("stage host was not transferred to the remaining session")
+	}
+}
+
+func TestLogoutPlayer_PanicStillCleansRuntimeMemberships(t *testing.T) {
+	server, _, _, _ := setupLogoutServer()
+	server.charRepo = nil // Force a panic at the first character repository call.
+	session, conn := setupLogoutSession(42, server)
+
+	stage := NewStage("sl2Ns001")
+	stage.host = session
+	stage.clients[session] = session.charID
+	stage.reservedClientSlots[session.charID] = false
+	session.stage = stage
+	session.reservationStage = stage
+	server.stages.Store(stage.id, stage)
+
+	semaphore := NewSemaphore(session, "panic-cleanup", 4)
+	semaphore.clients[session] = session.charID
+	session.semaphore = semaphore
+	server.semaphore[semaphore.name] = semaphore
+
+	logoutPlayer(session)
+
+	server.Lock()
+	_, sessionExists := server.sessions[conn]
+	server.Unlock()
+	if sessionExists {
+		t.Error("panicking logout left the session registered")
+	}
+	if _, stageExists := server.stages.Get(stage.id); stageExists {
+		t.Error("panicking logout left the empty hosted stage registered")
+	}
+	server.semaphoreLock.RLock()
+	_, semaphoreExists := server.semaphore[semaphore.name]
+	server.semaphoreLock.RUnlock()
+	if semaphoreExists {
+		t.Error("panicking logout left the empty semaphore registered")
+	}
+}
+
 func TestLogoutPlayer_ReadTimePlayedError(t *testing.T) {
 	server, charRepo, _, _ := setupLogoutServer()
 	charRepo.readErr = errors.New("db error")

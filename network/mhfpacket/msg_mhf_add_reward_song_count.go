@@ -1,6 +1,8 @@
 package mhfpacket
 
 import (
+	"fmt"
+
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network"
 	"erupe-ce/network/clientctx"
@@ -33,6 +35,12 @@ func (m *MsgMhfAddRewardSongCount) Parse(bf *byteframe.ByteFrame, ctx *clientctx
 	m.PrayerID = bf.ReadUint32()
 	m.ArraySizeBytes = bf.ReadUint16()
 	m.Count = bf.ReadUint8()
+	if err := bf.Err(); err != nil {
+		return err
+	}
+	if int(m.Count) > len(bf.DataFromCurrent())/2 {
+		return fmt.Errorf("reward song entry count %d exceeds packet data", m.Count)
+	}
 	m.Entries = make([]uint16, m.Count)
 	for i := range m.Entries {
 		m.Entries[i] = bf.ReadUint16()

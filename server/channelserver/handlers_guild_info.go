@@ -9,6 +9,8 @@ import (
 	"erupe-ce/common/stringsupport"
 	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
+
+	"go.uber.org/zap"
 )
 
 // Guild sentinel and cost constants
@@ -249,9 +251,16 @@ func handleMsgMhfInfoGuild(s *Session, p mhfpacket.MHFPacket) {
 		}
 
 		if guild.Icon != nil {
-			bf.WriteUint8(uint8(len(guild.Icon.Parts)))
+			iconParts := guild.Icon.Parts
+			if len(iconParts) > 255 {
+				s.logger.Warn("Guild icon part count exceeds protocol limit",
+					zap.Int("parts", len(iconParts)),
+					zap.Uint32("guildID", guild.ID))
+				iconParts = iconParts[:255]
+			}
+			bf.WriteUint8(uint8(len(iconParts)))
 
-			for _, p := range guild.Icon.Parts {
+			for _, p := range iconParts {
 				bf.WriteUint16(p.Index)
 				bf.WriteUint16(p.ID)
 				bf.WriteUint8(p.Page)

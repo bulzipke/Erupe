@@ -2,6 +2,7 @@ package mhfpacket
 
 import (
 	"errors"
+	"fmt"
 
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network"
@@ -27,11 +28,23 @@ func (m *MsgMhfChargeFesta) Parse(bf *byteframe.ByteFrame, ctx *clientctx.Client
 	m.AckHandle = bf.ReadUint32()
 	m.FestaID = bf.ReadUint32()
 	m.GuildID = bf.ReadUint32()
-	for i := bf.ReadUint16(); i > 0; i-- {
+	soulCount := bf.ReadUint16()
+	if err := bf.Err(); err != nil {
+		return err
+	}
+	if soulCount > maxClientBatchEntries {
+		return fmt.Errorf("festa soul count %d exceeds maximum %d", soulCount, maxClientBatchEntries)
+	}
+	remaining := len(bf.DataFromCurrent())
+	if remaining < 1 || int(soulCount) > (remaining-1)/2 {
+		return fmt.Errorf("festa soul count %d exceeds packet data", soulCount)
+	}
+	m.Souls = make([]uint16, 0, int(soulCount))
+	for i := soulCount; i > 0; i-- {
 		m.Souls = append(m.Souls, bf.ReadUint16())
 	}
 	m.Auto = bf.ReadBool()
-	return nil
+	return bf.Err()
 }
 
 // Build builds a binary packet from the current data.

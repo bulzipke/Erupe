@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"erupe-ce/common/stringsupport"
+	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -55,6 +56,9 @@ func (s *Session) work() {
 func (s *Session) handlePacket(pkt []byte) error {
 	bf := byteframe.NewByteFrameFromBytes(pkt)
 	reqType := string(bf.ReadNullTerminatedBytes())
+	if len(reqType) < 3 {
+		return fmt.Errorf("malformed sign request type %q", reqType)
+	}
 	switch reqType[:len(reqType)-3] {
 	case "DLTSKEYSIGN:", "DSGN:", "SIGN:":
 		s.handleDSGN(bf)
@@ -91,6 +95,10 @@ func (s *Session) handlePacket(pkt []byte) error {
 }
 
 func (s *Session) authenticate(username string, password string) {
+	if username == "" {
+		s.sendCode(SIGN_EAUTH)
+		return
+	}
 	newCharaReq := false
 	if username[len(username)-1] == 43 { // '+'
 		username = username[:len(username)-1]
@@ -159,6 +167,10 @@ func (s *Session) handlePSNLink(bf *byteframe.ByteFrame) {
 	credStr := stringsupport.SJISToUTF8Lossy(bf.ReadNullTerminatedBytes())
 	credentials := strings.Split(credStr, "\n")
 	tok := string(bf.ReadNullTerminatedBytes())
+	if len(credentials) < 2 || credentials[0] == "" {
+		s.sendCode(SIGN_ECOGLINK)
+		return
+	}
 	uid, resp := s.server.validateLogin(credentials[0], credentials[1])
 	if resp == SIGN_SUCCESS && uid > 0 {
 		psn, err := s.server.sessionRepo.GetPSNIDByToken(tok)

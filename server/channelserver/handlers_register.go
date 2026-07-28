@@ -3,6 +3,7 @@ package channelserver
 import (
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network/mhfpacket"
+	"go.uber.org/zap"
 )
 
 func handleMsgMhfRegisterEvent(s *Session, p mhfpacket.MHFPacket) {
@@ -15,7 +16,10 @@ func handleMsgMhfRegisterEvent(s *Session, p mhfpacket.MHFPacket) {
 	}
 	bf.WriteUint8(uint8(pkt.WorldID))
 	bf.WriteUint8(uint8(pkt.LandID))
-	bf.WriteUint16(s.server.raviente.id)
+	s.server.raviente.Lock()
+	ravienteID := s.server.raviente.id
+	s.server.raviente.Unlock()
+	bf.WriteUint16(ravienteID)
 	doAckSimpleSucceed(s, pkt.AckHandle, bf.Data())
 }
 
@@ -79,20 +83,35 @@ func handleMsgSysOperateRegister(s *Session, p mhfpacket.MHFPacket) {
 	bf = byteframe.NewByteFrame()
 
 	var _old, _new uint32
-	s.server.raviente.Lock()
-	for _, update := range raviUpdates {
-		switch update.Op {
-		case 2:
-			_old, _new = s.server.UpdateRavi(pkt.SemaphoreID, update.Dest, update.Data, true)
-		case 13, 14:
-			_old, _new = s.server.UpdateRavi(pkt.SemaphoreID, update.Dest, update.Data, false)
+	invalidIndex := -1
+	raviPlayers, raviActive := s.server.raviPlayerCount()
+	func() {
+		s.server.raviente.Lock()
+		defer s.server.raviente.Unlock()
+		for _, update := range raviUpdates {
+			if int(update.Dest) >= len(s.server.raviente.state) {
+				invalidIndex = int(update.Dest)
+				return
+			}
 		}
-		bf.WriteUint8(1)
-		bf.WriteUint8(update.Dest)
-		bf.WriteUint32(_old)
-		bf.WriteUint32(_new)
+		for _, update := range raviUpdates {
+			switch update.Op {
+			case 2:
+				_old, _new = s.server.updateRaviLocked(pkt.SemaphoreID, update.Dest, update.Data, true, raviPlayers, raviActive)
+			case 13, 14:
+				_old, _new = s.server.updateRaviLocked(pkt.SemaphoreID, update.Dest, update.Data, false, raviPlayers, raviActive)
+			}
+			bf.WriteUint8(1)
+			bf.WriteUint8(update.Dest)
+			bf.WriteUint32(_old)
+			bf.WriteUint32(_new)
+		}
+	}()
+	if invalidIndex >= 0 {
+		s.logger.Warn("Rejected Raviente register index", zap.Int("index", invalidIndex))
+		doAckBufFail(s, pkt.AckHandle, nil)
+		return
 	}
-	s.server.raviente.Unlock()
 	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
 
 	if s.server.erupeConfig.GameplayOptions.LowLatencyRaviente {
@@ -105,6 +124,13 @@ func handleMsgSysLoadRegister(s *Session, p mhfpacket.MHFPacket) {
 	bf := byteframe.NewByteFrame()
 	bf.WriteUint8(0)
 	bf.WriteUint8(pkt.Values)
+	s.server.raviente.Lock()
+	if int(pkt.Values) > len(s.server.raviente.state) {
+		s.server.raviente.Unlock()
+		s.logger.Warn("Rejected Raviente register read count", zap.Uint8("count", pkt.Values))
+		doAckBufFail(s, pkt.AckHandle, nil)
+		return
+	}
 	for i := uint8(0); i < pkt.Values; i++ {
 		switch pkt.RegisterID {
 		case raviRegisterState:
@@ -115,6 +141,7 @@ func handleMsgSysLoadRegister(s *Session, p mhfpacket.MHFPacket) {
 			bf.WriteUint32(s.server.raviente.register[i])
 		}
 	}
+	s.server.raviente.Unlock()
 	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
 }
 
@@ -136,11 +163,23 @@ func (s *Session) notifyRavi() {
 	_ = temp.Build(raviNotif, s.clientContext)
 	raviNotif.WriteUint16(0x0010) // End it.
 	if s.server.erupeConfig.GameplayOptions.LowLatencyRaviente {
+		sema.RLock()
+		clients := make([]*Session, 0, len(sema.clients))
 		for session := range sema.clients {
+			clients = append(clients, session)
+		}
+		sema.RUnlock()
+		for _, session := range clients {
 			session.QueueSendNonBlocking(raviNotif.Data())
 		}
 	} else {
+		sema.RLock()
+		clients := make([]*Session, 0, len(sema.clients))
 		for session := range sema.clients {
+			clients = append(clients, session)
+		}
+		sema.RUnlock()
+		for _, session := range clients {
 			if session.charID == s.charID {
 				session.QueueSendNonBlocking(raviNotif.Data())
 			}

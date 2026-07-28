@@ -325,6 +325,7 @@ func (s *Server) ShutdownAndDrain(ctx context.Context) {
 }
 
 func (s *Server) acceptClients() {
+	var retryDelay time.Duration
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
@@ -336,9 +337,19 @@ func (s *Server) acceptClients() {
 				break
 			} else {
 				s.logger.Warn("Error accepting client", zap.Error(err))
+				if retryDelay == 0 {
+					retryDelay = 5 * time.Millisecond
+				} else {
+					retryDelay *= 2
+					if retryDelay > time.Second {
+						retryDelay = time.Second
+					}
+				}
+				time.Sleep(retryDelay)
 				continue
 			}
 		}
+		retryDelay = 0
 		select {
 		case s.acceptConns <- conn:
 		case <-s.done:
@@ -371,6 +382,8 @@ func (s *Server) manageSessions() {
 }
 
 func (s *Server) getObjectId() uint16 {
+	s.Lock()
+	defer s.Unlock()
 	ids := make(map[uint16]struct{})
 	for _, sess := range s.sessions {
 		ids[sess.objectID] = struct{}{}
@@ -382,6 +395,23 @@ func (s *Server) getObjectId() uint16 {
 	}
 	s.logger.Warn("object ids overflowed", zap.Int("sessions", len(s.sessions)))
 	return 0
+}
+
+func (s *Server) sessionCount() int {
+	s.Lock()
+	count := len(s.sessions)
+	s.Unlock()
+	return count
+}
+
+func (s *Server) sessionSnapshot() []*Session {
+	s.Lock()
+	sessions := make([]*Session, 0, len(s.sessions))
+	for _, session := range s.sessions {
+		sessions = append(sessions, session)
+	}
+	s.Unlock()
+	return sessions
 }
 
 func (s *Server) invalidateSessions() {
@@ -397,7 +427,7 @@ func (s *Server) invalidateSessions() {
 		s.Lock()
 		var timedOut []*Session
 		for _, sess := range s.sessions {
-			if time.Since(sess.lastPacket) > time.Second*time.Duration(30) {
+			if time.Since(sess.lastPacketAt()) > 30*time.Second {
 				timedOut = append(timedOut, sess)
 			}
 		}
@@ -412,10 +442,7 @@ func (s *Server) invalidateSessions() {
 
 // BroadcastMHF queues a MHFPacket to be sent to all sessions.
 func (s *Server) BroadcastMHF(pkt mhfpacket.MHFPacket, ignoredSession *Session) {
-	// Broadcast the data.
-	s.Lock()
-	defer s.Unlock()
-	for _, session := range s.sessions {
+	for _, session := range s.sessionSnapshot() {
 		if session == ignoredSession {
 			continue
 		}
@@ -507,12 +534,32 @@ func (s *Server) FindObjectByChar(charID uint32) *Object {
 
 // HasSemaphore checks if the given session is hosting any semaphore.
 func (s *Server) HasSemaphore(ses *Session) bool {
+	s.semaphoreLock.RLock()
+	defer s.semaphoreLock.RUnlock()
 	for _, semaphore := range s.semaphore {
-		if semaphore.host == ses {
+		semaphore.RLock()
+		isHost := semaphore.host == ses
+		semaphore.RUnlock()
+		if isHost {
 			return true
 		}
 	}
 	return false
+}
+
+// semaphoreMembershipsLocked counts registry entries containing ses. The
+// caller must hold semaphoreLock.
+func (s *Server) semaphoreMembershipsLocked(ses *Session) int {
+	count := 0
+	for _, semaphore := range s.semaphore {
+		semaphore.RLock()
+		_, member := semaphore.clients[ses]
+		semaphore.RUnlock()
+		if member {
+			count++
+		}
+	}
+	return count
 }
 
 // Server ID arithmetic constants

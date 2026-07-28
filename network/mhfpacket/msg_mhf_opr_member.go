@@ -2,6 +2,7 @@ package mhfpacket
 
 import (
 	"errors"
+	"fmt"
 
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network"
@@ -28,10 +29,17 @@ func (m *MsgMhfOprMember) Parse(bf *byteframe.ByteFrame, ctx *clientctx.ClientCo
 	m.Operation = bf.ReadBool()
 	bf.ReadUint8()
 	chars := int(bf.ReadUint8())
+	if err := bf.Err(); err != nil {
+		return err
+	}
+	if chars > len(bf.DataFromCurrent())/4 {
+		return fmt.Errorf("member operation count %d exceeds packet data", chars)
+	}
+	m.CharIDs = make([]uint32, 0, chars)
 	for i := 0; i < chars; i++ {
 		m.CharIDs = append(m.CharIDs, bf.ReadUint32())
 	}
-	return nil
+	return bf.Err()
 }
 
 // Build builds a binary packet from the current data.

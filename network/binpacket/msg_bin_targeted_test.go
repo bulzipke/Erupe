@@ -402,3 +402,24 @@ func TestMsgBinTargeted_PayloadForwarding(t *testing.T) {
 		t.Errorf("Payload not preserved:\ngot:  %v\nwant: %v", parsed.RawDataPayload, originalPayload)
 	}
 }
+
+func TestMsgBinTargetedRejectsOversizedOrTruncatedTargets(t *testing.T) {
+	t.Run("oversized", func(t *testing.T) {
+		bf := byteframe.NewByteFrame()
+		bf.WriteUint16(maxTargetedRecipients + 1)
+		msg := &MsgBinTargeted{}
+		if err := msg.Parse(byteframe.NewByteFrameFromBytes(bf.Data())); err == nil {
+			t.Fatal("Parse() accepted an oversized target list")
+		}
+	})
+
+	t.Run("truncated", func(t *testing.T) {
+		bf := byteframe.NewByteFrame()
+		bf.WriteUint16(2)
+		bf.WriteUint32(1)
+		msg := &MsgBinTargeted{}
+		if err := msg.Parse(byteframe.NewByteFrameFromBytes(bf.Data())); err == nil {
+			t.Fatal("Parse() accepted a truncated target list")
+		}
+	})
+}

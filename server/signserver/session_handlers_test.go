@@ -447,6 +447,21 @@ func TestHandlePSSGN_DBError(t *testing.T) {
 
 // --- handlePSNLink ---
 
+func TestHandlePSNLink_MissingPasswordSeparator(t *testing.T) {
+	session, spy := newHandlerSession(nil, nil, nil, defaultConfig())
+
+	bf := byteframe.NewByteFrame()
+	bf.WriteNullTerminatedBytes([]byte("client_id"))
+	bf.WriteNullTerminatedBytes([]byte("username-only"))
+	bf.WriteNullTerminatedBytes([]byte("sometoken"))
+	session.handlePSNLink(byteframe.NewByteFrameFromBytes(bf.Data()))
+
+	pkt := spy.lastSent()
+	if len(pkt) != 1 || RespID(pkt[0]) != SIGN_ECOGLINK {
+		t.Fatalf("handlePSNLink() malformed credentials = %v, want [%d]", pkt, SIGN_ECOGLINK)
+	}
+}
+
 func TestHandlePSNLink_Success(t *testing.T) {
 	pass := "hunter2"
 	hash := hashPassword(t, pass)
@@ -848,6 +863,22 @@ func TestAuthenticate_RegisterTokenError(t *testing.T) {
 }
 
 // --- handlePacket dispatch ---
+
+func TestHandlePacketRejectsShortRequestType(t *testing.T) {
+	session, _ := newHandlerSession(nil, nil, nil, defaultConfig())
+	if err := session.handlePacket([]byte{0}); err == nil {
+		t.Fatal("handlePacket() accepted an empty request type")
+	}
+}
+
+func TestAuthenticateRejectsEmptyUsername(t *testing.T) {
+	session, spy := newHandlerSession(nil, nil, nil, defaultConfig())
+	session.authenticate("", "password")
+	pkt := spy.lastSent()
+	if len(pkt) != 1 || RespID(pkt[0]) != SIGN_EAUTH {
+		t.Fatalf("authenticate() empty username = %v, want [%d]", pkt, SIGN_EAUTH)
+	}
+}
 
 func TestHandlePacket_DSGN(t *testing.T) {
 	userRepo := &mockSignUserRepo{credErr: sql.ErrNoRows}

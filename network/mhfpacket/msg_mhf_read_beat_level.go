@@ -2,6 +2,7 @@ package mhfpacket
 
 import (
 	"errors"
+	"fmt"
 
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network"
@@ -27,12 +28,15 @@ func (m *MsgMhfReadBeatLevel) Parse(bf *byteframe.ByteFrame, ctx *clientctx.Clie
 	m.AckHandle = bf.ReadUint32()
 	m.Unk0 = bf.ReadUint32()         // Always 1
 	m.ValidIDCount = bf.ReadUint32() // Always 4
+	if m.ValidIDCount > uint32(len(m.IDs)) {
+		return fmt.Errorf("beat level ID count %d exceeds maximum %d", m.ValidIDCount, len(m.IDs))
+	}
 
 	// Always 0x74, 0x6B, 0x02, 0x24 followed by 12 zero values.
 	for i := 0; i < len(m.IDs); i++ {
 		m.IDs[i] = bf.ReadUint32()
 	}
-	return nil
+	return bf.Err()
 }
 
 // Build builds a binary packet from the current data.

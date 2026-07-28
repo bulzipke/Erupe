@@ -37,13 +37,24 @@ type APIServer struct {
 	isShuttingDown bool
 }
 
+const (
+	maxAPIRequestBody   = 32 << 20 // 32 MiB
+	maxImportedSavedata = 1 << 20  // 1 MiB decompressed
+)
+
 // NewAPIServer creates a new Server type.
 func NewAPIServer(config *Config) *APIServer {
 	s := &APIServer{
 		logger:      config.Logger,
 		db:          config.DB,
 		erupeConfig: config.ErupeConfig,
-		httpServer:  &http.Server{},
+		httpServer: &http.Server{
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       60 * time.Second,
+			WriteTimeout:      60 * time.Second,
+			IdleTimeout:       90 * time.Second,
+			MaxHeaderBytes:    1 << 20,
+		},
 	}
 	if config.DB != nil {
 		s.userRepo = NewAPIUserRepository(config.DB)
@@ -100,7 +111,11 @@ func (s *APIServer) Start() error {
 	handler := handlers.CORS(
 		handlers.AllowedHeaders([]string{"Content-Type", "Authorization"}),
 	)(r)
-	s.httpServer.Handler = handlers.LoggingHandler(os.Stdout, handler)
+	boundedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxAPIRequestBody)
+		handler.ServeHTTP(w, r)
+	})
+	s.httpServer.Handler = handlers.LoggingHandler(os.Stdout, boundedHandler)
 	s.httpServer.Addr = fmt.Sprintf(":%d", s.erupeConfig.API.Port)
 
 	serveError := make(chan error, 1)

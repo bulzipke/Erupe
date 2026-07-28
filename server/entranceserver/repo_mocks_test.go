@@ -14,8 +14,10 @@ func (m *mockEntranceServerRepo) GetCurrentPlayers(_ int) (uint16, error) {
 type mockEntranceSessionRepo struct {
 	serverID    uint16
 	serverIDErr error
+	calls       int
 }
 
 func (m *mockEntranceSessionRepo) GetServerIDForCharacter(_ uint32) (uint16, error) {
+	m.calls++
 	return m.serverID, m.serverIDErr
 }

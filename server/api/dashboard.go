@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -46,6 +47,9 @@ func (s *APIServer) Dashboard(w http.ResponseWriter, r *http.Request) {
 
 // DashboardStatsJSON serves GET /api/dashboard/stats with live server statistics.
 func (s *APIServer) DashboardStatsJSON(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
 	stats := DashboardStats{
 		ServerVersion: "Erupe-CE",
 		ClientMode:    s.erupeConfig.ClientMode,
@@ -60,7 +64,7 @@ func (s *APIServer) DashboardStatsJSON(w http.ResponseWriter, r *http.Request) {
 
 	// Check database connectivity.
 	if s.db != nil {
-		if err := s.db.Ping(); err != nil {
+		if err := s.db.PingContext(ctx); err != nil {
 			s.logger.Warn("Dashboard: database ping failed", zap.Error(err))
 			stats.DatabaseOK = false
 		} else {
@@ -70,14 +74,14 @@ func (s *APIServer) DashboardStatsJSON(w http.ResponseWriter, r *http.Request) {
 
 	// Query total accounts.
 	if s.db != nil {
-		if err := s.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&stats.TotalAccounts); err != nil {
+		if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&stats.TotalAccounts); err != nil {
 			s.logger.Warn("Dashboard: failed to count users", zap.Error(err))
 		}
 	}
 
 	// Query total characters.
 	if s.db != nil {
-		if err := s.db.QueryRow("SELECT COUNT(*) FROM characters").Scan(&stats.TotalCharacters); err != nil {
+		if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM characters").Scan(&stats.TotalCharacters); err != nil {
 			s.logger.Warn("Dashboard: failed to count characters", zap.Error(err))
 		}
 	}
@@ -98,7 +102,7 @@ func (s *APIServer) DashboardStatsJSON(w http.ResponseWriter, r *http.Request) {
 
 	// Query channel info from servers table.
 	if s.db != nil {
-		rows, err := s.db.Query("SELECT server_id, current_players, world_name, land FROM servers ORDER BY server_id")
+		rows, err := s.db.QueryContext(ctx, "SELECT server_id, current_players, world_name, land FROM servers ORDER BY server_id")
 		if err != nil {
 			s.logger.Warn("Dashboard: failed to query servers", zap.Error(err))
 		} else {

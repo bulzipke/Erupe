@@ -18,7 +18,7 @@ func Crypto(data []byte, rotKey uint32, encrypt bool, overrideByteKey *byte) ([]
 	sharedBufIdx := byte(1)
 	var accumulator0, accumulator1, accumulator2 uint32
 
-	var outputData []byte
+	outputData := make([]byte, len(data))
 	if encrypt {
 		for i := 0; i < len(data); i++ {
 			// Do the encryption for this iteration
@@ -31,8 +31,7 @@ func Crypto(data []byte, rotKey uint32, encrypt bool, overrideByteKey *byte) ([]
 			accumulator1 = accumulator1 + encKeyIdx
 			accumulator0 = accumulator0 + uint32(encKeyByte)<<(i&7)
 
-			// Append the output.
-			outputData = append(outputData, _sharedCryptKey[sharedBufIdx]^encKeyByte)
+			outputData[i] = _sharedCryptKey[sharedBufIdx] ^ encKeyByte
 
 			// Update the sharedBufIdx for the next iteration.
 			sharedBufIdx = data[i]
@@ -50,8 +49,7 @@ func Crypto(data []byte, rotKey uint32, encrypt bool, overrideByteKey *byte) ([]
 			accumulator1 = accumulator1 + uint32(decKeyByte)
 			accumulator2 = accumulator2 + uint32(oldSharedBufIdx)*uint32(sharedBufIdx)
 
-			// Append the output.
-			outputData = append(outputData, sharedBufIdx)
+			outputData[i] = sharedBufIdx
 
 			// Update the key pos for next iteration.
 			derivedCryptKey = 1277*derivedCryptKey + 1277

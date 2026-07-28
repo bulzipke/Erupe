@@ -266,9 +266,9 @@ func (s *Session) makeSignResponse(uid uint32) []byte {
 	}
 	for _, smcGroup := range smcData {
 		for _, smcPair := range smcGroup.charGroup {
-			smc.WriteUint16(stringsupport.ToNGWord(string(smcPair[0]))[0])
+			smc.WriteUint16(firstNGWord(stringsupport.ToNGWord(string(smcPair[0]))))
 			if len(smcPair) > 1 {
-				smc.WriteUint16(stringsupport.ToNGWord(string(smcPair[1]))[0])
+				smc.WriteUint16(firstNGWord(stringsupport.ToNGWord(string(smcPair[1]))))
 			} else {
 				smc.WriteUint16(0)
 			}
@@ -290,7 +290,7 @@ func (s *Session) makeSignResponse(uid uint32) []byte {
 			var i int16
 			j := int16(-1)
 			for _, smcGroup := range smcData {
-				if rune(part) == rune(stringsupport.ToNGWord(string(smcGroup.charGroup[0][0]))[0]) {
+				if part == firstNGWord(stringsupport.ToNGWord(string(smcGroup.charGroup[0][0]))) {
 					j = i
 					break
 				}
@@ -315,7 +315,7 @@ func (s *Session) makeSignResponse(uid uint32) []byte {
 			var i int16
 			j := int16(-1)
 			for _, smcGroup := range smcData {
-				if rune(part) == rune(stringsupport.ToNGWord(string(smcGroup.charGroup[0][0]))[0]) {
+				if part == firstNGWord(stringsupport.ToNGWord(string(smcGroup.charGroup[0][0]))) {
 					j = i
 					break
 				}
@@ -354,6 +354,7 @@ func (s *Session) makeSignResponse(uid uint32) []byte {
 			ps.Uint16(bf, s.server.erupeConfig.DebugOptions.CapLink.Key, false)
 		}
 	}
+
 	caStruct := []struct {
 		Unk0 uint8
 		Unk1 uint32
@@ -401,4 +402,11 @@ func (s *Session) makeSignResponse(uid uint32) []byte {
 		bf.WriteUint8(stalls[i])
 	}
 	return bf.Data()
+}
+
+func firstNGWord(parts []uint16) uint16 {
+	if len(parts) == 0 {
+		return 0
+	}
+	return parts[0]
 }

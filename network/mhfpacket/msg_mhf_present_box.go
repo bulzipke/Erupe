@@ -2,6 +2,7 @@ package mhfpacket
 
 import (
 	"errors"
+	"fmt"
 
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network"
@@ -36,10 +37,21 @@ func (m *MsgMhfPresentBox) Parse(bf *byteframe.ByteFrame, ctx *clientctx.ClientC
 	m.Unk4 = bf.ReadUint32()
 	m.Unk5 = bf.ReadUint32()
 	m.Unk6 = bf.ReadUint32()
+	if err := bf.Err(); err != nil {
+		return err
+	}
+	if m.Unk2 > maxClientBatchEntries {
+		return fmt.Errorf("present box count %d exceeds maximum %d", m.Unk2, maxClientBatchEntries)
+	}
+	available := len(bf.DataFromCurrent()) / 4
+	if uint64(m.Unk2) > uint64(available) {
+		return fmt.Errorf("present box count %d exceeds %d available entries", m.Unk2, available)
+	}
+	m.Unk7 = make([]uint32, 0, int(m.Unk2))
 	for i := uint32(0); i < m.Unk2; i++ {
 		m.Unk7 = append(m.Unk7, bf.ReadUint32())
 	}
-	return nil
+	return bf.Err()
 }
 
 // Build builds a binary packet from the current data.

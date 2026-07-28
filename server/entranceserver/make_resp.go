@@ -12,6 +12,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const maxEntranceUserLookups = 256
+
 func encodeServerInfo(config *cfg.Config, s *Server, local bool) []byte {
 	serverInfos := config.Entrance.Entries
 	bf := byteframe.NewByteFrame()
@@ -35,7 +37,14 @@ func encodeServerInfo(config *cfg.Config, s *Server, local bool) []byte {
 		if local {
 			bf.WriteUint32(0x0100007F) // 127.0.0.1
 		} else {
-			bf.WriteUint32(binary.LittleEndian.Uint32(net.ParseIP(si.IP).To4()))
+			ip := net.ParseIP(si.IP).To4()
+			if ip == nil {
+				s.logger.Error("Invalid IPv4 address in entrance entry",
+					zap.String("entry", si.Name),
+					zap.String("ip", si.IP))
+				ip = net.IPv4zero
+			}
+			bf.WriteUint32(binary.LittleEndian.Uint32(ip))
 		}
 		bf.WriteUint16(uint16(serverIdx | 16))
 		bf.WriteUint16(0)
@@ -162,6 +171,19 @@ func makeUsrResp(pkt []byte, s *Server) []byte {
 	_ = bf.ReadUint32() // ALL+
 	_ = bf.ReadUint8()  // 0x00
 	userEntries := bf.ReadUint16()
+	availableEntries := len(bf.DataFromCurrent()) / 4
+	if int(userEntries) > availableEntries {
+		s.logger.Warn("Truncated entrance user lookup request",
+			zap.Uint16("declaredEntries", userEntries),
+			zap.Int("availableEntries", availableEntries))
+		userEntries = uint16(availableEntries)
+	}
+	if userEntries > maxEntranceUserLookups {
+		s.logger.Warn("Entrance user lookup request exceeds limit",
+			zap.Uint16("requestedEntries", userEntries),
+			zap.Int("limit", maxEntranceUserLookups))
+		userEntries = maxEntranceUserLookups
+	}
 	resp := byteframe.NewByteFrame()
 	for i := 0; i < int(userEntries); i++ {
 		cid := bf.ReadUint32()

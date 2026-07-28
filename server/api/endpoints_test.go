@@ -4,8 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"encoding/xml"
+	"image"
+	"image/jpeg"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -258,6 +263,44 @@ func TestRegisterEndpointEmptyCredentials(t *testing.T) {
 	}
 }
 
+func TestAuthEndpointsRejectOversizedCredentials(t *testing.T) {
+	logger := NewTestLogger(t)
+	defer func() { _ = logger.Sync() }()
+
+	server := &APIServer{
+		logger:      logger,
+		erupeConfig: NewTestConfig(),
+	}
+	tests := []struct {
+		name    string
+		handler func(http.ResponseWriter, *http.Request)
+		path    string
+	}{
+		{name: "login", handler: server.Login, path: "/login"},
+		{name: "register", handler: server.Register, path: "/register"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body, err := json.Marshal(map[string]string{
+				"username": strings.Repeat("a", maxAuthUsernameLength+1),
+				"password": "password",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodPost, tt.path, bytes.NewReader(body))
+			recorder := httptest.NewRecorder()
+
+			tt.handler(recorder, req)
+
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
+			}
+		})
+	}
+}
+
 // TestCreateCharacterEndpointInvalidJSON tests create character with invalid JSON
 func TestCreateCharacterEndpointInvalidJSON(t *testing.T) {
 	logger := NewTestLogger(t)
@@ -351,6 +394,53 @@ func TestScreenShotEndpointDisabled(t *testing.T) {
 
 	if result.Code != "400" {
 		t.Errorf("Expected code 400, got %s", result.Code)
+	}
+}
+
+func TestScreenShotEndpointCreatesNewFile(t *testing.T) {
+	logger := NewTestLogger(t)
+	defer func() { _ = logger.Sync() }()
+
+	c := NewTestConfig()
+	c.Screenshots.OutputDir = t.TempDir()
+	server := &APIServer{
+		logger:      logger,
+		erupeConfig: c,
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	validToken := strings.Repeat("a", screenshotTokenLength)
+	if err := writer.WriteField("token", validToken); err != nil {
+		t.Fatal(err)
+	}
+	part, err := writer.CreateFormFile("img", "shot.jpg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := jpeg.Encode(part, image.NewRGBA(image.Rect(0, 0, 2, 2)), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/ss/bbs/upload.php", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder := httptest.NewRecorder()
+	server.ScreenShot(recorder, req)
+
+	var result struct {
+		Code string `xml:"code"`
+	}
+	if err := xml.NewDecoder(recorder.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Code != "200" {
+		t.Fatalf("expected result code 200, got %s", result.Code)
+	}
+	if _, err := os.Stat(filepath.Join(c.Screenshots.OutputDir, validToken+".jpg")); err != nil {
+		t.Fatalf("screenshot was not created: %v", err)
 	}
 }
 

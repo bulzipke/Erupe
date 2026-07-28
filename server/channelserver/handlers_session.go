@@ -12,6 +12,7 @@ import (
 	"erupe-ce/network/mhfpacket"
 	"fmt"
 	"io"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -34,9 +35,15 @@ func handleMsgSysNop(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgSysAck(s *Session, p mhfpacket.MHFPacket) {} // stub: unimplemented
 
+const maxTerminalLogEntriesLogged = 16
+
 func handleMsgSysTerminalLog(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgSysTerminalLog)
-	for i := range pkt.Entries {
+	loggedEntries := len(pkt.Entries)
+	if loggedEntries > maxTerminalLogEntriesLogged {
+		loggedEntries = maxTerminalLogEntriesLogged
+	}
+	for i := 0; i < loggedEntries; i++ {
 		s.server.logger.Info("SysTerminalLog",
 			zap.Uint8("Type1", pkt.Entries[i].Type1),
 			zap.Uint8("Type2", pkt.Entries[i].Type2),
@@ -46,6 +53,11 @@ func handleMsgSysTerminalLog(s *Session, p mhfpacket.MHFPacket) {
 			zap.Int32("Unk3", pkt.Entries[i].Unk3),
 			zap.Int32s("Unk4", pkt.Entries[i].Unk4),
 		)
+	}
+	if len(pkt.Entries) > loggedEntries {
+		s.server.logger.Info("SysTerminalLog entries omitted",
+			zap.Int("total", len(pkt.Entries)),
+			zap.Int("logged", loggedEntries))
 	}
 	resp := byteframe.NewByteFrame()
 	resp.WriteUint32(pkt.LogID + 1) // LogID to use for requests after this.
@@ -92,7 +104,7 @@ func handleMsgSysLogin(s *Session, p mhfpacket.MHFPacket) {
 	bf := byteframe.NewByteFrame()
 	bf.WriteUint32(uint32(TimeAdjusted().Unix())) // Unix timestamp
 
-	err = s.server.sessionRepo.UpdatePlayerCount(s.server.ID, len(s.server.sessions))
+	err = s.server.sessionRepo.UpdatePlayerCount(s.server.ID, s.server.sessionCount())
 	if err != nil {
 		s.logger.Error("Failed to update current players", zap.Error(err))
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
@@ -140,6 +152,9 @@ func handleMsgSysLogout(s *Session, p mhfpacket.MHFPacket) {
 // - RP updates
 // - Name corruption prevention
 func saveAllCharacterData(s *Session, rpToAdd int) error {
+	unlock := s.server.charSaveLocks.Lock(s.charID)
+	defer unlock()
+
 	saveStart := time.Now()
 
 	// Get current savedata from database
@@ -249,6 +264,124 @@ func saveAllCharacterData(s *Session, rpToAdd int) error {
 }
 
 func logoutPlayer(s *Session) {
+	s.logoutOnce.Do(func() {
+		s.markClosed()
+		s.closeConnection()
+		defer func() {
+			panicValue := recover()
+			finalizeRuntimeLogout(s)
+			if panicValue != nil {
+				s.logger.Error("Recovered panic during player logout",
+					zap.Uint32("charID", s.charID),
+					zap.String("name", s.Name),
+					zap.Any("panic", panicValue),
+					zap.ByteString("stack", debug.Stack()))
+			}
+		}()
+		logoutPlayerOnce(s)
+	})
+}
+
+// finalizeRuntimeLogout is an idempotent safety net. It runs after both normal
+// and panicking logout paths so a recovered panic cannot leave a closed session
+// referenced by the live session, stage, or semaphore registries.
+func finalizeRuntimeLogout(s *Session) {
+	if s.server == nil {
+		return
+	}
+
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+
+	var remainingSessions []*Session
+	runLogoutCleanupPhase(s, "session registry", func() {
+		s.server.Lock()
+		delete(s.server.sessions, s.rawConn)
+		for _, session := range s.server.sessions {
+			remainingSessions = append(remainingSessions, session)
+		}
+		s.server.Unlock()
+	})
+	replacementReservations := reservationStagesForCharacter(remainingSessions, s, s.charID)
+
+	runLogoutCleanupPhase(s, "stage memberships", func() {
+		s.server.stages.Range(func(id string, stage *Stage) bool {
+			stage.Lock()
+			delete(stage.clients, s)
+
+			replacementInStage := false
+			for session, charID := range stage.clients {
+				if session != s && charID == s.charID {
+					replacementInStage = true
+					break
+				}
+			}
+			if !replacementInStage {
+				delete(stage.objects, s.charID)
+			}
+			_, replacementReserved := replacementReservations[stage]
+			if !replacementInStage && !replacementReserved {
+				delete(stage.reservedClientSlots, s.charID)
+			}
+
+			wasHost := stage.host == s
+			if wasHost {
+				stage.host = nil
+				for session := range stage.clients {
+					stage.host = session
+					break
+				}
+			}
+			empty := len(stage.clients) == 0 && len(stage.reservedClientSlots) == 0
+			if empty && (wasHost || stageKind(id) == "Qs" || stageKind(id) == "Ms" ||
+				stageKind(id) == "Gs" || stageKind(id) == "Ls") {
+				s.server.stages.CompareAndDelete(id, stage)
+			}
+			stage.Unlock()
+			return true
+		})
+
+		s.Lock()
+		s.stage = nil
+		s.reservationStage = nil
+		s.Unlock()
+	})
+
+	runLogoutCleanupPhase(s, "semaphore memberships", func() {
+		removeSessionFromSemaphore(s)
+	})
+}
+
+func reservationStagesForCharacter(sessions []*Session, excluded *Session, charID uint32) map[*Stage]struct{} {
+	stages := make(map[*Stage]struct{})
+	for _, session := range sessions {
+		if session == excluded {
+			continue
+		}
+		session.Lock()
+		sameCharacter := session.charID == charID
+		reservationStage := session.reservationStage
+		session.Unlock()
+		if sameCharacter && reservationStage != nil {
+			stages[reservationStage] = struct{}{}
+		}
+	}
+	return stages
+}
+
+func runLogoutCleanupPhase(s *Session, phase string, cleanup func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error("Recovered panic during logout cleanup",
+				zap.String("phase", phase),
+				zap.Any("panic", r),
+				zap.ByteString("stack", debug.Stack()))
+		}
+	}()
+	cleanup()
+}
+
+func logoutPlayerOnce(s *Session) {
 	logoutStart := time.Now()
 
 	// Log logout initiation with session details
@@ -324,7 +457,6 @@ func logoutPlayer(s *Session) {
 	// NOW do cleanup (after save is complete)
 	s.server.Lock()
 	delete(s.server.sessions, s.rawConn)
-	_ = s.rawConn.Close()
 	s.server.Unlock()
 
 	// Stage cleanup — snapshot sessions first under server mutex, then iterate stages
@@ -334,25 +466,30 @@ func logoutPlayer(s *Session) {
 		sessionSnapshot = append(sessionSnapshot, sess)
 	}
 	s.server.Unlock()
+	replacementReservations := reservationStagesForCharacter(sessionSnapshot, s, s.charID)
 
 	s.server.stages.Range(func(_ string, stage *Stage) bool {
 		stage.Lock()
-		// Tell sessions registered to disconnecting player's quest to unregister
-		if stage.host != nil && stage.host.charID == s.charID {
+		hostedBySession := stage.host == s
+		reserved := make(map[uint32]struct{}, len(stage.reservedClientSlots))
+		if hostedBySession {
+			for charID := range stage.reservedClientSlots {
+				reserved[charID] = struct{}{}
+			}
+		}
+		delete(stage.clients, s)
+		stage.Unlock()
+
+		// Packet building and enqueueing can fail or block; never do either
+		// while holding a shared stage lock.
+		if hostedBySession {
 			for _, sess := range sessionSnapshot {
-				for rSlot := range stage.reservedClientSlots {
-					if sess.charID == rSlot && sess.stage != nil && sess.stage.id[3:5] != "Qs" {
-						sess.QueueSendMHFNonBlocking(&mhfpacket.MsgSysStageDestruct{})
-					}
+				if _, exists := reserved[sess.charID]; exists &&
+					sess.stage != nil && stageKind(sess.stage.id) != "Qs" {
+					sess.QueueSendMHFNonBlocking(&mhfpacket.MsgSysStageDestruct{})
 				}
 			}
 		}
-		for session := range stage.clients {
-			if session.charID == s.charID {
-				delete(stage.clients, session)
-			}
-		}
-		stage.Unlock()
 		return true
 	})
 
@@ -362,12 +499,31 @@ func logoutPlayer(s *Session) {
 			s.logger.Error("Failed to clear sign session", zap.Error(err))
 		}
 
-		if err := s.server.sessionRepo.UpdatePlayerCount(s.server.ID, len(s.server.sessions)); err != nil {
+		if err := s.server.sessionRepo.UpdatePlayerCount(s.server.ID, s.server.sessionCount()); err != nil {
 			s.logger.Error("Failed to update player count", zap.Error(err))
 		}
 	}
 
+	s.server.stages.Range(func(_ string, stage *Stage) bool {
+		stage.Lock()
+		replacementInStage := false
+		for session, charID := range stage.clients {
+			if session != s && charID == s.charID {
+				replacementInStage = true
+				break
+			}
+		}
+		_, replacementReserved := replacementReservations[stage]
+		if !replacementInStage && !replacementReserved {
+			delete(stage.reservedClientSlots, s.charID)
+		}
+		stage.Unlock()
+		return true
+	})
+	removeSessionFromSemaphore(s)
+
 	if s.stage == nil {
+		destructEmptyHostedStages(s)
 		logoutDuration := time.Since(logoutStart)
 		s.logger.Info("Player logout completed",
 			zap.Uint32("charID", s.charID),
@@ -382,15 +538,8 @@ func logoutPlayer(s *Session) {
 		CharID: s.charID,
 	}, s)
 
-	s.server.stages.Range(func(_ string, stage *Stage) bool {
-		stage.Lock()
-		delete(stage.reservedClientSlots, s.charID)
-		stage.Unlock()
-		return true
-	})
-
-	removeSessionFromSemaphore(s)
 	removeSessionFromStage(s)
+	destructEmptyHostedStages(s)
 
 	logoutDuration := time.Since(logoutStart)
 	s.logger.Info("Player logout completed",
@@ -475,8 +624,13 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 			}
 		}
 	}
-	// remove a client returning to town from reserved slots to make sure the stage is hidden from board
-	delete(s.stage.reservedClientSlots, s.charID)
+	// Remove a client returning to town from reserved slots to make sure the
+	// stage is hidden from the board.
+	if s.stage != nil {
+		s.stage.Lock()
+		delete(s.stage.reservedClientSlots, s.charID)
+		s.stage.Unlock()
+	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }
 

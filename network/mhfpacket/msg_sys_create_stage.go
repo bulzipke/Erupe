@@ -2,6 +2,7 @@ package mhfpacket
 
 import (
 	"errors"
+
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network"
 	"erupe-ce/network/clientctx"
@@ -25,7 +26,7 @@ func (m *MsgSysCreateStage) Parse(bf *byteframe.ByteFrame, ctx *clientctx.Client
 	m.AckHandle = bf.ReadUint32()
 	m.CreateType = bf.ReadUint8()
 	m.PlayerCount = bf.ReadUint8()
-	bf.ReadUint8() // Length StageID
+	bf.ReadUint8() // Stage ID length excludes the null terminator on this packet.
 	m.StageID = string(bf.ReadNullTerminatedBytes())
 	return nil
 }

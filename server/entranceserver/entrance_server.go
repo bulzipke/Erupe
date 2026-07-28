@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime/debug"
 	"strings"
 	"sync"
+	"time"
 
 	cfg "erupe-ce/config"
 	"erupe-ce/network"
@@ -74,6 +76,7 @@ func (s *Server) Shutdown() {
 
 // acceptClients handles accepting new clients in a loop.
 func (s *Server) acceptClients() {
+	var retryDelay time.Duration
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
@@ -85,9 +88,19 @@ func (s *Server) acceptClients() {
 			if shutdown {
 				break
 			} else {
+				if retryDelay == 0 {
+					retryDelay = 5 * time.Millisecond
+				} else {
+					retryDelay *= 2
+					if retryDelay > time.Second {
+						retryDelay = time.Second
+					}
+				}
+				time.Sleep(retryDelay)
 				continue
 			}
 		}
+		retryDelay = 0
 
 		// Start a new goroutine for the connection so that we don't block other incoming connections.
 		go s.handleEntranceServerConnection(conn)
@@ -96,6 +109,20 @@ func (s *Server) acceptClients() {
 
 func (s *Server) handleEntranceServerConnection(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error("Recovered panic in entrance connection",
+				zap.String("remoteAddr", conn.RemoteAddr().String()),
+				zap.Any("panic", r),
+				zap.ByteString("stack", debug.Stack()),
+			)
+		}
+	}()
+	// Entrance connections are one-shot. Bound incomplete initial frames and
+	// clients that stop reading the response.
+	if err := conn.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		s.logger.Debug("Failed to set entrance connection deadline", zap.Error(err))
+	}
 	// Client initalizes the connection with a one-time buffer of 8 NULL bytes.
 	nullInit := make([]byte, 8)
 	n, err := io.ReadFull(conn, nullInit)

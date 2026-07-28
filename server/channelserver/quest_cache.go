@@ -41,13 +41,22 @@ func (c *QuestCache) Get(questID int, lang string) ([]byte, bool) {
 		return nil, false
 	}
 	k := questCacheKey{questID: questID, lang: lang}
+	now := time.Now()
 	c.mu.RLock()
-	defer c.mu.RUnlock()
 	b, ok := c.data[k]
 	if !ok {
+		c.mu.RUnlock()
 		return nil, false
 	}
-	if time.Now().After(c.expiry[k]) {
+	expires := c.expiry[k]
+	c.mu.RUnlock()
+	if now.After(expires) {
+		c.mu.Lock()
+		if currentExpiry, exists := c.expiry[k]; exists && !currentExpiry.After(now) {
+			delete(c.data, k)
+			delete(c.expiry, k)
+		}
+		c.mu.Unlock()
 		return nil, false
 	}
 	return b, true
@@ -55,6 +64,9 @@ func (c *QuestCache) Get(questID int, lang string) ([]byte, bool) {
 
 // Put stores quest data for the (questID, lang) variant with the configured TTL.
 func (c *QuestCache) Put(questID int, lang string, b []byte) {
+	if c.ttl <= 0 {
+		return
+	}
 	k := questCacheKey{questID: questID, lang: lang}
 	c.mu.Lock()
 	c.data[k] = b

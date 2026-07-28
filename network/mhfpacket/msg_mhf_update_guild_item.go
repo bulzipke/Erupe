@@ -2,6 +2,8 @@ package mhfpacket
 
 import (
 	"errors"
+	"fmt"
+
 	"erupe-ce/common/mhfitem"
 
 	"erupe-ce/common/byteframe"
@@ -28,10 +30,18 @@ func (m *MsgMhfUpdateGuildItem) Parse(bf *byteframe.ByteFrame, ctx *clientctx.Cl
 	changes := int(bf.ReadUint16())
 	bf.ReadUint8() // Zeroed
 	bf.ReadUint8() // Zeroed
+	if err := bf.Err(); err != nil {
+		return err
+	}
+	const warehouseItemSize = 12
+	if changes > len(bf.DataFromCurrent())/warehouseItemSize {
+		return fmt.Errorf("guild item count %d exceeds packet data", changes)
+	}
+	m.UpdatedItems = make([]mhfitem.MHFItemStack, 0, changes)
 	for i := 0; i < changes; i++ {
 		m.UpdatedItems = append(m.UpdatedItems, mhfitem.ReadWarehouseItem(bf))
 	}
-	return nil
+	return bf.Err()
 }
 
 // Build builds a binary packet from the current data.

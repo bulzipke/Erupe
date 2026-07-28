@@ -34,6 +34,11 @@ type CryptConn struct {
 	prevSendPacketCombinedCheck uint16
 }
 
+const (
+	maxCryptoLogBytes       = 256
+	maxCryptoBruteForceSize = 64 * 1024
+)
+
 // NewCryptConn creates a new CryptConn with proper default values.
 func NewCryptConn(conn net.Conn, mode cfg.Mode, logger *zap.Logger) *CryptConn {
 	if logger == nil {
@@ -72,6 +77,9 @@ func (cc *CryptConn) ReadPacket() ([]byte, error) {
 	if cc.realClientMode < cfg.F1 {
 		encryptedPacketBody = make([]byte, cph.DataSize)
 	} else {
+		if cph.Pf0&0x0F != 0x03 {
+			return nil, errors.New("invalid encrypted packet size header")
+		}
 		encryptedPacketBody = make([]byte, uint32(cph.DataSize)+(uint32(cph.Pf0-0x03)*0x1000))
 	}
 	_, err = io.ReadFull(cc.conn, encryptedPacketBody)
@@ -86,12 +94,21 @@ func (cc *CryptConn) ReadPacket() ([]byte, error) {
 
 	out, combinedCheck, check0, check1, check2 := crypto.Crypto(encryptedPacketBody, cc.readKeyRot, false, nil)
 	if cph.Check0 != check0 || cph.Check1 != check1 || cph.Check2 != check2 {
+		logBody := encryptedPacketBody
+		if len(logBody) > maxCryptoLogBytes {
+			logBody = logBody[:maxCryptoLogBytes]
+		}
 		cc.logger.Warn("Crypto checksum mismatch",
 			zap.String("got", hex.EncodeToString([]byte{byte(check0 >> 8), byte(check0), byte(check1 >> 8), byte(check1), byte(check2 >> 8), byte(check2)})),
 			zap.String("want", hex.EncodeToString([]byte{byte(cph.Check0 >> 8), byte(cph.Check0), byte(cph.Check1 >> 8), byte(cph.Check1), byte(cph.Check2 >> 8), byte(cph.Check2)})),
 			zap.String("headerData", hex.Dump(headerData)),
-			zap.String("encryptedPacketBody", hex.Dump(encryptedPacketBody)),
+			zap.Int("encryptedPacketBytes", len(encryptedPacketBody)),
+			zap.String("encryptedPacketPrefix", hex.Dump(logBody)),
 		)
+
+		if len(encryptedPacketBody) > maxCryptoBruteForceSize {
+			return nil, errors.New("decrypted data checksum mismatch on packet too large for key recovery")
+		}
 
 		// Attempt to bruteforce it.
 		cc.logger.Warn("Crypto out of sync, attempting bruteforce")

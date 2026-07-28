@@ -40,12 +40,17 @@ func NewSemaphore(s *Session, ID string, MaxPlayers uint16) *Semaphore {
 
 // BroadcastMHF queues a MHFPacket to be sent to all sessions in the Semaphore
 func (s *Semaphore) BroadcastMHF(pkt mhfpacket.MHFPacket, ignoredSession *Session) {
-	// Broadcast the data.
+	s.RLock()
+	sessions := make([]*Session, 0, len(s.clients))
 	for session := range s.clients {
 		if session == ignoredSession {
 			continue
 		}
+		sessions = append(sessions, session)
+	}
+	s.RUnlock()
 
+	for _, session := range sessions {
 		// Make the header
 		bf := byteframe.NewByteFrame()
 		bf.WriteUint16(uint16(pkt.Opcode()))

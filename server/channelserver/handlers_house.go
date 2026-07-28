@@ -526,19 +526,19 @@ func handleMsgMhfUpdateWarehouse(s *Session, p mhfpacket.MHFPacket) {
 		}
 	case 1:
 		boxTypeName = "equipment"
-		var fEquip []mhfitem.MHFEquipment
 		oEquips := warehouseGetEquipment(s, pkt.BoxIndex)
-		for _, uEquip := range pkt.UpdatedEquipment {
-			exists := false
-			for i := range oEquips {
-				if oEquips[i].WarehouseID == uEquip.WarehouseID {
-					exists = true
-					// Will set removed items to 0
-					oEquips[i].ItemID = uEquip.ItemID
-					break
-				}
+		equipmentByID := make(map[uint32]int, len(oEquips))
+		for i := range oEquips {
+			if _, exists := equipmentByID[oEquips[i].WarehouseID]; !exists {
+				equipmentByID[oEquips[i].WarehouseID] = i
 			}
-			if !exists {
+		}
+		fEquip := make([]mhfitem.MHFEquipment, 0, len(oEquips)+len(pkt.UpdatedEquipment))
+		for _, uEquip := range pkt.UpdatedEquipment {
+			if index, exists := equipmentByID[uEquip.WarehouseID]; exists {
+				// Will set removed items to 0.
+				oEquips[index].ItemID = uEquip.ItemID
+			} else {
 				uEquip.WarehouseID = token.RNG.Uint32()
 				fEquip = append(fEquip, uEquip)
 			}

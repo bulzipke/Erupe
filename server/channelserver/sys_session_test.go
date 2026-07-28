@@ -72,6 +72,42 @@ func createTestSession(mock network.Conn) *Session {
 	return s
 }
 
+func TestQueueSendUnblocksWhenSessionCloses(t *testing.T) {
+	s := &Session{
+		sendPackets: make(chan packet, 1),
+		done:        make(chan struct{}),
+	}
+	s.sendPackets <- packet{data: []byte{0x01}, nonBlocking: true}
+
+	returned := make(chan struct{})
+	go func() {
+		s.QueueSend([]byte{0x02})
+		close(returned)
+	}()
+
+	s.markClosed()
+	select {
+	case <-returned:
+	case <-time.After(time.Second):
+		t.Fatal("QueueSend remained blocked after session close")
+	}
+}
+
+func TestRecordAckStartIsBounded(t *testing.T) {
+	server := &Server{
+		erupeConfig: &cfg.Config{
+			DebugOptions: cfg.DebugOptions{LogOutboundMessages: true},
+		},
+	}
+	s := &Session{server: server}
+	for i := 0; i < maxPendingAckTimings+100; i++ {
+		s.recordAckStart(uint32(i))
+	}
+	if len(s.ackStart) > maxPendingAckTimings {
+		t.Fatalf("ack timing map length = %d, want <= %d", len(s.ackStart), maxPendingAckTimings)
+	}
+}
+
 // TestPacketQueueIndividualSending verifies that packets are sent individually
 // with their own terminators instead of being concatenated
 func TestPacketQueueIndividualSending(t *testing.T) {

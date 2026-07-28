@@ -2,11 +2,14 @@ package mhfpacket
 
 import (
 	"errors"
+	"fmt"
 
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network"
 	"erupe-ce/network/clientctx"
 )
+
+const maxGuildIconParts = 255
 
 // GuildIconMsgPart represents one graphical part of a guild icon (emblem).
 type GuildIconMsgPart struct {
@@ -41,6 +44,17 @@ func (m *MsgMhfUpdateGuildIcon) Parse(bf *byteframe.ByteFrame, ctx *clientctx.Cl
 	partCount := int(bf.ReadUint16())
 	bf.ReadUint8() // Zeroed
 	bf.ReadUint8() // Zeroed
+	if err := bf.Err(); err != nil {
+		return err
+	}
+	if partCount > maxGuildIconParts {
+		return fmt.Errorf("guild icon part count %d exceeds limit %d", partCount, maxGuildIconParts)
+	}
+	const guildIconPartSize = 14
+	available := len(bf.DataFromCurrent()) / guildIconPartSize
+	if partCount > available {
+		return fmt.Errorf("guild icon part count %d exceeds %d available parts", partCount, available)
+	}
 	m.IconParts = make([]GuildIconMsgPart, partCount)
 
 	for i := 0; i < partCount; i++ {
@@ -58,7 +72,7 @@ func (m *MsgMhfUpdateGuildIcon) Parse(bf *byteframe.ByteFrame, ctx *clientctx.Cl
 		}
 	}
 
-	return nil
+	return bf.Err()
 }
 
 // Build builds a binary packet from the current data.

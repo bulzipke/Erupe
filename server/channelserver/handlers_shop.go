@@ -254,12 +254,21 @@ func handleMsgMhfAcquireExchangeShop(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfAcquireExchangeShop)
 	bf := byteframe.NewByteFrameFromBytes(pkt.RawDataPayload)
 	exchanges := int(bf.ReadUint16())
+	const maxExchangeShopEntries = 256
+	if bf.Err() != nil ||
+		exchanges > maxExchangeShopEntries ||
+		exchanges > len(bf.DataFromCurrent())/8 {
+		s.logger.Warn("Rejected malformed exchange-shop purchase batch",
+			zap.Int("entries", exchanges))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
 	for i := 0; i < exchanges; i++ {
 		itemHash := bf.ReadUint32()
+		buyCount := bf.ReadUint32()
 		if itemHash == 0 {
 			continue
 		}
-		buyCount := bf.ReadUint32()
 		if err := s.server.shopRepo.RecordPurchase(s.charID, itemHash, buyCount); err != nil {
 			s.logger.Error("Failed to update shop item purchase count", zap.Error(err))
 		}

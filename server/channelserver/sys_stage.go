@@ -49,6 +49,18 @@ func (sm *StageMap) Delete(id string) {
 	sm.m.Delete(id)
 }
 
+// CompareAndDelete removes id only when it still refers to stage. This avoids
+// deleting a replacement created concurrently for the same ID.
+func (sm *StageMap) CompareAndDelete(id string, stage *Stage) bool {
+	return sm.m.CompareAndDelete(id, stage)
+}
+
+// IsCurrent reports whether id still refers to the supplied stage.
+func (sm *StageMap) IsCurrent(id string, stage *Stage) bool {
+	current, ok := sm.Get(id)
+	return ok && current == stage
+}
+
 // Range iterates over all stages. The callback receives each (id, stage) pair
 // and should return true to continue iteration or false to stop.
 // It is safe to call Delete during iteration.
@@ -118,13 +130,17 @@ func NewStage(ID string) *Stage {
 
 // BroadcastMHF queues a MHFPacket to be sent to all sessions in the stage.
 func (s *Stage) BroadcastMHF(pkt mhfpacket.MHFPacket, ignoredSession *Session) {
-	s.Lock()
-	defer s.Unlock()
+	s.RLock()
+	sessions := make([]*Session, 0, len(s.clients))
 	for session := range s.clients {
 		if session == ignoredSession {
 			continue
 		}
+		sessions = append(sessions, session)
+	}
+	s.RUnlock()
 
+	for _, session := range sessions {
 		// Make the header
 		bf := byteframe.NewByteFrame()
 		bf.WriteUint16(uint16(pkt.Opcode()))

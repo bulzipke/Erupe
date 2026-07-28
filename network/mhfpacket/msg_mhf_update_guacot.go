@@ -5,6 +5,7 @@ import (
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network"
 	"erupe-ce/network/clientctx"
+	"fmt"
 )
 
 // Goocoo represents a single Goocoo (guacot) companion entry in an update packet.
@@ -32,6 +33,19 @@ func (m *MsgMhfUpdateGuacot) Parse(bf *byteframe.ByteFrame, ctx *clientctx.Clien
 	m.AckHandle = bf.ReadUint32()
 	m.EntryCount = bf.ReadUint16()
 	bf.ReadUint16() // Zeroed
+	if err := bf.Err(); err != nil {
+		return err
+	}
+	const maxGoocooSlots = 5
+	if m.EntryCount > maxGoocooSlots {
+		return fmt.Errorf("goocoo count %d exceeds slot count %d", m.EntryCount, maxGoocooSlots)
+	}
+	const minimumGoocooEntrySize = 57
+	available := len(bf.DataFromCurrent()) / minimumGoocooEntrySize
+	if int(m.EntryCount) > available {
+		return fmt.Errorf("goocoo count %d exceeds %d available entries", m.EntryCount, available)
+	}
+	m.Goocoos = make([]Goocoo, 0, int(m.EntryCount))
 	for i := 0; i < int(m.EntryCount); i++ {
 		var temp Goocoo
 		temp.Index = bf.ReadUint32()
@@ -44,7 +58,7 @@ func (m *MsgMhfUpdateGuacot) Parse(bf *byteframe.ByteFrame, ctx *clientctx.Clien
 		temp.Name = bf.ReadBytes(uint(bf.ReadUint8()))
 		m.Goocoos = append(m.Goocoos, temp)
 	}
-	return nil
+	return bf.Err()
 }
 
 // Build builds a binary packet from the current data.

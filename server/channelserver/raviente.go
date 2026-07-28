@@ -22,11 +22,22 @@ type Raviente struct {
 }
 
 func (s *Server) resetRaviente() {
+	s.semaphoreLock.Lock()
+	defer s.semaphoreLock.Unlock()
+	s.resetRavienteLocked()
+}
+
+// resetRavienteLocked resets the event before another goroutine can publish a
+// replacement Raviente semaphore. The caller must hold semaphoreLock for write.
+func (s *Server) resetRavienteLocked() {
 	for _, semaphore := range s.semaphore {
 		if strings.HasPrefix(semaphore.name, "hs_l0") {
 			return
 		}
 	}
+
+	s.raviente.Lock()
+	defer s.raviente.Unlock()
 	s.logger.Debug("All Raviente Semaphores empty, resetting")
 	s.raviente.id = s.raviente.id + 1
 	s.raviente.register = make([]uint32, 30)
@@ -35,15 +46,20 @@ func (s *Server) resetRaviente() {
 }
 
 func (s *Server) GetRaviMultiplier() float64 {
-	raviSema := s.getRaviSemaphore()
-	if raviSema != nil {
+	players, active := s.raviPlayerCount()
+	s.raviente.Lock()
+	defer s.raviente.Unlock()
+	return s.getRaviMultiplierLocked(players, active)
+}
+
+func (s *Server) getRaviMultiplierLocked(players int, active bool) float64 {
+	if active {
 		var minPlayers int
 		if s.raviente.register[9] > 8 {
 			minPlayers = 24
 		} else {
 			minPlayers = 4
 		}
-		players := len(raviSema.clients)
 		// Guard against a division by zero in the window between the last
 		// player leaving and the semaphore being torn down.
 		if players <= 0 {
@@ -61,6 +77,13 @@ func (s *Server) GetRaviMultiplier() float64 {
 }
 
 func (s *Server) UpdateRavi(semaID uint32, index uint8, value uint32, update bool) (uint32, uint32) {
+	players, active := s.raviPlayerCount()
+	s.raviente.Lock()
+	defer s.raviente.Unlock()
+	return s.updateRaviLocked(semaID, index, value, update, players, active)
+}
+
+func (s *Server) updateRaviLocked(semaID uint32, index uint8, value uint32, update bool, players int, active bool) (uint32, uint32) {
 	var prev uint32
 	var dest *[]uint32
 	switch semaID {
@@ -69,7 +92,7 @@ func (s *Server) UpdateRavi(semaID uint32, index uint8, value uint32, update boo
 		case 17, 28: // Ignore res and poison
 			break
 		default:
-			value = uint32(float64(value) * s.GetRaviMultiplier())
+			value = uint32(float64(value) * s.getRaviMultiplierLocked(players, active))
 		}
 		dest = &s.raviente.state
 	case 0x50000:
@@ -79,6 +102,10 @@ func (s *Server) UpdateRavi(semaID uint32, index uint8, value uint32, update boo
 	default:
 		return 0, 0
 	}
+	if int(index) >= len(*dest) {
+		return 0, 0
+	}
+	prev = (*dest)[index]
 	if update {
 		(*dest)[index] += value
 	} else {
@@ -120,12 +147,25 @@ func (s *Server) BroadcastRaviente(ip uint32, port uint16, stage []byte, _type u
 }
 
 func (s *Server) getRaviSemaphore() *Semaphore {
+	s.semaphoreLock.RLock()
+	defer s.semaphoreLock.RUnlock()
 	for _, semaphore := range s.semaphore {
 		if strings.HasPrefix(semaphore.name, "hs_l0") && strings.HasSuffix(semaphore.name, "3") {
 			return semaphore
 		}
 	}
 	return nil
+}
+
+func (s *Server) raviPlayerCount() (int, bool) {
+	semaphore := s.getRaviSemaphore()
+	if semaphore == nil {
+		return 0, false
+	}
+	semaphore.RLock()
+	players := len(semaphore.clients)
+	semaphore.RUnlock()
+	return players, true
 }
 
 // raviAutoStart optionally auto-starts a Raviente siege when its gathering room
@@ -163,13 +203,13 @@ func (s *Server) raviAutoStart() {
 
 		// Semaphore liveness + player count. getRaviSemaphore iterates the
 		// semaphore map, so guard it with the semaphore lock.
-		s.semaphoreLock.RLock()
 		sema := s.getRaviSemaphore()
 		players := 0
 		if sema != nil {
+			sema.RLock()
 			players = len(sema.clients)
+			sema.RUnlock()
 		}
-		s.semaphoreLock.RUnlock()
 
 		// Register snapshot under the raviente lock. Never cache the slice:
 		// resetRaviente reallocates it.
@@ -230,16 +270,16 @@ func (s *Server) raviAutoStart() {
 // its own client). Even with no push at all the clients pick up register[1] on
 // their next LOAD_REGISTER poll, so this is a promptness belt-and-suspenders.
 func (s *Server) broadcastRaviAutoStart() {
-	s.semaphoreLock.RLock()
 	sema := s.getRaviSemaphore()
 	var clients []*Session
 	if sema != nil {
+		sema.RLock()
 		clients = make([]*Session, 0, len(sema.clients))
 		for session := range sema.clients {
 			clients = append(clients, session)
 		}
+		sema.RUnlock()
 	}
-	s.semaphoreLock.RUnlock()
 
 	lowLatency := s.erupeConfig.GameplayOptions.LowLatencyRaviente
 	for _, session := range clients {

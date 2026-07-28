@@ -539,6 +539,13 @@ func TestUTF8ToSJIS_PreservesValidContent(t *testing.T) {
 	}
 }
 
+func TestToNGWordUsesJapaneseShiftJIS(t *testing.T) {
+	got := ToNGWord("ｱ")
+	if len(got) != 1 || got[0] != 0x00B1 {
+		t.Fatalf("ToNGWord(half-width kana) = %#v, want [0x00B1]", got)
+	}
+}
+
 func TestToNGWord_UnsupportedCharacters(t *testing.T) {
 	// ToNGWord also calls UTF8ToSJIS internally, so it must not panic either.
 	inputs := []string{"( ͡° ͜ʖ ͡°)", "🎮", "Hello 🎮 World"}

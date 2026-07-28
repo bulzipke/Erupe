@@ -312,6 +312,8 @@ func handleMsgMhfLoadOtomoAirou(s *Session, p mhfpacket.MHFPacket) {
 	loadCharacterData(s, pkt.AckHandle, "otomoairou", make([]byte, 10))
 }
 
+const maxAirouDecompressedPayload = 1 << 20 // 1 MiB
+
 func handleMsgMhfSaveOtomoAirou(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfSaveOtomoAirou)
 	if len(pkt.RawDataPayload) < 2 {
@@ -319,7 +321,7 @@ func handleMsgMhfSaveOtomoAirou(s *Session, p mhfpacket.MHFPacket) {
 		return
 	}
 	dumpSaveData(s, pkt.RawDataPayload, "otomoairou")
-	decomp, err := nullcomp.Decompress(pkt.RawDataPayload[1:])
+	decomp, err := nullcomp.DecompressWithLimit(pkt.RawDataPayload[1:], maxAirouDecompressedPayload)
 	if err != nil {
 		s.logger.Error("Failed to decompress airou", zap.Error(err))
 		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
@@ -333,6 +335,11 @@ func handleMsgMhfSaveOtomoAirou(s *Session, p mhfpacket.MHFPacket) {
 	cats := bf.ReadUint8()
 	for i := 0; i < int(cats); i++ {
 		dataLen := bf.ReadUint32()
+		if dataLen < 5 || uint64(dataLen) > uint64(len(bf.DataFromCurrent())) {
+			s.logger.Warn("Invalid airou entry length", zap.Uint32("length", dataLen))
+			doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
 		catID := bf.ReadUint32()
 		if catID == 0 {
 			catID, err = s.server.mercenaryRepo.NextAirouID()
@@ -431,7 +438,7 @@ func getGuildAirouList(s *Session) []Airou {
 		}
 		// first byte has cat existence in general, can skip if 0
 		if data[0] == 1 {
-			decomp, err := nullcomp.Decompress(data[1:])
+			decomp, err := nullcomp.DecompressWithLimit(data[1:], maxAirouDecompressedPayload)
 			if err != nil {
 				s.logger.Warn("decomp failure", zap.Error(err))
 				continue
