@@ -130,26 +130,40 @@ func (svc *GachaService) resolveRewards(entries []GachaEntry, rolls int, isBox b
 
 // saveGachaItems appends reward items to the character's gacha item storage.
 func (svc *GachaService) saveGachaItems(charID uint32, items []GachaItem) {
-	data, _ := svc.charRepo.LoadColumn(charID, "gacha_items")
-	if len(data) > 0 {
-		numItems := int(data[0])
-		data = data[1:]
-		oldItem := byteframe.NewByteFrameFromBytes(data)
-		for i := 0; i < numItems; i++ {
-			items = append(items, GachaItem{
-				ItemType: oldItem.ReadUint8(),
-				ItemID:   oldItem.ReadUint16(),
-				Quantity: oldItem.ReadUint16(),
-			})
-		}
+	data, err := svc.charRepo.LoadColumn(charID, "gacha_items")
+	if err != nil {
+		svc.logger.Error("Failed to load pending gacha items before append",
+			zap.Uint32("charID", charID), zap.Error(err))
+		// Preserve the pre-existing behavior on a transient read failure:
+		// still attempt to save the newly rolled rewards rather than silently
+		// discarding them after their cost has already been deducted.
+		data = nil
 	}
+
+	oldRecords := 0
+	var oldPayload []byte
+	if len(data) > 0 {
+		declared, actual, trailing, valid := inspectGachaItemBlob(data)
+		if !valid {
+			svc.logger.Error("Invalid pending gacha items blob; refusing to overwrite it",
+				zap.Uint32("charID", charID),
+				zap.Int("declared_count", declared),
+				zap.Int("actual_records", actual),
+				zap.Int("trailing_bytes", trailing))
+			return
+		}
+		oldRecords = actual
+		oldPayload = data[1:]
+	}
+
 	newItem := byteframe.NewByteFrame()
-	newItem.WriteUint8(uint8(len(items)))
+	newItem.WriteUint8(uint8(len(items) + oldRecords))
 	for i := range items {
 		newItem.WriteUint8(items[i].ItemType)
 		newItem.WriteUint16(items[i].ItemID)
 		newItem.WriteUint16(items[i].Quantity)
 	}
+	newItem.WriteBytes(oldPayload)
 	if err := svc.charRepo.SaveColumn(charID, "gacha_items", newItem.Data()); err != nil {
 		svc.logger.Error("Failed to update gacha items", zap.Error(err))
 	}

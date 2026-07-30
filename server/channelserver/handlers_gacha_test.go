@@ -1,7 +1,9 @@
 package channelserver
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -114,7 +116,7 @@ func TestHandleMsgMhfReceiveGachaItem_Normal(t *testing.T) {
 
 	session := createMockSession(1, server)
 
-	pkt := &mhfpacket.MsgMhfReceiveGachaItem{AckHandle: 100, Freeze: false}
+	pkt := &mhfpacket.MsgMhfReceiveGachaItem{AckHandle: 100, Max: 36, Freeze: false}
 	handleMsgMhfReceiveGachaItem(session, pkt)
 
 	select {
@@ -146,7 +148,7 @@ func TestHandleMsgMhfReceiveGachaItem_Overflow(t *testing.T) {
 
 	session := createMockSession(1, server)
 
-	pkt := &mhfpacket.MsgMhfReceiveGachaItem{AckHandle: 100, Freeze: false}
+	pkt := &mhfpacket.MsgMhfReceiveGachaItem{AckHandle: 100, Max: 36, Freeze: false}
 	handleMsgMhfReceiveGachaItem(session, pkt)
 
 	select {
@@ -174,7 +176,7 @@ func TestHandleMsgMhfReceiveGachaItem_Freeze(t *testing.T) {
 
 	session := createMockSession(1, server)
 
-	pkt := &mhfpacket.MsgMhfReceiveGachaItem{AckHandle: 100, Freeze: true}
+	pkt := &mhfpacket.MsgMhfReceiveGachaItem{AckHandle: 100, Max: 36, Freeze: true}
 	handleMsgMhfReceiveGachaItem(session, pkt)
 
 	select {
@@ -708,7 +710,7 @@ func TestHandleMsgMhfReceiveGachaItem_Empty(t *testing.T) {
 
 	session := createMockSession(1, server)
 
-	pkt := &mhfpacket.MsgMhfReceiveGachaItem{AckHandle: 100, Freeze: false}
+	pkt := &mhfpacket.MsgMhfReceiveGachaItem{AckHandle: 100, Max: 36, Freeze: false}
 	handleMsgMhfReceiveGachaItem(session, pkt)
 
 	select {
@@ -719,6 +721,206 @@ func TestHandleMsgMhfReceiveGachaItem_Empty(t *testing.T) {
 	default:
 		t.Error("No response packet queued")
 	}
+}
+
+func TestHandleMsgMhfReceiveGachaItem_HonorsMaxAcrossPreviewAndDrains(t *testing.T) {
+	server := createMockServer()
+	charRepo := newMockCharacterRepo()
+	original := makeSequentialGachaBlob(55)
+	charRepo.columns["gacha_items"] = append([]byte(nil), original...)
+	server.charRepo = charRepo
+	session := createMockSession(7, server)
+
+	// The client may preview repeatedly. Freeze returns the first page but
+	// must leave pending storage byte-for-byte unchanged.
+	for i := 0; i < 2; i++ {
+		payload := runReceiveGachaItems(t, session, 36, true)
+		want := gachaBlobRange(original, 0, 36)
+		if !bytes.Equal(payload, want) {
+			t.Fatalf("preview %d payload mismatch", i+1)
+		}
+		if !bytes.Equal(charRepo.columns["gacha_items"], original) {
+			t.Fatalf("preview %d changed pending storage", i+1)
+		}
+	}
+
+	// Live reproduction: 55 pending items, but the client's final commit
+	// says it can accept at most 33.
+	payload := runReceiveGachaItems(t, session, 33, false)
+	if want := gachaBlobRange(original, 0, 33); !bytes.Equal(payload, want) {
+		t.Fatal("Max=33 response did not contain exactly the first 33 records")
+	}
+	wantRemaining := gachaBlobRange(original, 33, 22)
+	if !bytes.Equal(charRepo.columns["gacha_items"], wantRemaining) {
+		t.Fatal("Max=33 commit did not preserve exactly records 34 through 55")
+	}
+
+	// The next request drains the exact tail with no duplicates or loss.
+	payload = runReceiveGachaItems(t, session, 36, false)
+	if !bytes.Equal(payload, wantRemaining) {
+		t.Fatal("second drain did not return the preserved 22-record tail")
+	}
+	if charRepo.columns["gacha_items"] != nil {
+		t.Fatal("pending storage was not cleared after the final drain")
+	}
+}
+
+func TestHandleMsgMhfReceiveGachaItem_HonorsMaxBelowClientPage(t *testing.T) {
+	server := createMockServer()
+	charRepo := newMockCharacterRepo()
+	original := makeSequentialGachaBlob(22)
+	charRepo.columns["gacha_items"] = append([]byte(nil), original...)
+	server.charRepo = charRepo
+	session := createMockSession(7, server)
+
+	payload := runReceiveGachaItems(t, session, 19, false)
+	if want := gachaBlobRange(original, 0, 19); !bytes.Equal(payload, want) {
+		t.Fatal("response did not honor Max=19 for a sub-36 pending list")
+	}
+	if want := gachaBlobRange(original, 19, 3); !bytes.Equal(charRepo.columns["gacha_items"], want) {
+		t.Fatal("the three records beyond Max=19 were not preserved")
+	}
+}
+
+func TestHandleMsgMhfReceiveGachaItem_CapsMaxAtClientPage(t *testing.T) {
+	server := createMockServer()
+	charRepo := newMockCharacterRepo()
+	original := makeSequentialGachaBlob(55)
+	charRepo.columns["gacha_items"] = append([]byte(nil), original...)
+	server.charRepo = charRepo
+	session := createMockSession(7, server)
+
+	payload := runReceiveGachaItems(t, session, 255, false)
+	if want := gachaBlobRange(original, 0, gachaClientItemLimit); !bytes.Equal(payload, want) {
+		t.Fatal("Max above the client page size returned more than 36 records")
+	}
+	if want := gachaBlobRange(original, gachaClientItemLimit, 19); !bytes.Equal(charRepo.columns["gacha_items"], want) {
+		t.Fatal("records beyond the 36-item client page were not preserved")
+	}
+}
+
+func TestHandleMsgMhfReceiveGachaItem_ZeroMaxPreservesAll(t *testing.T) {
+	server := createMockServer()
+	charRepo := newMockCharacterRepo()
+	original := makeSequentialGachaBlob(10)
+	charRepo.columns["gacha_items"] = append([]byte(nil), original...)
+	server.charRepo = charRepo
+	session := createMockSession(7, server)
+
+	payload := runReceiveGachaItems(t, session, 0, false)
+	if !bytes.Equal(payload, []byte{0x00}) {
+		t.Fatalf("Max=0 payload = %x, want 00", payload)
+	}
+	if !bytes.Equal(charRepo.columns["gacha_items"], original) {
+		t.Fatal("Max=0 consumed pending items")
+	}
+}
+
+func TestHandleMsgMhfReceiveGachaItem_InvalidBlobIsPreserved(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{
+			name: "declared count mismatch",
+			data: []byte{2, 7, 0, 1, 0, 1},
+		},
+		{
+			name: "partial trailing record",
+			data: []byte{1, 7, 0},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := createMockServer()
+			charRepo := newMockCharacterRepo()
+			original := append([]byte(nil), tt.data...)
+			charRepo.columns["gacha_items"] = append([]byte(nil), original...)
+			server.charRepo = charRepo
+			session := createMockSession(7, server)
+
+			payload := runReceiveGachaItems(t, session, 36, false)
+			if !bytes.Equal(payload, []byte{0x00}) {
+				t.Fatalf("invalid blob payload = %x, want 00", payload)
+			}
+			if !bytes.Equal(charRepo.columns["gacha_items"], original) {
+				t.Fatal("invalid pending blob was modified")
+			}
+		})
+	}
+}
+
+func TestHandleMsgMhfReceiveGachaItem_DrainsWrappedCountWithoutLoss(t *testing.T) {
+	server := createMockServer()
+	charRepo := newMockCharacterRepo()
+	original := makeSequentialGachaBlob(256)
+	charRepo.columns["gacha_items"] = append([]byte(nil), original...)
+	server.charRepo = charRepo
+	session := createMockSession(7, server)
+
+	var received []byte
+	requests := 0
+	for charRepo.columns["gacha_items"] != nil {
+		requests++
+		if requests > 10 {
+			t.Fatal("wrapped pending blob did not drain")
+		}
+		payload := runReceiveGachaItems(t, session, 36, false)
+		count := int(payload[0])
+		if len(payload) != 1+count*gachaItemRecordBytes {
+			t.Fatalf("request %d returned malformed payload length %d for count %d",
+				requests, len(payload), count)
+		}
+		received = append(received, payload[1:]...)
+	}
+
+	if requests != 8 {
+		t.Fatalf("requests = %d, want 8", requests)
+	}
+	if !bytes.Equal(received, original[1:]) {
+		t.Fatal("256 wrapped records were duplicated, reordered, or lost")
+	}
+}
+
+func runReceiveGachaItems(t *testing.T, session *Session, max uint8, freeze bool) []byte {
+	t.Helper()
+	handleMsgMhfReceiveGachaItem(session, &mhfpacket.MsgMhfReceiveGachaItem{
+		AckHandle: uint32(100 + len(session.sendPackets)),
+		Max:       max,
+		Freeze:    freeze,
+	})
+	select {
+	case p := <-session.sendPackets:
+		_, errorCode, payload := parseAckBufData(t, p.data)
+		if errorCode != 0 {
+			t.Fatalf("receive gacha ACK error code = %d", errorCode)
+		}
+		return append([]byte(nil), payload...)
+	default:
+		t.Fatal("no receive gacha response queued")
+		return nil
+	}
+}
+
+func makeSequentialGachaBlob(count int) []byte {
+	data := make([]byte, 1+count*gachaItemRecordBytes)
+	data[0] = uint8(count)
+	for i := 0; i < count; i++ {
+		offset := 1 + i*gachaItemRecordBytes
+		data[offset] = uint8(1 + i%10)
+		binary.BigEndian.PutUint16(data[offset+1:offset+3], uint16(i))
+		binary.BigEndian.PutUint16(data[offset+3:offset+5], uint16(i+1))
+	}
+	return data
+}
+
+func gachaBlobRange(data []byte, start, count int) []byte {
+	result := make([]byte, 1+count*gachaItemRecordBytes)
+	result[0] = uint8(count)
+	from := 1 + start*gachaItemRecordBytes
+	copy(result[1:], data[from:from+count*gachaItemRecordBytes])
+	return result
 }
 
 func TestInspectGachaItemBlob(t *testing.T) {
@@ -757,7 +959,7 @@ func TestInspectGachaItemBlob(t *testing.T) {
 			name:        "uint8 count wrapped after 256 records",
 			data:        make([]byte, 1+256*gachaItemRecordBytes),
 			wantRecords: 256,
-			wantValid:   false,
+			wantValid:   true,
 		},
 	}
 
@@ -837,7 +1039,7 @@ func TestHandleMsgMhfReceiveGachaItem_DiagnosticLog(t *testing.T) {
 		{
 			name:                 "overflow retains one",
 			data:                 overflow,
-			wantAction:           "retain_overflow",
+			wantAction:           "retain_remainder",
 			wantResponseBytes:    gachaMaxResponseBytes,
 			wantResponseCount:    gachaClientItemLimit,
 			wantRemainingBytes:   1 + gachaItemRecordBytes,
@@ -859,9 +1061,9 @@ func TestHandleMsgMhfReceiveGachaItem_DiagnosticLog(t *testing.T) {
 			name:                 "malformed count is visible",
 			data:                 []byte{2, 1, 0, 100, 0, 5},
 			freeze:               true,
-			wantAction:           "preserve",
-			wantResponseBytes:    6,
-			wantResponseCount:    2,
+			wantAction:           "preserve_invalid",
+			wantResponseBytes:    1,
+			wantResponseCount:    0,
 			wantRemainingBytes:   6,
 			wantStoredValid:      false,
 			wantPersistAttempted: false,
@@ -916,6 +1118,8 @@ func TestHandleMsgMhfReceiveGachaItem_DiagnosticErrors(t *testing.T) {
 	t.Run("load fallback", func(t *testing.T) {
 		server := createMockServer()
 		charRepo := newMockCharacterRepo()
+		original := makeSequentialGachaBlob(3)
+		charRepo.columns["gacha_items"] = append([]byte(nil), original...)
 		charRepo.loadColumnErr = errors.New("load failed")
 		server.charRepo = charRepo
 
@@ -930,6 +1134,11 @@ func TestHandleMsgMhfReceiveGachaItem_DiagnosticErrors(t *testing.T) {
 		fields := logs.FilterMessage("Gacha pending items receive").All()[0].ContextMap()
 		checkObservedGachaField(t, fields, "used_fallback", "true")
 		checkObservedGachaField(t, fields, "response_hex", "00")
+		checkObservedGachaField(t, fields, "persist_action", "preserve_load_error")
+		checkObservedGachaField(t, fields, "persist_attempted", "false")
+		if !bytes.Equal(charRepo.columns["gacha_items"], original) {
+			t.Fatal("load error modified pending gacha items")
+		}
 	})
 
 	t.Run("save failure", func(t *testing.T) {
@@ -954,6 +1163,8 @@ func TestHandleMsgMhfReceiveGachaItem_DiagnosticErrors(t *testing.T) {
 		fields := entries[0].ContextMap()
 		checkObservedGachaField(t, fields, "persist_attempted", "true")
 		checkObservedGachaField(t, fields, "persist_ok", "false")
+		checkObservedGachaField(t, fields, "remaining_bytes", "6")
+		checkObservedGachaField(t, fields, "remaining_declared_count", "1")
 		if _, ok := fields["persist_error"]; !ok {
 			t.Fatal("diagnostic log is missing persist_error")
 		}

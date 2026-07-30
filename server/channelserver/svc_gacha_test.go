@@ -1,7 +1,9 @@
 package channelserver
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/binary"
 	"errors"
 	"testing"
 	"time"
@@ -12,6 +14,84 @@ import (
 func newTestGachaService(gr GachaRepo, ur UserRepo, cr CharacterRepo) *GachaService {
 	logger, _ := zap.NewDevelopment()
 	return NewGachaService(gr, ur, cr, logger, 100000)
+}
+
+func TestGachaServiceSaveItemsPreservesWrappedPendingRecords(t *testing.T) {
+	tests := []struct {
+		name          string
+		existingCount int
+		wantCountByte byte
+		wantActual    int
+	}{
+		{
+			name:          "crosses 255 record boundary",
+			existingCount: 255,
+			wantCountByte: 0,
+			wantActual:    256,
+		},
+		{
+			name:          "appends after wrapped header",
+			existingCount: 256,
+			wantCountByte: 1,
+			wantActual:    257,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			charRepo := newMockCharacterRepo()
+			existing := makeSequentialGachaBlob(tt.existingCount)
+			charRepo.columns["gacha_items"] = append([]byte(nil), existing...)
+			svc := newTestGachaService(nil, nil, charRepo)
+			added := GachaItem{ItemType: 9, ItemID: 65000, Quantity: 2}
+
+			svc.saveGachaItems(7, []GachaItem{added})
+
+			saved := charRepo.columns["gacha_items"]
+			if len(saved) != 1+tt.wantActual*gachaItemRecordBytes {
+				t.Fatalf("saved bytes = %d, want %d",
+					len(saved), 1+tt.wantActual*gachaItemRecordBytes)
+			}
+			if saved[0] != tt.wantCountByte {
+				t.Fatalf("count byte = %d, want %d", saved[0], tt.wantCountByte)
+			}
+			_, actual, trailing, valid := inspectGachaItemBlob(saved)
+			if actual != tt.wantActual || trailing != 0 || !valid {
+				t.Fatalf("saved blob actual=%d trailing=%d valid=%t, want actual=%d valid",
+					actual, trailing, valid, tt.wantActual)
+			}
+
+			wantAdded := make([]byte, gachaItemRecordBytes)
+			wantAdded[0] = added.ItemType
+			binary.BigEndian.PutUint16(wantAdded[1:3], added.ItemID)
+			binary.BigEndian.PutUint16(wantAdded[3:5], added.Quantity)
+			if !bytes.Equal(saved[1:1+gachaItemRecordBytes], wantAdded) {
+				t.Fatalf("prepended item = %x, want %x", saved[1:6], wantAdded)
+			}
+			if !bytes.Equal(saved[1+gachaItemRecordBytes:], existing[1:]) {
+				t.Fatal("existing pending records were changed while appending")
+			}
+		})
+	}
+}
+
+func TestGachaServiceSaveItemsStillStoresNewRewardsAfterLoadFailure(t *testing.T) {
+	charRepo := newMockCharacterRepo()
+	charRepo.loadColumnErr = errors.New("load failed")
+	svc := newTestGachaService(nil, nil, charRepo)
+	added := GachaItem{ItemType: 9, ItemID: 65000, Quantity: 2}
+
+	svc.saveGachaItems(7, []GachaItem{added})
+
+	saved := charRepo.columns["gacha_items"]
+	if len(saved) != 1+gachaItemRecordBytes || saved[0] != 1 {
+		t.Fatalf("saved blob = %x, want one newly rolled reward", saved)
+	}
+	if saved[1] != added.ItemType ||
+		binary.BigEndian.Uint16(saved[2:4]) != added.ItemID ||
+		binary.BigEndian.Uint16(saved[4:6]) != added.Quantity {
+		t.Fatalf("saved reward = %x, want %+v", saved[1:], added)
+	}
 }
 
 func TestGachaService_PlayNormalGacha(t *testing.T) {
