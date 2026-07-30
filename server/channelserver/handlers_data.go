@@ -56,7 +56,7 @@ func traceSaveBlob(s *Session, stage string, rawPayload []byte, blob []byte) {
 		name = stringsupport.SJISToUTF8Lossy(
 			bfutil.UpToNull(blob[saveFieldNameOffset : saveFieldNameOffset+saveFieldNameLen]))
 	}
-	s.logger.Warn("TRACE savedata blob",
+	s.logger.Info("TRACE savedata blob",
 		zap.String("stage", stage),
 		zap.Uint32("charID", s.charID),
 		zap.String("session_name", s.Name),

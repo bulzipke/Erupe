@@ -1,7 +1,9 @@
 package api
 
 import (
+	"bytes"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -281,6 +283,51 @@ func TestAPIServerHTTPServerInitialization(t *testing.T) {
 
 	if server.httpServer.Addr != "" {
 		t.Logf("HTTP server address initially set: %s", server.httpServer.Addr)
+	}
+}
+
+func TestAPIAccessLoggingHandlerSuppressesHealthProbes(t *testing.T) {
+	var output bytes.Buffer
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := apiAccessLoggingHandler(&output, next)
+
+	for _, path := range []string{"/health", "/health?source=docker"} {
+		t.Run(path, func(t *testing.T) {
+			output.Reset()
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+			}
+			if output.Len() != 0 {
+				t.Fatalf("health probe produced access log: %q", output.String())
+			}
+		})
+	}
+
+	for _, request := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/launcher"},
+		{method: http.MethodGet, path: "/healthz"},
+		{method: http.MethodGet, path: "/v2/health"},
+		{method: http.MethodPost, path: "/health"},
+	} {
+		t.Run(request.method+" "+request.path, func(t *testing.T) {
+			output.Reset()
+			req := httptest.NewRequest(request.method, request.path, nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if output.Len() == 0 {
+				t.Fatal("non-Docker-health request should retain its access log")
+			}
+		})
 	}
 }
 

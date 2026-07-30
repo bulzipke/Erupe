@@ -2,12 +2,18 @@ package channelserver
 
 import (
 	"database/sql"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network/mhfpacket"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func TestHandleMsgMhfGetGachaPlayHistory_StubResponse(t *testing.T) {
@@ -712,5 +718,255 @@ func TestHandleMsgMhfReceiveGachaItem_Empty(t *testing.T) {
 		_ = bf
 	default:
 		t.Error("No response packet queued")
+	}
+}
+
+func TestInspectGachaItemBlob(t *testing.T) {
+	tests := []struct {
+		name         string
+		data         []byte
+		wantDeclared int
+		wantRecords  int
+		wantTrailing int
+		wantValid    bool
+	}{
+		{name: "absent", data: nil, wantValid: false},
+		{name: "empty list", data: []byte{0}, wantValid: true},
+		{
+			name:         "two complete records",
+			data:         []byte{2, 1, 0, 100, 0, 5, 2, 0, 200, 0, 10},
+			wantDeclared: 2,
+			wantRecords:  2,
+			wantValid:    true,
+		},
+		{
+			name:         "declared count mismatch",
+			data:         []byte{2, 1, 0, 100, 0, 5},
+			wantDeclared: 2,
+			wantRecords:  1,
+			wantValid:    false,
+		},
+		{
+			name:         "partial trailing record",
+			data:         []byte{1, 1, 0},
+			wantDeclared: 1,
+			wantTrailing: 2,
+			wantValid:    false,
+		},
+		{
+			name:        "uint8 count wrapped after 256 records",
+			data:        make([]byte, 1+256*gachaItemRecordBytes),
+			wantRecords: 256,
+			wantValid:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			declared, records, trailing, valid := inspectGachaItemBlob(tt.data)
+			if declared != tt.wantDeclared || records != tt.wantRecords ||
+				trailing != tt.wantTrailing || valid != tt.wantValid {
+				t.Fatalf(
+					"inspectGachaItemBlob() = (%d, %d, %d, %t), want (%d, %d, %d, %t)",
+					declared, records, trailing, valid,
+					tt.wantDeclared, tt.wantRecords, tt.wantTrailing, tt.wantValid,
+				)
+			}
+		})
+	}
+}
+
+func TestBoundedGachaHex(t *testing.T) {
+	exact := make([]byte, gachaMaxResponseBytes)
+	for i := range exact {
+		exact[i] = byte(i)
+	}
+
+	encoded, truncated := boundedGachaHex(exact)
+	if truncated {
+		t.Fatal("exactly one client response should not be truncated")
+	}
+	decoded, err := hex.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("boundedGachaHex returned invalid hex: %v", err)
+	}
+	if len(decoded) != gachaMaxResponseBytes {
+		t.Fatalf("decoded length = %d, want %d", len(decoded), gachaMaxResponseBytes)
+	}
+
+	encoded, truncated = boundedGachaHex(append(exact, 0xFF))
+	if !truncated {
+		t.Fatal("oversized diagnostic payload should be truncated")
+	}
+	decoded, err = hex.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("boundedGachaHex returned invalid truncated hex: %v", err)
+	}
+	if len(decoded) != gachaMaxResponseBytes {
+		t.Fatalf("truncated decoded length = %d, want %d", len(decoded), gachaMaxResponseBytes)
+	}
+}
+
+func TestHandleMsgMhfReceiveGachaItem_DiagnosticLog(t *testing.T) {
+	overflow := make([]byte, 1+37*gachaItemRecordBytes)
+	overflow[0] = 37
+	for i := 1; i < len(overflow); i++ {
+		overflow[i] = byte(i)
+	}
+
+	tests := []struct {
+		name                 string
+		data                 []byte
+		freeze               bool
+		wantAction           string
+		wantResponseBytes    int
+		wantResponseCount    int
+		wantRemainingBytes   int
+		wantStoredValid      bool
+		wantPersistAttempted bool
+	}{
+		{
+			name:                 "normal clear",
+			data:                 []byte{2, 1, 0, 100, 0, 5, 2, 0, 200, 0, 10},
+			wantAction:           "clear",
+			wantResponseBytes:    11,
+			wantResponseCount:    2,
+			wantStoredValid:      true,
+			wantPersistAttempted: true,
+		},
+		{
+			name:                 "overflow retains one",
+			data:                 overflow,
+			wantAction:           "retain_overflow",
+			wantResponseBytes:    gachaMaxResponseBytes,
+			wantResponseCount:    gachaClientItemLimit,
+			wantRemainingBytes:   1 + gachaItemRecordBytes,
+			wantStoredValid:      true,
+			wantPersistAttempted: true,
+		},
+		{
+			name:                 "freeze preserves",
+			data:                 []byte{1, 1, 0, 100, 0, 5},
+			freeze:               true,
+			wantAction:           "preserve",
+			wantResponseBytes:    6,
+			wantResponseCount:    1,
+			wantRemainingBytes:   6,
+			wantStoredValid:      true,
+			wantPersistAttempted: false,
+		},
+		{
+			name:                 "malformed count is visible",
+			data:                 []byte{2, 1, 0, 100, 0, 5},
+			freeze:               true,
+			wantAction:           "preserve",
+			wantResponseBytes:    6,
+			wantResponseCount:    2,
+			wantRemainingBytes:   6,
+			wantStoredValid:      false,
+			wantPersistAttempted: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := createMockServer()
+			charRepo := newMockCharacterRepo()
+			charRepo.columns["gacha_items"] = append([]byte(nil), tt.data...)
+			server.charRepo = charRepo
+
+			core, logs := observer.New(zapcore.InfoLevel)
+			session := createMockSession(7, server)
+			session.userID = 9
+			session.Name = "DiagnosticHunter"
+			session.logger = zap.New(core)
+
+			pkt := &mhfpacket.MsgMhfReceiveGachaItem{
+				AckHandle: 100,
+				Max:       36,
+				Freeze:    tt.freeze,
+			}
+			handleMsgMhfReceiveGachaItem(session, pkt)
+
+			if len(session.sendPackets) != 1 {
+				t.Fatalf("queued responses = %d, want 1", len(session.sendPackets))
+			}
+			entries := logs.FilterMessage("Gacha pending items receive").All()
+			if len(entries) != 1 {
+				t.Fatalf("diagnostic entries = %d, want 1", len(entries))
+			}
+			fields := entries[0].ContextMap()
+			checkObservedGachaField(t, fields, "charID", "7")
+			checkObservedGachaField(t, fields, "userID", "9")
+			checkObservedGachaField(t, fields, "name", "DiagnosticHunter")
+			checkObservedGachaField(t, fields, "max", "36")
+			checkObservedGachaField(t, fields, "freeze", fmt.Sprint(tt.freeze))
+			checkObservedGachaField(t, fields, "stored_blob_valid", fmt.Sprint(tt.wantStoredValid))
+			checkObservedGachaField(t, fields, "response_bytes", fmt.Sprint(tt.wantResponseBytes))
+			checkObservedGachaField(t, fields, "response_declared_count", fmt.Sprint(tt.wantResponseCount))
+			checkObservedGachaField(t, fields, "persist_action", tt.wantAction)
+			checkObservedGachaField(t, fields, "persist_attempted", fmt.Sprint(tt.wantPersistAttempted))
+			checkObservedGachaField(t, fields, "persist_ok", "true")
+			checkObservedGachaField(t, fields, "remaining_bytes", fmt.Sprint(tt.wantRemainingBytes))
+		})
+	}
+}
+
+func TestHandleMsgMhfReceiveGachaItem_DiagnosticErrors(t *testing.T) {
+	t.Run("load fallback", func(t *testing.T) {
+		server := createMockServer()
+		charRepo := newMockCharacterRepo()
+		charRepo.loadColumnErr = errors.New("load failed")
+		server.charRepo = charRepo
+
+		core, logs := observer.New(zapcore.InfoLevel)
+		session := createMockSession(7, server)
+		session.logger = zap.New(core)
+		handleMsgMhfReceiveGachaItem(session, &mhfpacket.MsgMhfReceiveGachaItem{
+			AckHandle: 100,
+			Max:       36,
+		})
+
+		fields := logs.FilterMessage("Gacha pending items receive").All()[0].ContextMap()
+		checkObservedGachaField(t, fields, "used_fallback", "true")
+		checkObservedGachaField(t, fields, "response_hex", "00")
+	})
+
+	t.Run("save failure", func(t *testing.T) {
+		server := createMockServer()
+		charRepo := newMockCharacterRepo()
+		charRepo.columns["gacha_items"] = []byte{1, 1, 0, 100, 0, 5}
+		charRepo.saveErr = errors.New("save failed")
+		server.charRepo = charRepo
+
+		core, logs := observer.New(zapcore.InfoLevel)
+		session := createMockSession(7, server)
+		session.logger = zap.New(core)
+		handleMsgMhfReceiveGachaItem(session, &mhfpacket.MsgMhfReceiveGachaItem{
+			AckHandle: 100,
+			Max:       36,
+		})
+
+		entries := logs.FilterMessage("Gacha pending items receive").All()
+		if len(entries) != 1 {
+			t.Fatalf("diagnostic entries = %d, want 1", len(entries))
+		}
+		fields := entries[0].ContextMap()
+		checkObservedGachaField(t, fields, "persist_attempted", "true")
+		checkObservedGachaField(t, fields, "persist_ok", "false")
+		if _, ok := fields["persist_error"]; !ok {
+			t.Fatal("diagnostic log is missing persist_error")
+		}
+	})
+}
+
+func checkObservedGachaField(t *testing.T, fields map[string]interface{}, key, want string) {
+	t.Helper()
+	got, ok := fields[key]
+	if !ok {
+		t.Fatalf("diagnostic log is missing %q", key)
+	}
+	if fmt.Sprint(got) != want {
+		t.Fatalf("%s = %v, want %s", key, got, want)
 	}
 }

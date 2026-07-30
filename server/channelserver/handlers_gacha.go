@@ -1,10 +1,18 @@
 package channelserver
 
 import (
+	"encoding/hex"
+
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network/mhfpacket"
 
 	"go.uber.org/zap"
+)
+
+const (
+	gachaItemRecordBytes  = 5
+	gachaClientItemLimit  = 36
+	gachaMaxResponseBytes = 1 + gachaClientItemLimit*gachaItemRecordBytes
 )
 
 // Gacha represents a gacha lottery definition.
@@ -83,7 +91,9 @@ func handleMsgMhfUseGachaPoint(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfReceiveGachaItem(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfReceiveGachaItem)
-	data, err := s.server.charRepo.LoadColumnWithDefault(s.charID, "gacha_items", []byte{0x00})
+	data, err := s.server.charRepo.LoadColumn(s.charID, "gacha_items")
+	loadedBytes := len(data)
+	usedFallback := err != nil || loadedBytes == 0
 	if err != nil || len(data) == 0 {
 		// The client requires at least one byte (the item count) or it
 		// treats the response as malformed and crashes (see #175).
@@ -92,30 +102,101 @@ func handleMsgMhfReceiveGachaItem(s *Session, p mhfpacket.MHFPacket) {
 
 	// Handle overflow: the client can only display 36 items (36 * 5 + 1 count byte = 181 bytes).
 	// If there are more, send the first 36 and keep the rest for next time.
-	isOverflow := len(data) > 181 && data[0] > 36
+	isOverflow := len(data) > gachaMaxResponseBytes && data[0] > gachaClientItemLimit
+	responseData := data
 	if isOverflow {
 		resp := byteframe.NewByteFrame()
-		resp.WriteUint8(36)
-		resp.WriteBytes(data[1:181])
-		doAckBufSucceed(s, pkt.AckHandle, resp.Data())
-	} else {
-		doAckBufSucceed(s, pkt.AckHandle, data)
+		resp.WriteUint8(gachaClientItemLimit)
+		resp.WriteBytes(data[1:gachaMaxResponseBytes])
+		responseData = resp.Data()
 	}
+	doAckBufSucceed(s, pkt.AckHandle, responseData)
 
+	persistAction := "preserve"
+	remainingData := data
+	var persistErr error
 	if !pkt.Freeze {
 		if isOverflow {
 			update := byteframe.NewByteFrame()
-			update.WriteUint8(uint8(len(data[181:]) / 5))
-			update.WriteBytes(data[181:])
-			if err := s.server.charRepo.SaveColumn(s.charID, "gacha_items", update.Data()); err != nil {
-				s.logger.Error("Failed to update gacha items overflow", zap.Error(err))
+			update.WriteUint8(uint8(len(data[gachaMaxResponseBytes:]) / gachaItemRecordBytes))
+			update.WriteBytes(data[gachaMaxResponseBytes:])
+			remainingData = update.Data()
+			persistAction = "retain_overflow"
+			if persistErr = s.server.charRepo.SaveColumn(s.charID, "gacha_items", remainingData); persistErr != nil {
+				s.logger.Error("Failed to update gacha items overflow", zap.Error(persistErr))
 			}
 		} else {
-			if err := s.server.charRepo.SaveColumn(s.charID, "gacha_items", nil); err != nil {
-				s.logger.Error("Failed to clear gacha items", zap.Error(err))
+			remainingData = nil
+			persistAction = "clear"
+			if persistErr = s.server.charRepo.SaveColumn(s.charID, "gacha_items", nil); persistErr != nil {
+				s.logger.Error("Failed to clear gacha items", zap.Error(persistErr))
 			}
 		}
 	}
+
+	declaredCount, actualRecords, trailingBytes, blobValid := inspectGachaItemBlob(data)
+	responseCount, responseRecords, responseTrailing, responseValid := inspectGachaItemBlob(responseData)
+	remainingCount, remainingRecords, remainingTrailing, remainingValid := inspectGachaItemBlob(remainingData)
+	responseHex, responseHexTruncated := boundedGachaHex(responseData)
+
+	fields := []zap.Field{
+		zap.Uint32("charID", s.charID),
+		zap.Uint32("userID", s.userID),
+		zap.String("name", s.Name),
+		zap.Uint32("ack_handle", pkt.AckHandle),
+		zap.Uint8("max", pkt.Max),
+		zap.Bool("freeze", pkt.Freeze),
+		zap.Int("loaded_bytes", loadedBytes),
+		zap.Bool("used_fallback", usedFallback),
+		zap.Int("stored_bytes", len(data)),
+		zap.Int("stored_declared_count", declaredCount),
+		zap.Int("stored_actual_records", actualRecords),
+		zap.Int("stored_trailing_bytes", trailingBytes),
+		zap.Bool("stored_blob_valid", blobValid),
+		zap.Bool("overflow", isOverflow),
+		zap.Int("response_bytes", len(responseData)),
+		zap.Int("response_declared_count", responseCount),
+		zap.Int("response_actual_records", responseRecords),
+		zap.Int("response_trailing_bytes", responseTrailing),
+		zap.Bool("response_blob_valid", responseValid),
+		zap.String("response_hex", responseHex),
+		zap.Bool("response_hex_truncated", responseHexTruncated),
+		zap.String("persist_action", persistAction),
+		zap.Bool("persist_attempted", !pkt.Freeze),
+		zap.Bool("persist_ok", persistErr == nil),
+		zap.Bool("remaining_present", len(remainingData) > 0),
+		zap.Int("remaining_bytes", len(remainingData)),
+		zap.Int("remaining_declared_count", remainingCount),
+		zap.Int("remaining_actual_records", remainingRecords),
+		zap.Int("remaining_trailing_bytes", remainingTrailing),
+		zap.Bool("remaining_blob_valid", remainingValid),
+	}
+	if err != nil {
+		fields = append(fields, zap.NamedError("load_error", err))
+	}
+	if persistErr != nil {
+		fields = append(fields, zap.NamedError("persist_error", persistErr))
+	}
+	s.logger.Info("Gacha pending items receive", fields...)
+}
+
+func inspectGachaItemBlob(data []byte) (declaredCount, actualRecords, trailingBytes int, valid bool) {
+	if len(data) == 0 {
+		return 0, 0, 0, false
+	}
+	payloadBytes := len(data) - 1
+	declaredCount = int(data[0])
+	actualRecords = payloadBytes / gachaItemRecordBytes
+	trailingBytes = payloadBytes % gachaItemRecordBytes
+	valid = trailingBytes == 0 && declaredCount == actualRecords
+	return
+}
+
+func boundedGachaHex(data []byte) (encoded string, truncated bool) {
+	if len(data) > gachaMaxResponseBytes {
+		return hex.EncodeToString(data[:gachaMaxResponseBytes]), true
+	}
+	return hex.EncodeToString(data), false
 }
 
 func handleMsgMhfPlayNormalGacha(s *Session, p mhfpacket.MHFPacket) {

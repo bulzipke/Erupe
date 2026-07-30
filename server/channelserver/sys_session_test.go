@@ -14,6 +14,86 @@ import (
 	"go.uber.org/zap"
 )
 
+func TestShouldTracePacketGroupFrame(t *testing.T) {
+	tests := []struct {
+		name           string
+		enabled        bool
+		opcode         network.PacketID
+		depth          int
+		remainingBytes int
+		want           bool
+	}{
+		{name: "disabled", opcode: network.MSG_MHF_SAVEDATA, want: false},
+		{
+			name:    "savedata single frame",
+			enabled: true,
+			opcode:  network.MSG_MHF_SAVEDATA,
+			want:    true,
+		},
+		{
+			name:    "ordinary batched frame",
+			enabled: true,
+			opcode:  network.MSG_MHF_RECEIVE_GACHA_ITEM,
+			depth:   1,
+			want:    true,
+		},
+		{
+			name:           "ordinary frame with following packet",
+			enabled:        true,
+			opcode:         network.MSG_MHF_RECEIVE_GACHA_ITEM,
+			remainingBytes: 2,
+			want:           true,
+		},
+		{
+			name:    "routine time frame is ignored",
+			enabled: true,
+			opcode:  network.MSG_SYS_TIME,
+			depth:   1,
+			want:    false,
+		},
+		{
+			name:           "routine ping frame is ignored",
+			enabled:        true,
+			opcode:         network.MSG_SYS_PING,
+			remainingBytes: 2,
+			want:           false,
+		},
+		{
+			name:    "routine end frame is ignored",
+			enabled: true,
+			opcode:  network.MSG_SYS_END,
+			depth:   1,
+			want:    false,
+		},
+		{
+			name:    "routine position frame is ignored",
+			enabled: true,
+			opcode:  network.MSG_SYS_POSITION_OBJECT,
+			depth:   1,
+			want:    false,
+		},
+		{
+			name:    "ordinary single frame is quiet",
+			enabled: true,
+			opcode:  network.MSG_MHF_RECEIVE_GACHA_ITEM,
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldTracePacketGroupFrame(
+				tt.enabled,
+				tt.opcode,
+				tt.depth,
+				tt.remainingBytes,
+			); got != tt.want {
+				t.Fatalf("shouldTracePacketGroupFrame() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 // MockCryptConn simulates the encrypted connection for testing
 type MockCryptConn struct {
 	sentPackets [][]byte

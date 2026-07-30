@@ -420,9 +420,13 @@ func (s *Session) handlePacketGroup(pktGroup []byte, depth int) {
 	// exact mechanism of hypothesis #3 (server framing desync). We only log the
 	// interesting cases (batched groups + every savedata) to avoid drowning in
 	// per-frame position spam.
-	if s.server.erupeConfig.DebugOptions.TraceSaveCorruption &&
-		(depth > 0 || len(remainingData) >= 2 || opcode == network.MSG_MHF_SAVEDATA) {
-		s.logger.Warn("TRACE packet group frame",
+	if shouldTracePacketGroupFrame(
+		s.server.erupeConfig.DebugOptions.TraceSaveCorruption,
+		opcode,
+		depth,
+		len(remainingData),
+	) {
+		s.logger.Info("TRACE packet group frame",
 			zap.Int("depth", depth),
 			zap.Stringer("opcode", opcode),
 			zap.Int("group_len", len(pktGroup)),
@@ -449,6 +453,11 @@ var ignoredOpcodes = map[network.PacketID]struct{}{
 func ignored(opcode network.PacketID) bool {
 	_, ok := ignoredOpcodes[opcode]
 	return ok
+}
+
+func shouldTracePacketGroupFrame(enabled bool, opcode network.PacketID, depth, remainingBytes int) bool {
+	return enabled && !ignored(opcode) &&
+		(depth > 0 || remainingBytes >= 2 || opcode == network.MSG_MHF_SAVEDATA)
 }
 
 func (s *Session) logMessage(opcode uint16, data []byte, sender string, recipient string) {

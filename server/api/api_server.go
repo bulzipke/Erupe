@@ -4,6 +4,7 @@ import (
 	"context"
 	cfg "erupe-ce/config"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"sync"
@@ -115,7 +116,7 @@ func (s *APIServer) Start() error {
 		r.Body = http.MaxBytesReader(w, r.Body, maxAPIRequestBody)
 		handler.ServeHTTP(w, r)
 	})
-	s.httpServer.Handler = handlers.LoggingHandler(os.Stdout, boundedHandler)
+	s.httpServer.Handler = apiAccessLoggingHandler(os.Stdout, boundedHandler)
 	s.httpServer.Addr = fmt.Sprintf(":%d", s.erupeConfig.API.Port)
 
 	serveError := make(chan error, 1)
@@ -133,6 +134,19 @@ func (s *APIServer) Start() error {
 	case <-time.After(250 * time.Millisecond):
 		return nil
 	}
+}
+
+// apiAccessLoggingHandler keeps useful HTTP access logs while suppressing the
+// routine Docker health probes that otherwise add one line every few seconds.
+func apiAccessLoggingHandler(out io.Writer, next http.Handler) http.Handler {
+	logged := handlers.LoggingHandler(out, next)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/health" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		logged.ServeHTTP(w, r)
+	})
 }
 
 // Shutdown exits the server gracefully.
