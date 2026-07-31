@@ -455,7 +455,7 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 		var updates []EventQuestUpdate
 
 		for i, eq := range quests {
-			if !s.server.allowsCollabQuest(eq.CollabScope) {
+			if !s.allowsCollabQuest(eq.CollabScope) {
 				continue
 			}
 
@@ -625,7 +625,7 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 		tuneValues = append(tuneValues, tuneValue{1037, 1})
 	}
 
-	tuneValues = s.server.appendCollabTuneValues(tuneValues)
+	tuneValues = s.appendCollabTuneValues(tuneValues)
 
 	if s.server.erupeConfig.GameplayOptions.DisableRoad {
 		tuneValues = append(tuneValues, tuneValue{1155, 1})

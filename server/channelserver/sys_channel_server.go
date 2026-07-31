@@ -25,14 +25,15 @@ import (
 
 // Config struct allows configuring the server.
 type Config struct {
-	ID          uint16
-	Logger      *zap.Logger
-	DB          *sqlx.DB
-	DiscordBot  *discordbot.DiscordBot
-	ErupeConfig *cfg.Config
-	Name        string
-	Enable      bool
-	CollabEvent string
+	ID             uint16
+	Logger         *zap.Logger
+	DB             *sqlx.DB
+	DiscordBot     *discordbot.DiscordBot
+	ErupeConfig    *cfg.Config
+	Name           string
+	Enable         bool
+	CollabEvent    string
+	CollabRotation *CollabRotation
 }
 
 // Server is a MHF channel server.
@@ -87,6 +88,7 @@ type Server struct {
 	festaService       *FestaService
 	erupeConfig        *cfg.Config
 	collabEvent        string
+	collabRotation     *CollabRotation
 	acceptConns        chan net.Conn
 	deleteConns        chan net.Conn
 	sessions           map[net.Conn]*Session
@@ -114,6 +116,9 @@ type Server struct {
 	// Discord chat integration
 	discordBot *discordbot.DiscordBot
 
+	// Optional read-only observer used by the local HTTP dashboard.
+	dashboardChatObserver func(scope, sender, message string)
+
 	name string
 
 	raviente *Raviente
@@ -130,12 +135,17 @@ type Server struct {
 
 // NewServer creates a new Server type.
 func NewServer(config *Config) *Server {
+	collabRotation := config.CollabRotation
+	if config.CollabEvent == collabRandom && collabRotation == nil {
+		collabRotation = NewCollabRotation()
+	}
 	s := &Server{
 		ID:             config.ID,
 		logger:         config.Logger,
 		db:             config.DB,
 		erupeConfig:    config.ErupeConfig,
 		collabEvent:    config.CollabEvent,
+		collabRotation: collabRotation,
 		acceptConns:    make(chan net.Conn),
 		deleteConns:    make(chan net.Conn),
 		done:           make(chan struct{}),
@@ -493,6 +503,19 @@ func (s *Server) DiscordChannelSend(charName string, content string) {
 	if s.erupeConfig.Discord.Enabled && s.discordBot != nil {
 		message := fmt.Sprintf("**%s**: %s", charName, content)
 		_ = s.discordBot.RealtimeChannelSend(message)
+	}
+}
+
+// SetDashboardChatObserver registers a callback for player-originated chat
+// that is safe to expose on the dashboard. It must be called before the
+// channel accept loop starts.
+func (s *Server) SetDashboardChatObserver(observer func(scope, sender, message string)) {
+	s.dashboardChatObserver = observer
+}
+
+func (s *Server) observeDashboardChat(scope, sender, message string) {
+	if s.dashboardChatObserver != nil {
+		s.dashboardChatObserver(scope, sender, message)
 	}
 }
 

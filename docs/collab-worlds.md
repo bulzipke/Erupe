@@ -6,16 +6,23 @@ flags from being delivered together.
 
 ```json
 "Entries": [
-  { "Name": "입문", "CollabEvent": "none", "Channels": [ ... ] },
+  { "Name": "입문", "CollabEvent": "random", "Channels": [ ... ] },
   { "Name": "자유", "CollabEvent": "kaiji", "Channels": [ ... ] },
   { "Name": "달인", "CollabEvent": "higanjima", "Channels": [ ... ] },
   { "Name": "구인", "CollabEvent": "nier", "Channels": [ ... ] }
 ]
 ```
 
-Allowed values are `none`, `kaiji`, `higanjima`, and `nier`. Omit the setting
-only to retain the old global `GameplayOptions.Enable*Event` behavior. To avoid
-NPC collisions, set an explicit value on every world.
+Allowed values are `none`, `random`, `kaiji`, `higanjima`, and `nier`. Omit the
+setting only to retain the old global `GameplayOptions.Enable*Event` behavior.
+To avoid NPC collisions, set an explicit value on every world.
+
+`random` selects one of Kaiji, Higanjima, and NieR when the world's
+authenticated-player count changes from zero to one. Every channel under the
+same entrance entry shares that choice. The event remains fixed while anyone
+is connected, is cleared after the final logout, and is selected again on the
+next zero-to-one transition. NPC tune flags and scoped event quests always use
+the same selection.
 
 The `0026_event_quest_collab_scope.sql` migration adds `collab_scope` to
 `event_quests`. Empty scope is a normal event quest and is visible everywhere.

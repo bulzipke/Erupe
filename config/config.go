@@ -328,8 +328,10 @@ type EntranceServerInfo struct {
 	Name        string // Server name, 66 byte null terminated Shift-JIS(JP) or Big5(TW).
 	Description string // Server description
 	// CollabEvent limits Rasta Bar collaboration NPCs and event quests for this
-	// world. Valid values are "none", "kaiji", "higanjima", and "nier". An
-	// empty value preserves the legacy global GameplayOptions flags.
+	// world. Valid values are "none", "random", "kaiji", "higanjima", and
+	// "nier". Random selects one event when the world goes from zero to one
+	// authenticated player and keeps it until every player leaves. An empty
+	// value preserves the legacy global GameplayOptions flags.
 	CollabEvent string
 	// 4096(PC, PS3/PS4)?, 8258(PC, PS3/PS4)?, 8192 == nothing?
 	// THIS ONLY EXISTS IF Binary8Header.type == "SV2", NOT "SVR"!
@@ -343,7 +345,7 @@ type EntranceServerInfo struct {
 // with the global GameplayOptions.Enable*Event flags.
 func IsValidCollabEvent(value string) bool {
 	switch value {
-	case "", "none", "kaiji", "higanjima", "nier":
+	case "", "none", "random", "kaiji", "higanjima", "nier":
 		return true
 	default:
 		return false
@@ -620,7 +622,7 @@ func LoadConfig() (*Config, error) {
 
 	for _, entry := range c.Entrance.Entries {
 		if !IsValidCollabEvent(entry.CollabEvent) {
-			return nil, fmt.Errorf("invalid Entrance.Entries[%q].CollabEvent %q (expected none, kaiji, higanjima, nier, or empty)", entry.Name, entry.CollabEvent)
+			return nil, fmt.Errorf("invalid Entrance.Entries[%q].CollabEvent %q (expected none, random, kaiji, higanjima, nier, or empty)", entry.Name, entry.CollabEvent)
 		}
 	}
 

@@ -19,6 +19,7 @@ type SaveAtomicParams struct {
 	IsFemale   bool
 	WeaponType uint8
 	WeaponID   uint16
+	Playtime   uint32
 
 	// House data (written to user_binary)
 	HouseTier     []byte
@@ -338,8 +339,8 @@ func (r *CharacterRepository) SaveCharacterDataAtomic(params SaveAtomicParams) e
 
 	// 1. Save character data + hash
 	if _, err := tx.Exec(
-		`UPDATE characters SET savedata=$1, savedata_hash=$2, is_new_character=false, hr=$3, gr=$4, is_female=$5, weapon_type=$6, weapon_id=$7 WHERE id=$8`,
-		params.CompSave, params.Hash, params.HR, params.GR, params.IsFemale, params.WeaponType, params.WeaponID, params.CharID,
+		`UPDATE characters SET savedata=$1, savedata_hash=$2, is_new_character=false, hr=$3, gr=$4, is_female=$5, weapon_type=$6, weapon_id=$7, playtime_seconds=$8 WHERE id=$9`,
+		params.CompSave, params.Hash, params.HR, params.GR, params.IsFemale, params.WeaponType, params.WeaponID, params.Playtime, params.CharID,
 	); err != nil {
 		return fmt.Errorf("save character data: %w", err)
 	}

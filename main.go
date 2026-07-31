@@ -215,6 +215,9 @@ func main() {
 		ver, _ := migrations.Version(db)
 		logger.Info(fmt.Sprintf("Database: Applied %d migration(s), now at version %d", applied, ver))
 	}
+	if err := channelserver.BackfillPlaytimeRankings(db, config.RealClientMode, logger.Named("playtime-ranking")); err != nil {
+		logger.Warn("Database: playtime ranking backfill failed", zap.Error(err))
+	}
 
 	// Auto-apply seed data on a fresh database so users who skip the wizard
 	// still get shops, events, and gacha. Seed files use ON CONFLICT DO NOTHING
@@ -353,6 +356,12 @@ func main() {
 		count := 1
 		seenPorts := make(map[uint16]string)
 		for j, ee := range config.Entrance.Entries {
+			var collabRotation *channelserver.CollabRotation
+			if ee.CollabEvent == "random" {
+				// All channels under one entrance entry share the same rotation.
+				// The first authenticated player selects it; the last logout clears it.
+				collabRotation = channelserver.NewCollabRotation()
+			}
 			for i, ce := range ee.Channels {
 				sid := (4096 + si*256) + (16 + ci)
 				if !ce.IsEnabled() {
@@ -369,12 +378,13 @@ func main() {
 				}
 				seenPorts[ce.Port] = fmt.Sprintf("channel %d", count)
 				c := channelserver.NewServer(&channelserver.Config{
-					ID:          uint16(sid),
-					Logger:      logger.Named("channel-" + fmt.Sprint(count)),
-					ErupeConfig: config,
-					DB:          db,
-					DiscordBot:  discordBot,
-					CollabEvent: ee.CollabEvent,
+					ID:             uint16(sid),
+					Logger:         logger.Named("channel-" + fmt.Sprint(count)),
+					ErupeConfig:    config,
+					DB:             db,
+					DiscordBot:     discordBot,
+					CollabEvent:    ee.CollabEvent,
+					CollabRotation: collabRotation,
 				})
 				if ee.IP == "" {
 					c.IP = config.Host
@@ -405,6 +415,20 @@ func main() {
 		registry := channelserver.NewLocalChannelRegistry(channels)
 		for _, c := range channels {
 			c.Registry = registry
+		}
+		if ApiServer != nil {
+			ApiServer.SetWorldChatBroadcaster(registry.BroadcastWorldChat)
+			ApiServer.SetDashboardStageProvider(func() map[uint32]string {
+				stageIDs := make(map[uint32]string)
+				snapshots := registry.SearchSessions(func(channelserver.SessionSnapshot) bool { return true }, 65535)
+				for _, snapshot := range snapshots {
+					stageIDs[snapshot.CharID] = snapshot.StageID
+				}
+				return stageIDs
+			})
+			for _, c := range channels {
+				c.SetDashboardChatObserver(ApiServer.RecordGameChat)
+			}
 		}
 		for _, candidate := range pending {
 			if err = candidate.server.Start(); err != nil {

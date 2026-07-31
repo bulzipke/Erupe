@@ -195,6 +195,7 @@ func (save *CharacterSaveData) Save(s *Session) error {
 		IsFemale:      save.Gender,
 		WeaponType:    save.WeaponType,
 		WeaponID:      save.WeaponID,
+		Playtime:      save.Playtime,
 		HouseTier:     save.HouseTier,
 		HouseData:     save.HouseData,
 		BookshelfData: save.BookshelfData,

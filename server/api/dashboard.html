@@ -1,144 +1,684 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erupe Dashboard</title>
+<meta name="color-scheme" content="dark">
+<title>Erupe 월드 현황</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#1a1a2e;color:#e0e0e0;min-height:100vh;padding:2rem}
-.header{text-align:center;margin-bottom:2rem}
-.header h1{font-size:2rem;color:#e94560;margin-bottom:.25rem}
-.header .version{font-size:.9rem;color:#888}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:2rem}
-.card{background:#16213e;border-radius:10px;padding:1.25rem;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.3)}
-.card .label{font-size:.8rem;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem}
-.card .value{font-size:1.75rem;font-weight:700;color:#4ecdc4}
-.card .value.accent{color:#e94560}
-.card .value.ok{color:#4ecdc4}
-.card .value.fail{color:#e94560}
-.channels{background:#16213e;border-radius:10px;padding:1.5rem;box-shadow:0 4px 16px rgba(0,0,0,.3);margin-bottom:1.5rem}
-.channels h2{font-size:1.1rem;color:#e94560;margin-bottom:1rem}
+:root{
+    --bg:#0d1110;
+    --surface:#141a18;
+    --surface-strong:#19211e;
+    --line:#2a3430;
+    --line-soft:#202925;
+    --text:#f0f3ee;
+    --muted:#8f9b95;
+    --accent:#d4a94f;
+    --accent-soft:#f1d58d;
+    --live:#68c795;
+    --danger:#ef796f;
+    --max-width:1180px
+}
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{
+    margin:0;
+    min-height:100vh;
+    background:var(--bg);
+    color:var(--text);
+    font-family:Inter,Pretendard,"Noto Sans KR",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    line-height:1.5
+}
+button,input{font:inherit}
+.shell{width:min(calc(100% - 40px),var(--max-width));margin:0 auto;padding:40px 0 30px}
+.masthead{
+    display:flex;
+    align-items:flex-end;
+    justify-content:space-between;
+    gap:24px;
+    padding:0 0 24px;
+    border-top:3px solid var(--accent);
+    border-bottom:1px solid var(--line)
+}
+.eyebrow{
+    margin:18px 0 7px;
+    color:var(--accent-soft);
+    font-size:.72rem;
+    font-weight:800;
+    letter-spacing:.2em
+}
+h1{margin:0;font-family:Georgia,"Times New Roman",serif;font-size:clamp(2rem,5vw,3.8rem);font-weight:500;letter-spacing:-.045em;line-height:1}
+.subtitle{margin:10px 0 0;color:var(--muted);font-size:.9rem}
+.live-status{
+    display:flex;
+    align-items:center;
+    gap:9px;
+    flex:0 0 auto;
+    padding:9px 12px;
+    border:1px solid var(--line);
+    color:var(--muted);
+    font-size:.78rem;
+    font-weight:700;
+    letter-spacing:.04em
+}
+.status-dot{width:8px;height:8px;background:var(--live);border-radius:50%;box-shadow:0 0 0 4px rgba(104,199,149,.1)}
+.status-dot.offline{background:var(--danger);box-shadow:0 0 0 4px rgba(239,121,111,.1)}
+.error-banner{
+    display:none;
+    margin-top:18px;
+    padding:12px 14px;
+    border-left:3px solid var(--danger);
+    background:#241817;
+    color:#ffc2bd;
+    font-size:.86rem
+}
+.metrics{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    border-bottom:1px solid var(--line);
+    margin-bottom:28px
+}
+.metric{padding:22px 20px 20px;border-right:1px solid var(--line)}
+.metric:first-child{padding-left:0}
+.metric:last-child{border-right:0}
+.metric-label{display:block;margin-bottom:7px;color:var(--muted);font-size:.72rem;font-weight:700;letter-spacing:.08em}
+.metric-value{display:block;font-family:Georgia,"Times New Roman",serif;font-size:1.8rem;color:var(--accent-soft);line-height:1.1}
+.layout{display:grid;grid-template-columns:minmax(0,.6fr) minmax(0,1.2fr) minmax(0,1.65fr);align-items:stretch;gap:18px}
+.panel{display:flex;min-width:0;flex-direction:column;background:var(--surface);border:1px solid var(--line)}
+.panel > #channels-content,.panel > #online-content{flex:1}
+.panel > #online-content > .empty{height:100%;box-sizing:border-box}
+.panel-header{
+    min-height:58px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    padding:15px 18px;
+    border-bottom:1px solid var(--line)
+}
+.panel-title{margin:0;font-size:.9rem;font-weight:800;letter-spacing:.02em}
+.panel-note{color:var(--muted);font-size:.73rem}
+.count-badge{
+    min-width:28px;
+    padding:2px 7px;
+    border:1px solid #4b503c;
+    color:var(--accent-soft);
+    text-align:center;
+    font-size:.72rem;
+    font-weight:800
+}
+.table-wrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse}
-th{text-align:left;font-size:.75rem;color:#888;text-transform:uppercase;letter-spacing:.05em;padding:.5rem .75rem;border-bottom:1px solid #0f3460}
-td{padding:.6rem .75rem;border-bottom:1px solid rgba(15,52,96,.5)}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:.5rem;vertical-align:middle}
-.dot.active{background:#4ecdc4}
-.dot.empty{background:#555}
-.footer{text-align:center;font-size:.8rem;color:#555}
-.no-channels{color:#888;font-style:italic;padding:1rem 0}
-.error-banner{background:#e94560;color:#fff;text-align:center;padding:.75rem;border-radius:8px;margin-bottom:1rem;display:none}
+th{
+    padding:11px 18px;
+    border-bottom:1px solid var(--line-soft);
+    color:var(--muted);
+    font-size:.66rem;
+    text-align:left;
+    letter-spacing:.08em
+}
+td{padding:13px 18px;border-bottom:1px solid var(--line-soft);font-size:.84rem}
+tbody tr:last-child td{border-bottom:0}
+.hunter-name{font-weight:750;color:var(--text);white-space:nowrap}
+.rank-mark{color:var(--accent-soft);font-variant-numeric:tabular-nums;white-space:nowrap}
+.channel-name{color:var(--muted);white-space:nowrap}
+.location-mark{color:#d5c58d;white-space:nowrap}
+.empty{
+    display:flex;
+    min-height:218px;
+    align-items:center;
+    justify-content:center;
+    padding:30px;
+    color:var(--muted);
+    font-size:.85rem;
+    text-align:center
+}
+.channel-list{list-style:none;margin:0;padding:0}
+.channel-item{padding:15px 18px;border-bottom:1px solid var(--line-soft)}
+.channel-item:last-child{border-bottom:0}
+.channel-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.channel-title{display:flex;align-items:center;gap:9px;font-size:.82rem;font-weight:750}
+.channel-dot{width:7px;height:7px;background:#53605a;border-radius:50%}
+.channel-dot.active{background:var(--live)}
+.channel-population{color:var(--muted);font-size:.73rem;font-variant-numeric:tabular-nums}
+.capacity{height:3px;margin-top:11px;background:#252e2a;overflow:hidden}
+.capacity-fill{height:100%;background:var(--accent)}
+.chat-panel{display:flex;min-width:0;flex-direction:column;background:var(--surface);border:1px solid var(--line)}
+.chat-log{
+    flex:1;
+    min-height:230px;
+    max-height:290px;
+    overflow-y:auto;
+    padding:8px 18px;
+    border-bottom:1px solid var(--line)
+}
+.chat-line{
+    display:grid;
+    grid-template-columns:58px 44px 110px minmax(0,1fr);
+    gap:10px;
+    padding:9px 0;
+    border-bottom:1px solid var(--line-soft);
+    font-size:.8rem
+}
+.chat-line:last-child{border-bottom:0}
+.chat-time{color:#68736e;font-variant-numeric:tabular-nums}
+.chat-scope{align-self:start;border:1px solid var(--line);padding:1px 4px;color:var(--muted);font-size:.62rem;text-align:center}
+.chat-line.scope-world .chat-scope{border-color:#566f62;color:var(--accent-soft)}
+.chat-line.scope-land .chat-scope{border-color:#6a624a;color:#d5c58d}
+.chat-line.scope-party .chat-scope{border-color:#625777;color:#c8b9e4}
+.chat-sender{overflow:hidden;color:var(--accent-soft);font-weight:750;text-overflow:ellipsis;white-space:nowrap}
+.chat-line.web .chat-sender{color:var(--live)}
+.chat-message{min-width:0;overflow-wrap:anywhere;color:#d9dfda}
+.chat-empty{display:flex;min-height:210px;align-items:center;justify-content:center;color:var(--muted);font-size:.8rem}
+.chat-form{
+    display:grid;
+    grid-template-columns:150px minmax(0,1fr) 84px;
+    align-items:end;
+    gap:9px;
+    padding:14px 18px
+}
+.chat-form label{display:grid;gap:5px}
+.chat-input{
+    width:100%;
+    min-width:0;
+    height:39px;
+    border:1px solid var(--line);
+    border-radius:0;
+    outline:none;
+    background:#0f1412;
+    color:var(--text);
+    padding:0 11px
+}
+.chat-input::placeholder{color:#5e6964}
+.chat-input:focus{border-color:var(--accent)}
+.chat-submit{
+    height:39px;
+    border:1px solid var(--accent);
+    border-radius:0;
+    background:var(--accent);
+    color:#17140c;
+    cursor:pointer;
+    font-weight:850
+}
+.chat-submit:hover{background:var(--accent-soft)}
+.chat-submit:disabled{cursor:wait;opacity:.55}
+.chat-feedback{min-height:20px;padding:0 18px 12px;color:var(--muted);font-size:.7rem}
+.chat-feedback.error{color:#ffaaa3}
+.rankings{margin-top:18px;border:1px solid var(--line);background:var(--surface)}
+.rankings-header{padding:17px 18px;border-bottom:1px solid var(--line)}
+.rankings-header h2{margin:0 0 3px;font-size:.94rem}
+.rankings-header p{margin:0;color:var(--muted);font-size:.72rem}
+.ranking-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+.ranking-block{min-width:0;padding:18px;border-right:1px solid var(--line)}
+.ranking-block:last-child{border-right:0}
+.ranking-heading{margin:0 0 14px;color:var(--accent-soft);font-size:.78rem;font-weight:800}
+.ranking-list{list-style:none;margin:0;padding:0}
+.ranking-item{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:8px;min-height:37px;border-bottom:1px solid var(--line-soft);font-size:.78rem}
+.ranking-item:last-child{border-bottom:0}
+.ranking-number{font-family:Georgia,"Times New Roman",serif;color:#66716c}
+.ranking-item:first-child .ranking-number{color:var(--accent);font-size:1rem}
+.ranking-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ranking-score{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ranking-empty{padding:18px 0;color:var(--muted);font-size:.76rem}
+.footer{
+    display:flex;
+    justify-content:space-between;
+    gap:20px;
+    margin-top:18px;
+    padding-top:15px;
+    border-top:1px solid var(--line);
+    color:#6f7a75;
+    font-size:.68rem
+}
+@media (max-width:900px){
+    .shell{width:min(calc(100% - 24px),var(--max-width));padding-top:24px}
+    .masthead{align-items:flex-start;flex-direction:column}
+    .metrics{grid-template-columns:repeat(2,1fr)}
+    .metric:nth-child(2){border-right:0}
+    .metric:nth-child(-n+2){border-bottom:1px solid var(--line)}
+    .metric:nth-child(3){padding-left:0}
+    .layout{grid-template-columns:1fr}
+    .ranking-grid{grid-template-columns:1fr}
+    .ranking-block{border-right:0;border-bottom:1px solid var(--line)}
+    .ranking-block:last-child{border-bottom:0}
+    .chat-form{grid-template-columns:120px minmax(0,1fr)}
+    .chat-submit{grid-column:1 / -1}
+    .footer{flex-direction:column;gap:5px}
+}
+@media (max-width:520px){
+    .metrics{grid-template-columns:1fr}
+    .metric,.metric:nth-child(3){padding:17px 0;border-right:0;border-bottom:1px solid var(--line)}
+    .metric:last-child{border-bottom:0}
+    th,td{padding-left:13px;padding-right:13px}
+    th:nth-child(3),td:nth-child(3){display:none}
+    .chat-line{grid-template-columns:48px 38px 82px minmax(0,1fr);gap:7px}
+    .chat-form{grid-template-columns:1fr}
+    .chat-submit{grid-column:auto}
+}
 </style>
 </head>
 <body>
-<div class="header">
-    <h1>Erupe Dashboard</h1>
-    <div class="version" id="version">Loading...</div>
-</div>
+<main class="shell">
+    <header class="masthead">
+        <div>
+            <p class="eyebrow">MONSTER HUNTER FRONTIER</p>
+            <h1>Erupe 월드 현황</h1>
+            <p class="subtitle" id="version">서버 정보를 불러오는 중입니다.</p>
+        </div>
+        <div class="live-status" aria-live="polite">
+            <span class="status-dot" id="status-dot"></span>
+            <span id="status-text">연결 확인 중</span>
+        </div>
+    </header>
 
-<div id="error-banner" class="error-banner">Failed to fetch server stats</div>
+    <div id="error-banner" class="error-banner" role="alert">
+        서버 현황을 불러오지 못했습니다. 잠시 후 자동으로 다시 시도합니다.
+    </div>
 
-<div class="cards">
-    <div class="card">
-        <div class="label">Uptime</div>
-        <div class="value" id="uptime" style="font-size:1.25rem">--</div>
-    </div>
-    <div class="card">
-        <div class="label">Online Players</div>
-        <div class="value accent" id="online-players">--</div>
-    </div>
-    <div class="card">
-        <div class="label">Total Accounts</div>
-        <div class="value" id="total-accounts">--</div>
-    </div>
-    <div class="card">
-        <div class="label">Total Characters</div>
-        <div class="value" id="total-characters">--</div>
-    </div>
-    <div class="card">
-        <div class="label">Database</div>
-        <div class="value" id="db-status">--</div>
-    </div>
-</div>
+    <section class="metrics" aria-label="서버 주요 지표">
+        <div class="metric">
+            <span class="metric-label">현재 접속</span>
+            <strong class="metric-value" id="online-players">—</strong>
+        </div>
+        <div class="metric">
+            <span class="metric-label">운영 채널</span>
+            <strong class="metric-value" id="channel-count">—</strong>
+        </div>
+        <div class="metric">
+            <span class="metric-label">등록 헌터</span>
+            <strong class="metric-value" id="total-characters">—</strong>
+        </div>
+        <div class="metric">
+            <span class="metric-label">서버 가동 시간</span>
+            <strong class="metric-value" id="uptime">—</strong>
+        </div>
+    </section>
 
-<div class="channels">
-    <h2>Channels</h2>
-    <div id="channels-content">
-        <div class="no-channels">Loading...</div>
-    </div>
-</div>
+    <section class="layout">
+        <aside class="panel">
+            <div class="panel-header">
+                <div>
+                    <h2 class="panel-title">채널 상태</h2>
+                    <span class="panel-note">5초마다 갱신</span>
+                </div>
+            </div>
+            <div id="channels-content">
+                <div class="empty">채널 정보를 확인하고 있습니다.</div>
+            </div>
+        </aside>
 
-<div class="footer">
-    Last updated: <span id="last-updated">never</span> | Auto-refreshes every 5s
-</div>
+        <article class="panel">
+            <div class="panel-header">
+                <div>
+                    <h2 class="panel-title">접속 중인 헌터</h2>
+                    <span class="panel-note">전체 월드 기준</span>
+                </div>
+                <span class="count-badge" id="online-count">0</span>
+            </div>
+            <div class="table-wrap" id="online-content">
+                <div class="empty">접속 정보를 확인하고 있습니다.</div>
+            </div>
+        </article>
+
+        <section class="chat-panel" aria-labelledby="chat-heading">
+            <div class="panel-header">
+                <div>
+                    <h2 class="panel-title" id="chat-heading">월드 채팅</h2>
+                    <span class="panel-note">월드·현재 랜드·파티 최근 10개</span>
+                </div>
+                <span class="count-badge">LIVE</span>
+            </div>
+            <div class="chat-log" id="chat-log" aria-live="polite">
+                <div class="chat-empty">최근 게임 채팅을 확인하고 있습니다.</div>
+            </div>
+            <form class="chat-form" id="chat-form">
+                <label>
+                    <span class="panel-note">사용자명</span>
+                    <input class="chat-input" id="chat-name" name="sender" type="text" minlength="1" maxlength="8" autocomplete="nickname" placeholder="1~8글자" required>
+                </label>
+                <label>
+                    <span class="panel-note">메시지</span>
+                    <input class="chat-input" id="chat-message" name="message" type="text" minlength="1" maxlength="120" autocomplete="off" placeholder="전체 월드에 보낼 메시지" required>
+                </label>
+                <button class="chat-submit" id="chat-submit" type="submit">전송</button>
+            </form>
+            <div class="chat-feedback" id="chat-feedback">게임에서는 월드 채팅으로 표시됩니다.</div>
+        </section>
+    </section>
+
+    <section class="rankings">
+        <div class="rankings-header">
+            <h2>월드 랭킹</h2>
+            <p>랭킹 데이터는 1분간 캐시되며 읽기 전용으로 제공됩니다.</p>
+        </div>
+        <div class="ranking-grid">
+            <article class="ranking-block">
+                <h3 class="ranking-heading">헌터 랭크</h3>
+                <ol class="ranking-list" id="hunter-ranking"></ol>
+            </article>
+            <article class="ranking-block">
+                <h3 class="ranking-heading">대형 몬스터 토벌</h3>
+                <ol class="ranking-list" id="monster-ranking"></ol>
+            </article>
+            <article class="ranking-block">
+                <h3 class="ranking-heading">플레이 타임</h3>
+                <ol class="ranking-list" id="playtime-ranking"></ol>
+            </article>
+            <article class="ranking-block">
+                <h3 class="ranking-heading">수렵단 RP</h3>
+                <ol class="ranking-list" id="guild-ranking"></ol>
+            </article>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <span>마지막 갱신: <time id="last-updated">아직 없음</time></span>
+        <span>토벌 수와 플레이 타임은 캐릭터별 누적 기록입니다.</span>
+    </footer>
+</main>
 
 <script>
-(function() {
+(function () {
+    "use strict";
+
     var lastUpdated = null;
+    var numberFormatter = new Intl.NumberFormat("ko-KR");
 
-    function updateStats() {
-        fetch("/api/dashboard/stats")
-            .then(function(r) {
-                if (!r.ok) throw new Error("HTTP " + r.status);
-                return r.json();
+    function byId(id) {
+        return document.getElementById(id);
+    }
+
+    function text(tag, className, value) {
+        var node = document.createElement(tag);
+        if (className) node.className = className;
+        node.textContent = value;
+        return node;
+    }
+
+    function hunterRank(hr, gr) {
+        return gr > 0 ? "GR " + numberFormatter.format(gr) : "HR " + numberFormatter.format(hr);
+    }
+
+    function playtimeLabel(totalSeconds) {
+        var totalMinutes = Math.max(0, Math.floor((Number(totalSeconds) || 0) / 60));
+        var minutes = totalMinutes % 60;
+        var totalHours = Math.floor(totalMinutes / 60);
+        var hours = totalHours % 24;
+        var totalDays = Math.floor(totalHours / 24);
+        var days = totalDays % 365;
+        var years = Math.floor(totalDays / 365);
+        var parts = [];
+
+        if (years > 0) parts.push(numberFormatter.format(years) + "년");
+        if (days > 0) parts.push(days + "일");
+        if (hours > 0) parts.push(hours + "시간");
+        parts.push(minutes + "분");
+        return parts.join(" ");
+    }
+
+    function channelLabel(name, land) {
+        return land > 1 ? name + " · " + land + "채널" : name;
+    }
+
+    function setConnectionState(online) {
+        byId("status-dot").classList.toggle("offline", !online);
+        byId("status-text").textContent = online ? "정상 운영 중" : "연결 확인 필요";
+    }
+
+    function renderOnline(players) {
+        var container = byId("online-content");
+        byId("online-count").textContent = players.length;
+        if (!players.length) {
+            container.replaceChildren(text("div", "empty", "현재 접속 중인 헌터가 없습니다."));
+            return;
+        }
+
+        var table = document.createElement("table");
+        var thead = document.createElement("thead");
+        var headRow = document.createElement("tr");
+        ["헌터", "랭크", "접속 채널", "위치"].forEach(function (label) {
+            headRow.appendChild(text("th", "", label));
+        });
+        thead.appendChild(headRow);
+
+        var tbody = document.createElement("tbody");
+        players.forEach(function (player) {
+            var row = document.createElement("tr");
+            row.appendChild(text("td", "hunter-name", player.name));
+            row.appendChild(text("td", "rank-mark", hunterRank(player.hr, player.gr)));
+            row.appendChild(text("td", "channel-name", channelLabel(player.channel, player.land)));
+            row.appendChild(text("td", "location-mark", player.location || "접속 중"));
+            tbody.appendChild(row);
+        });
+
+        table.appendChild(thead);
+        table.appendChild(tbody);
+        container.replaceChildren(table);
+    }
+
+    function renderChannels(channels) {
+        var container = byId("channels-content");
+        byId("channel-count").textContent = numberFormatter.format(channels.length);
+        if (!channels.length) {
+            container.replaceChildren(text("div", "empty", "등록된 채널이 없습니다."));
+            return;
+        }
+
+        var list = document.createElement("ul");
+        list.className = "channel-list";
+        channels.forEach(function (channel) {
+            var item = document.createElement("li");
+            item.className = "channel-item";
+
+            var row = document.createElement("div");
+            row.className = "channel-row";
+            var title = document.createElement("div");
+            title.className = "channel-title";
+            var dot = document.createElement("span");
+            dot.className = "channel-dot" + (channel.players > 0 ? " active" : "");
+            title.appendChild(dot);
+            title.appendChild(document.createTextNode(channelLabel(channel.name, channel.land)));
+
+            var maximum = channel.maxPlayers > 0 ? channel.maxPlayers : "—";
+            row.appendChild(title);
+            row.appendChild(text("span", "channel-population", channel.players + " / " + maximum));
+            item.appendChild(row);
+
+            var capacity = document.createElement("div");
+            capacity.className = "capacity";
+            var fill = document.createElement("div");
+            fill.className = "capacity-fill";
+            var percentage = channel.maxPlayers > 0 ? Math.min(100, channel.players / channel.maxPlayers * 100) : 0;
+            fill.style.width = percentage + "%";
+            capacity.appendChild(fill);
+            item.appendChild(capacity);
+            list.appendChild(item);
+        });
+        container.replaceChildren(list);
+    }
+
+    function chatTime(value) {
+        var date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "--:--";
+        return date.toLocaleTimeString("ko-KR", {hour: "2-digit", minute: "2-digit", hour12: false});
+    }
+
+    function renderChat(messages) {
+        var container = byId("chat-log");
+        if (!messages.length) {
+            container.replaceChildren(text("div", "chat-empty", "아직 기록된 게임 채팅이 없습니다."));
+            return;
+        }
+
+        var scopeLabels = {world: "월드", land: "랜드", party: "파티"};
+        var fragment = document.createDocumentFragment();
+        messages.forEach(function (entry) {
+            var scope = scopeLabels[entry.scope] ? entry.scope : "world";
+            var line = document.createElement("div");
+            line.className = "chat-line scope-" + scope + (entry.source === "web" ? " web" : "");
+            line.appendChild(text("time", "chat-time", chatTime(entry.time)));
+            line.appendChild(text("span", "chat-scope", scopeLabels[scope]));
+            line.appendChild(text("span", "chat-sender", entry.sender));
+            line.appendChild(text("span", "chat-message", entry.message));
+            fragment.appendChild(line);
+        });
+        container.replaceChildren(fragment);
+        container.scrollTop = container.scrollHeight;
+    }
+
+    function updateChat() {
+        fetch("/api/dashboard/chat", {cache: "no-store"})
+            .then(function (response) {
+                if (!response.ok) throw new Error("HTTP " + response.status);
+                return response.json();
             })
-            .then(function(d) {
-                document.getElementById("error-banner").style.display = "none";
-                document.getElementById("version").textContent = d.serverVersion + " - " + d.clientMode;
-                document.getElementById("uptime").textContent = d.uptime;
-                document.getElementById("online-players").textContent = d.onlinePlayers;
-                document.getElementById("total-accounts").textContent = d.totalAccounts;
-                document.getElementById("total-characters").textContent = d.totalCharacters;
-
-                var dbEl = document.getElementById("db-status");
-                if (d.databaseOK) {
-                    dbEl.textContent = "OK";
-                    dbEl.className = "value ok";
-                } else {
-                    dbEl.textContent = "DOWN";
-                    dbEl.className = "value fail";
-                }
-
-                var container = document.getElementById("channels-content");
-                if (!d.channels || d.channels.length === 0) {
-                    container.innerHTML = '<div class="no-channels">No channels registered</div>';
-                } else {
-                    var html = '<table><thead><tr><th>Status</th><th>Name</th><th>Port</th><th>Players</th></tr></thead><tbody>';
-                    for (var i = 0; i < d.channels.length; i++) {
-                        var ch = d.channels[i];
-                        var dotClass = ch.players > 0 ? "active" : "empty";
-                        html += '<tr><td><span class="dot ' + dotClass + '"></span></td>';
-                        html += '<td>' + escapeHtml(ch.name) + '</td>';
-                        html += '<td>' + ch.port + '</td>';
-                        html += '<td>' + ch.players + '</td></tr>';
-                    }
-                    html += '</tbody></table>';
-                    container.innerHTML = html;
-                }
-
-                lastUpdated = new Date();
+            .then(function (data) {
+                renderChat(data.messages || []);
             })
-            .catch(function() {
-                document.getElementById("error-banner").style.display = "block";
+            .catch(function () {
+                byId("chat-feedback").textContent = "채팅 기록을 불러오지 못했습니다.";
+                byId("chat-feedback").className = "chat-feedback error";
             });
     }
 
-    function updateTimer() {
-        if (lastUpdated) {
-            var ago = Math.floor((Date.now() - lastUpdated.getTime()) / 1000);
-            document.getElementById("last-updated").textContent = ago + "s ago";
+    function runeLength(value) {
+        return Array.from(value).length;
+    }
+
+    function submitChat(event) {
+        event.preventDefault();
+        var sender = byId("chat-name").value.trim();
+        var message = byId("chat-message").value.trim();
+        var feedback = byId("chat-feedback");
+        var submit = byId("chat-submit");
+
+        if (runeLength(sender) < 1 || runeLength(sender) > 8) {
+            feedback.textContent = "사용자명은 1~8글자로 입력해 주세요.";
+            feedback.className = "chat-feedback error";
+            byId("chat-name").focus();
+            return;
         }
+        if (runeLength(message) < 1 || runeLength(message) > 120) {
+            feedback.textContent = "메시지는 1~120글자로 입력해 주세요.";
+            feedback.className = "chat-feedback error";
+            byId("chat-message").focus();
+            return;
+        }
+
+        submit.disabled = true;
+        feedback.textContent = "월드로 전송하는 중입니다.";
+        feedback.className = "chat-feedback";
+
+        fetch("/api/dashboard/chat", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({sender: sender, message: message})
+        })
+            .then(function (response) {
+                return response.json().then(function (data) {
+                    if (!response.ok) throw new Error(data.error || "전송 실패");
+                    return data;
+                });
+            })
+            .then(function (data) {
+                try {
+                    localStorage.setItem("erupe-dashboard-chat-name", sender);
+                } catch (_) {}
+                byId("chat-message").value = "";
+                feedback.textContent = "전체 월드에 전송했습니다.";
+                feedback.className = "chat-feedback";
+                renderChat(data.messages || []);
+                byId("chat-message").focus();
+            })
+            .catch(function (error) {
+                feedback.textContent = error.message;
+                feedback.className = "chat-feedback error";
+            })
+            .finally(function () {
+                submit.disabled = false;
+            });
     }
 
-    function escapeHtml(s) {
-        var div = document.createElement("div");
-        div.appendChild(document.createTextNode(s));
-        return div.innerHTML;
+    function renderRanking(targetId, entries, score) {
+        var list = byId(targetId);
+        if (!entries.length) {
+            list.replaceChildren(text("li", "ranking-empty", "표시할 기록이 없습니다."));
+            return;
+        }
+
+        var fragment = document.createDocumentFragment();
+        entries.forEach(function (entry, index) {
+            var item = document.createElement("li");
+            item.className = "ranking-item";
+            item.appendChild(text("span", "ranking-number", String(index + 1).padStart(2, "0")));
+            item.appendChild(text("span", "ranking-name", entry.name));
+            item.appendChild(text("span", "ranking-score", score(entry)));
+            fragment.appendChild(item);
+        });
+        list.replaceChildren(fragment);
     }
 
+    function render(data) {
+        byId("version").textContent = data.serverVersion + " · " + data.clientMode + " 클라이언트";
+        byId("online-players").textContent = numberFormatter.format(data.onlinePlayers);
+        byId("total-characters").textContent = numberFormatter.format(data.totalCharacters);
+        byId("uptime").textContent = data.uptime;
+
+        renderOnline(data.onlineCharacters || []);
+        renderChannels(data.channels || []);
+
+        var rankings = data.rankings || {};
+        renderRanking("hunter-ranking", rankings.hunters || [], function (entry) {
+            return hunterRank(entry.hr, entry.gr);
+        });
+        renderRanking("monster-ranking", rankings.monsterHunts || [], function (entry) {
+            return numberFormatter.format(entry.kills) + "마리";
+        });
+        renderRanking("guild-ranking", rankings.guilds || [], function (entry) {
+            return numberFormatter.format(entry.rp) + " RP";
+        });
+        renderRanking("playtime-ranking", rankings.playtime || [], function (entry) {
+            return playtimeLabel(entry.seconds);
+        });
+
+        setConnectionState(Boolean(data.databaseOK));
+        lastUpdated = new Date();
+    }
+
+    function updateStats() {
+        fetch("/api/dashboard/stats", {cache: "no-store"})
+            .then(function (response) {
+                if (!response.ok) throw new Error("HTTP " + response.status);
+                return response.json();
+            })
+            .then(function (data) {
+                byId("error-banner").style.display = "none";
+                render(data);
+            })
+            .catch(function () {
+                byId("error-banner").style.display = "block";
+                setConnectionState(false);
+            });
+    }
+
+    function updateClock() {
+        if (!lastUpdated) return;
+        var seconds = Math.floor((Date.now() - lastUpdated.getTime()) / 1000);
+        byId("last-updated").textContent = seconds < 2 ? "방금 전" : seconds + "초 전";
+    }
+
+    try {
+        var savedName = localStorage.getItem("erupe-dashboard-chat-name");
+        if (savedName) byId("chat-name").value = savedName;
+    } catch (_) {}
+
+    byId("chat-form").addEventListener("submit", submitChat);
     updateStats();
+    updateChat();
     setInterval(updateStats, 5000);
-    setInterval(updateTimer, 1000);
+    setInterval(updateChat, 2000);
+    setInterval(updateClock, 1000);
 })();
 </script>
 </body>

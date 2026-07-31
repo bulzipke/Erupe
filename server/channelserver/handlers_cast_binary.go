@@ -33,6 +33,22 @@ const (
 	BroadcastTypeWorld    = 0x0a
 )
 
+func dashboardChatScope(broadcastType uint8, chatType binpacket.ChatType) (string, bool) {
+	switch chatType {
+	case binpacket.ChatTypeWorld:
+		if broadcastType == BroadcastTypeWorld {
+			return "world", true
+		}
+	case binpacket.ChatTypeStage:
+		if broadcastType == BroadcastTypeStage {
+			return "land", true
+		}
+	case binpacket.ChatTypeParty:
+		return "party", true
+	}
+	return "", false
+}
+
 func handleMsgSysCastBinary(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgSysCastBinary)
 	tmp := byteframe.NewByteFrameFromBytes(pkt.RawDataPayload)
@@ -86,14 +102,7 @@ func handleMsgSysCastBinary(s *Session, p mhfpacket.MHFPacket) {
 
 	// Parse out the real casted binary payload
 	var msgBinTargeted *binpacket.MsgBinTargeted
-	var message, author string
 	var returnToSender bool
-	if pkt.MessageType == BinaryMessageTypeChat {
-		tmp.SetLE()
-		_, _ = tmp.Seek(8, 0)
-		message = string(tmp.ReadNullTerminatedBytes())
-		author = string(tmp.ReadNullTerminatedBytes())
-	}
 
 	// Customise payload
 	realPayload := pkt.RawDataPayload
@@ -107,29 +116,39 @@ func handleMsgSysCastBinary(s *Session, p mhfpacket.MHFPacket) {
 			return
 		}
 		realPayload = msgBinTargeted.RawDataPayload
-	} else if pkt.MessageType == BinaryMessageTypeChat {
-		if message == "@dice" {
+	}
+	if pkt.MessageType == BinaryMessageTypeChat {
+		bf := byteframe.NewByteFrameFromBytes(realPayload)
+		bf.SetLE()
+		chatMessage := &binpacket.MsgBinChat{}
+		if err := chatMessage.Parse(bf); err != nil {
+			s.logger.Warn("Failed to parse chat cast binary", zap.Error(err))
+			return
+		}
+
+		// Targeted chat previously bypassed command and dice handling. Preserve
+		// that behavior while still allowing party chat to reach the dashboard.
+		if pkt.BroadcastType != BroadcastTypeTargeted && chatMessage.Message == "@dice" {
 			returnToSender = true
 			m := binpacket.MsgBinChat{
-				Type:       BinaryMessageTypeChat,
+				Type:       chatMessage.Type,
 				Flags:      4,
 				Message:    fmt.Sprintf(`%d`, token.RNG.Intn(100)+1),
-				SenderName: author,
+				SenderName: chatMessage.SenderName,
 			}
-			bf := byteframe.NewByteFrame()
-			bf.SetLE()
-			_ = m.Build(bf)
-			realPayload = bf.Data()
+			responsePayload := byteframe.NewByteFrame()
+			responsePayload.SetLE()
+			_ = m.Build(responsePayload)
+			realPayload = responsePayload.Data()
 		} else {
-			bf := byteframe.NewByteFrameFromBytes(pkt.RawDataPayload)
-			bf.SetLE()
-			chatMessage := &binpacket.MsgBinChat{}
-			_ = chatMessage.Parse(bf)
-			if strings.HasPrefix(chatMessage.Message, s.server.erupeConfig.CommandPrefix) {
+			if pkt.BroadcastType != BroadcastTypeTargeted && strings.HasPrefix(chatMessage.Message, s.server.erupeConfig.CommandPrefix) {
 				parseChatCommand(s, chatMessage.Message)
 				return
 			}
-			if (pkt.BroadcastType == BroadcastTypeStage && s.stage.id == "sl1Ns200p0a0u0") || pkt.BroadcastType == BroadcastTypeWorld {
+			if scope, ok := dashboardChatScope(pkt.BroadcastType, chatMessage.Type); ok {
+				s.server.observeDashboardChat(scope, chatMessage.SenderName, chatMessage.Message)
+			}
+			if (pkt.BroadcastType == BroadcastTypeStage && s.stage != nil && s.stage.id == "sl1Ns200p0a0u0") || pkt.BroadcastType == BroadcastTypeWorld {
 				s.server.DiscordChannelSend(chatMessage.SenderName, chatMessage.Message)
 			}
 		}

@@ -78,6 +78,135 @@ func TestSendServerChatMessage(t *testing.T) {
 	}
 }
 
+func TestWorldAndLandChatNotifyDashboardObserver(t *testing.T) {
+	tests := []struct {
+		name          string
+		broadcastType uint8
+		chatType      binpacket.ChatType
+		wantScope     string
+	}{
+		{name: "world", broadcastType: BroadcastTypeWorld, chatType: binpacket.ChatTypeWorld, wantScope: "world"},
+		{name: "land", broadcastType: BroadcastTypeStage, chatType: binpacket.ChatTypeStage, wantScope: "land"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := createTestServer()
+			server.erupeConfig.CommandPrefix = "!"
+			server.Registry = NewLocalChannelRegistry([]*Server{server})
+			session := createTestSessionForServer(server, &mockConn{}, 42, "Hunter")
+			session.stage = NewStage("sl1Ns200p0a0u0")
+
+			var gotScope, gotSender, gotMessage string
+			server.SetDashboardChatObserver(func(scope, sender, message string) {
+				gotScope = scope
+				gotSender = sender
+				gotMessage = message
+			})
+
+			payload := byteframe.NewByteFrame()
+			payload.SetLE()
+			chat := &binpacket.MsgBinChat{
+				Type:       test.chatType,
+				Message:    "Hello",
+				SenderName: "Hunter",
+			}
+			if err := chat.Build(payload); err != nil {
+				t.Fatalf("build chat: %v", err)
+			}
+
+			handleMsgSysCastBinary(session, &mhfpacket.MsgSysCastBinary{
+				BroadcastType:  test.broadcastType,
+				MessageType:    BinaryMessageTypeChat,
+				RawDataPayload: payload.Data(),
+			})
+
+			if gotScope != test.wantScope || gotSender != "Hunter" || gotMessage != "Hello" {
+				t.Fatalf("observer = %q/%q/%q", gotScope, gotSender, gotMessage)
+			}
+		})
+	}
+}
+
+func TestDashboardChatScopeAllowsWorldLandAndPartyOnly(t *testing.T) {
+	tests := []struct {
+		name          string
+		broadcastType uint8
+		chatType      binpacket.ChatType
+		wantScope     string
+		wantOK        bool
+	}{
+		{name: "world", broadcastType: BroadcastTypeWorld, chatType: binpacket.ChatTypeWorld, wantScope: "world", wantOK: true},
+		{name: "land", broadcastType: BroadcastTypeStage, chatType: binpacket.ChatTypeStage, wantScope: "land", wantOK: true},
+		{name: "party targeted", broadcastType: BroadcastTypeTargeted, chatType: binpacket.ChatTypeParty, wantScope: "party", wantOK: true},
+		{name: "guild", broadcastType: BroadcastTypeTargeted, chatType: binpacket.ChatTypeGuild},
+		{name: "alliance", broadcastType: BroadcastTypeTargeted, chatType: binpacket.ChatTypeAlliance},
+		{name: "whisper", broadcastType: BroadcastTypeTargeted, chatType: binpacket.ChatTypeWhisper},
+		{name: "mismatched world", broadcastType: BroadcastTypeStage, chatType: binpacket.ChatTypeWorld},
+		{name: "mismatched land", broadcastType: BroadcastTypeWorld, chatType: binpacket.ChatTypeStage},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			gotScope, gotOK := dashboardChatScope(test.broadcastType, test.chatType)
+			if gotScope != test.wantScope || gotOK != test.wantOK {
+				t.Fatalf("dashboardChatScope() = %q/%v, want %q/%v", gotScope, gotOK, test.wantScope, test.wantOK)
+			}
+		})
+	}
+}
+
+func TestTargetedPartyChatNotifiesDashboardObserver(t *testing.T) {
+	server := createTestServer()
+	server.erupeConfig.CommandPrefix = "!"
+	server.Registry = NewLocalChannelRegistry([]*Server{server})
+	sender := createTestSessionForServer(server, &mockConn{}, 42, "Hunter")
+	targetConn := &mockConn{}
+	target := createTestSessionForServer(server, targetConn, 77, "PartyMember")
+	server.Lock()
+	server.sessions[targetConn] = target
+	server.Unlock()
+
+	var gotScope, gotSender, gotMessage string
+	server.SetDashboardChatObserver(func(scope, sender, message string) {
+		gotScope = scope
+		gotSender = sender
+		gotMessage = message
+	})
+
+	chatPayload := byteframe.NewByteFrame()
+	chatPayload.SetLE()
+	chat := &binpacket.MsgBinChat{
+		Type:       binpacket.ChatTypeParty,
+		Message:    "Party hello",
+		SenderName: "Hunter",
+	}
+	if err := chat.Build(chatPayload); err != nil {
+		t.Fatalf("build party chat: %v", err)
+	}
+
+	targetedPayload := byteframe.NewByteFrame()
+	targetedPayload.SetBE()
+	targeted := &binpacket.MsgBinTargeted{
+		TargetCount:    1,
+		TargetCharIDs:  []uint32{77},
+		RawDataPayload: chatPayload.Data(),
+	}
+	if err := targeted.Build(targetedPayload); err != nil {
+		t.Fatalf("build targeted chat: %v", err)
+	}
+
+	handleMsgSysCastBinary(sender, &mhfpacket.MsgSysCastBinary{
+		BroadcastType:  BroadcastTypeTargeted,
+		MessageType:    BinaryMessageTypeChat,
+		RawDataPayload: targetedPayload.Data(),
+	})
+
+	if gotScope != "party" || gotSender != "Hunter" || gotMessage != "Party hello" {
+		t.Fatalf("observer = %q/%q/%q", gotScope, gotSender, gotMessage)
+	}
+}
+
 // TestHandleMsgSysCastBinary_SimpleData verifies basic data message handling
 func TestHandleMsgSysCastBinary_SimpleData(t *testing.T) {
 	mock := &MockCryptConn{sentPackets: make([][]byte, 0)}

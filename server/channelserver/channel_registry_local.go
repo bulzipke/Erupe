@@ -1,9 +1,12 @@
 package channelserver
 
 import (
-	"erupe-ce/network/mhfpacket"
 	"net"
 	"strings"
+
+	"erupe-ce/common/byteframe"
+	"erupe-ce/network/binpacket"
+	"erupe-ce/network/mhfpacket"
 )
 
 // LocalChannelRegistry is the in-process ChannelRegistry backed by []*Server.
@@ -23,6 +26,31 @@ func (r *LocalChannelRegistry) Worldcast(pkt mhfpacket.MHFPacket, ignoredSession
 		}
 		c.BroadcastMHF(pkt, ignoredSession)
 	}
+}
+
+// BroadcastWorldChat sends a web-originated chat line to every connected
+// character across every local channel.
+func (r *LocalChannelRegistry) BroadcastWorldChat(sender, message string) error {
+	bf := byteframe.NewByteFrame()
+	bf.SetLE()
+	chat := &binpacket.MsgBinChat{
+		Unk0:       0,
+		Type:       binpacket.ChatTypeWorld,
+		Flags:      0,
+		Message:    message,
+		SenderName: sender,
+	}
+	if err := chat.Build(bf); err != nil {
+		return err
+	}
+
+	r.Worldcast(&mhfpacket.MsgSysCastedBinary{
+		CharID:         0,
+		BroadcastType:  BroadcastTypeWorld,
+		MessageType:    BinaryMessageTypeChat,
+		RawDataPayload: bf.Data(),
+	}, nil, nil)
+	return nil
 }
 
 func (r *LocalChannelRegistry) FindSessionByCharID(charID uint32) *Session {

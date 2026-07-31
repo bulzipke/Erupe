@@ -298,6 +298,13 @@ func handleMsgMhfLoaddata(s *Session, p mhfpacket.MHFPacket) {
 	decompSaveData, err := nullcomp.DecompressWithLimit(data, saveDataMaxDecompressedPayload)
 	if err != nil {
 		s.logger.Error("Failed to decompress savedata", zap.Error(err))
+		return
+	}
+	if playtime, playtimeErr := extractPlaytimeFromSavedata(s.server.erupeConfig.RealClientMode, data); playtimeErr != nil {
+		s.logger.Warn("Failed to initialize session playtime from savedata", zap.Error(playtimeErr))
+	} else {
+		s.playtime = playtime
+		s.playtimeTime = time.Now()
 	}
 	bf := byteframe.NewByteFrameFromBytes(decompSaveData)
 	_, _ = bf.Seek(88, io.SeekStart)

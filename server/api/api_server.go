@@ -36,6 +36,16 @@ type APIServer struct {
 	httpServer     *http.Server
 	startTime      time.Time
 	isShuttingDown bool
+
+	dashboardMu         sync.Mutex
+	dashboardRankings   DashboardRankings
+	dashboardRankingsAt time.Time
+	dashboardStageMu    sync.RWMutex
+	dashboardStageIDs   func() map[uint32]string
+
+	chatMu               sync.RWMutex
+	chatMessages         []DashboardChatMessage
+	worldChatBroadcaster func(sender, message string) error
 }
 
 const (
@@ -76,6 +86,7 @@ func (s *APIServer) Start() error {
 	// Dashboard routes (before catch-all)
 	r.HandleFunc("/dashboard", s.Dashboard)
 	r.HandleFunc("/api/dashboard/stats", s.DashboardStatsJSON).Methods("GET")
+	r.HandleFunc("/api/dashboard/chat", s.DashboardChat).Methods("GET", "POST")
 
 	// Legacy routes (unchanged, no method enforcement)
 	r.HandleFunc("/launcher", s.Launcher)

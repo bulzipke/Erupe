@@ -518,7 +518,7 @@ func TestEntranceServerInfo(t *testing.T) {
 }
 
 func TestIsValidCollabEvent(t *testing.T) {
-	for _, value := range []string{"", "none", "kaiji", "higanjima", "nier"} {
+	for _, value := range []string{"", "none", "random", "kaiji", "higanjima", "nier"} {
 		if !IsValidCollabEvent(value) {
 			t.Errorf("IsValidCollabEvent(%q) = false, want true", value)
 		}

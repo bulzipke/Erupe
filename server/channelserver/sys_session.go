@@ -43,21 +43,23 @@ type Session struct {
 	objectIndex uint16
 	loaded      bool
 
-	stage            *Stage
-	reservationStage *Stage // Required for the stateful MsgSysUnreserveStage packet.
-	stagePass        string // Temporary storage
-	prevGuildID      uint32 // Stores the last GuildID used in InfoGuild
-	charID           uint32
-	userID           uint32
-	clientLang       string // Per-session language preference; empty = use server default
-	cachedI18n       *i18n  // Lazily populated by I18n(); invalidated on SetLang
-	cachedI18nLang   string // Lang the cachedI18n was built for
-	logKey           []byte
-	sessionStart     int64
-	courses          []mhfcourse.Course
-	token            string
-	kqf              []byte
-	kqfOverride      bool
+	stage                  *Stage
+	reservationStage       *Stage // Required for the stateful MsgSysUnreserveStage packet.
+	stagePass              string // Temporary storage
+	prevGuildID            uint32 // Stores the last GuildID used in InfoGuild
+	charID                 uint32
+	userID                 uint32
+	clientLang             string // Per-session language preference; empty = use server default
+	cachedI18n             *i18n  // Lazily populated by I18n(); invalidated on SetLang
+	cachedI18nLang         string // Lang the cachedI18n was built for
+	collabEvent            string // Random collaboration selected for this login session.
+	collabRotationAcquired bool
+	logKey                 []byte
+	sessionStart           int64
+	courses                []mhfcourse.Course
+	token                  string
+	kqf                    []byte
+	kqfOverride            bool
 
 	playtime     uint32
 	playtimeTime time.Time

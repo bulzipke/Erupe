@@ -779,11 +779,15 @@ func TestSaveAtomicParamsStructure(t *testing.T) {
 		IsFemale:   true,
 		WeaponType: 7,
 		WeaponID:   1234,
+		Playtime:   987654,
 		HouseTier:  []byte{0x01, 0x00, 0x00, 0x00, 0x00},
 	}
 
 	if params.CharID != 42 {
 		t.Error("CharID mismatch")
+	}
+	if params.Playtime != 987654 {
+		t.Errorf("Playtime mismatch: got %d", params.Playtime)
 	}
 	if len(params.Hash) != 32 {
 		t.Errorf("hash should be 32 bytes, got %d", len(params.Hash))

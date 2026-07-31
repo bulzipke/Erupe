@@ -4,6 +4,11 @@ import (
 	"net"
 	"sync"
 	"testing"
+
+	"erupe-ce/common/byteframe"
+	"erupe-ce/network"
+	"erupe-ce/network/binpacket"
+	"erupe-ce/network/mhfpacket"
 )
 
 func createTestChannels(count int) []*Server {
@@ -52,6 +57,53 @@ func TestLocalRegistryFindSessionByCharID(t *testing.T) {
 	found = reg.FindSessionByCharID(999)
 	if found != nil {
 		t.Errorf("FindSessionByCharID(999) = %v, want nil", found)
+	}
+}
+
+func TestLocalRegistryBroadcastWorldChat(t *testing.T) {
+	channels := createTestChannels(2)
+	registry := NewLocalChannelRegistry(channels)
+
+	var sessions []*Session
+	for i, channel := range channels {
+		conn := &mockConn{}
+		session := createTestSessionForServer(channel, conn, uint32(i+1), "Player")
+		channel.Lock()
+		channel.sessions[conn] = session
+		channel.Unlock()
+		sessions = append(sessions, session)
+	}
+
+	if err := registry.BroadcastWorldChat("WebUser", "Hello world"); err != nil {
+		t.Fatalf("BroadcastWorldChat: %v", err)
+	}
+
+	for index, session := range sessions {
+		select {
+		case queued := <-session.sendPackets:
+			frame := byteframe.NewByteFrameFromBytes(queued.data)
+			if opcode := network.PacketID(frame.ReadUint16()); opcode != network.MSG_SYS_CASTED_BINARY {
+				t.Fatalf("session %d opcode = %d", index, opcode)
+			}
+			casted := &mhfpacket.MsgSysCastedBinary{}
+			if err := casted.Parse(frame, session.clientContext); err != nil {
+				t.Fatalf("session %d parse casted: %v", index, err)
+			}
+			if casted.BroadcastType != BroadcastTypeWorld || casted.MessageType != BinaryMessageTypeChat {
+				t.Fatalf("session %d casted metadata = %+v", index, casted)
+			}
+			payload := byteframe.NewByteFrameFromBytes(casted.RawDataPayload)
+			payload.SetLE()
+			chat := &binpacket.MsgBinChat{}
+			if err := chat.Parse(payload); err != nil {
+				t.Fatalf("session %d parse chat: %v", index, err)
+			}
+			if chat.SenderName != "WebUser" || chat.Message != "Hello world" || chat.Type != binpacket.ChatTypeWorld {
+				t.Fatalf("session %d chat = %+v", index, chat)
+			}
+		default:
+			t.Fatalf("session %d did not receive web chat", index)
+		}
 	}
 }
 
