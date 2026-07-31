@@ -332,6 +332,7 @@ func SetTestDB(s *Server, db *sqlx.DB) {
 	s.db = db
 	s.charRepo = NewCharacterRepository(db)
 	s.guildRepo = NewGuildRepository(db)
+	s.guildMissionRepo = NewGuildMissionRepository(db)
 	s.userRepo = NewUserRepository(db)
 	s.gachaRepo = NewGachaRepository(db, nil)
 	s.houseRepo = NewHouseRepository(db)
@@ -351,4 +352,5 @@ func SetTestDB(s *Server, db *sqlx.DB) {
 	s.miscRepo = NewMiscRepository(db)
 	s.scenarioRepo = NewScenarioRepository(db)
 	s.mercenaryRepo = NewMercenaryRepository(db)
+	s.guildMissionService = NewGuildMissionService(s.guildMissionRepo, s.logger)
 }

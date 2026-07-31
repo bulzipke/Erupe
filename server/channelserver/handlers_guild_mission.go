@@ -1,44 +1,33 @@
 package channelserver
 
 import (
+	"errors"
+
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network/mhfpacket"
+
+	"go.uber.org/zap"
 )
 
-// GuildMission represents a guild mission entry.
-type GuildMission struct {
-	ID          uint32
-	Unk         uint32
-	Type        uint16
-	Goal        uint16
-	Quantity    uint16
-	SkipTickets uint16
-	GR          bool
-	RewardType  uint16
-	RewardLevel uint16
-}
+const (
+	guildMissionListTrailerSize = 45
+	guildMissionRecordSize      = 0x190
+	guildMissionRecordWireSize  = 0x1D
+	guildMissionRecordMaxCount  = 11
+	guildMissionEffectMaxCount  = 10
+	guildMissionStateActive     = 0
+	guildMissionStateEffect     = 1
+	guildMissionAddFailed       = 1
+	guildMissionAddCompleted    = 2
+	guildMissionCancelFailed    = 0
+	guildMissionCancelSucceeded = 1
+)
 
 func handleMsgMhfGetGuildMissionList(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetGuildMissionList)
 	bf := byteframe.NewByteFrame()
-	missions := []GuildMission{
-		{431201, 574, 1, 4761, 35, 1, false, 2, 1},
-		{431202, 755, 0, 95, 12, 2, false, 3, 2},
-		{431203, 746, 0, 95, 6, 1, false, 1, 1},
-		{431204, 581, 0, 83, 16, 2, false, 4, 2},
-		{431205, 694, 1, 4763, 25, 1, false, 2, 1},
-		{431206, 988, 0, 27, 16, 1, false, 6, 1},
-		{431207, 730, 1, 4768, 25, 1, false, 4, 1},
-		{431208, 680, 1, 3567, 50, 2, false, 2, 2},
-		{431209, 1109, 0, 34, 60, 2, false, 6, 2},
-		{431210, 128, 1, 8921, 70, 2, false, 3, 2},
-		{431211, 406, 0, 59, 10, 1, false, 1, 1},
-		{431212, 1170, 0, 70, 90, 3, false, 6, 3},
-		{431213, 164, 0, 38, 24, 2, false, 6, 2},
-		{431214, 378, 1, 3556, 150, 3, false, 1, 3},
-		{431215, 446, 0, 94, 20, 2, false, 4, 2},
-	}
-	for _, mission := range missions {
+	timestamp := uint32(TimeAdjusted().Unix())
+	for _, mission := range guildMissionDefinitions {
 		bf.WriteUint32(mission.ID)
 		bf.WriteUint32(mission.Unk)
 		bf.WriteUint16(mission.Type)
@@ -48,30 +37,140 @@ func handleMsgMhfGetGuildMissionList(s *Session, p mhfpacket.MHFPacket) {
 		bf.WriteBool(mission.GR)
 		bf.WriteUint16(mission.RewardType)
 		bf.WriteUint16(mission.RewardLevel)
-		bf.WriteUint32(uint32(TimeAdjusted().Unix()))
+		bf.WriteUint32(timestamp)
 	}
+	// The official response is 0x1A4 bytes: 15 records followed by 45
+	// reserved zero bytes. The ZZ client consumes the 15 records and ignores
+	// this trailer, but preserving it avoids a protocol regression.
+	bf.WriteBytes(make([]byte, guildMissionListTrailerSize))
 	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
 }
 
 func handleMsgMhfGetGuildMissionRecord(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetGuildMissionRecord)
 
-	const guildMissionRecordSize = 0x190
-	// No guild mission records = empty buffer
-	doAckBufSucceed(s, pkt.AckHandle, make([]byte, guildMissionRecordSize))
+	snapshot, err := s.server.guildMissionService.GetSnapshot(s.charID)
+	if err != nil {
+		if errors.Is(err, ErrGuildMissionNotMember) {
+			doAckBufSucceed(s, pkt.AckHandle, make([]byte, guildMissionRecordSize))
+			return
+		}
+		s.logger.Error("Failed to load guild mission record", zap.Error(err))
+		doAckBufFail(s, pkt.AckHandle, make([]byte, guildMissionRecordSize))
+		return
+	}
+	doAckBufSucceed(s, pkt.AckHandle, encodeGuildMissionRecord(snapshot))
 }
 
 func handleMsgMhfAddGuildMissionCount(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfAddGuildMissionCount)
-	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+	result, err := s.server.guildMissionService.AddProgress(s.charID, pkt.MissionID, pkt.Count)
+	if err != nil {
+		s.logger.Warn("Failed to add guild mission progress",
+			zap.Uint32("mission_id", pkt.MissionID),
+			zap.Uint32("requested", pkt.Count),
+			zap.Error(err),
+		)
+		// The client may have already removed guild tickets/items. A normal
+		// ACK with result 1 enters its rollback path; a transport-level failure
+		// leaves that rollback behavior undefined.
+		doAckSimpleSucceed(s, pkt.AckHandle, guildMissionSimpleResult(guildMissionAddFailed))
+		return
+	}
+	status := uint32(0)
+	if result.Completed {
+		status = guildMissionAddCompleted
+	}
+	doAckSimpleSucceed(s, pkt.AckHandle, guildMissionSimpleResult(status))
 }
 
 func handleMsgMhfSetGuildMissionTarget(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfSetGuildMissionTarget)
-	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+	if _, err := s.server.guildMissionService.Start(s.charID, pkt.MissionID); err != nil {
+		s.logger.Warn("Failed to set guild mission target",
+			zap.Uint32("mission_id", pkt.MissionID),
+			zap.Error(err),
+		)
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	doAckSimpleSucceed(s, pkt.AckHandle, guildMissionSimpleResult(0))
 }
 
 func handleMsgMhfCancelGuildMissionTarget(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfCancelGuildMissionTarget)
-	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+	if err := s.server.guildMissionService.Cancel(s.charID, pkt.MissionID); err != nil {
+		s.logger.Warn("Failed to cancel guild mission target",
+			zap.Uint32("mission_id", pkt.MissionID),
+			zap.Error(err),
+		)
+		// Result 0 is the protocol-level failure code and makes the client
+		// restore the cancellation tickets it removed before this request.
+		doAckSimpleSucceed(s, pkt.AckHandle, guildMissionSimpleResult(guildMissionCancelFailed))
+		return
+	}
+	doAckSimpleSucceed(s, pkt.AckHandle, guildMissionSimpleResult(guildMissionCancelSucceeded))
+}
+
+func guildMissionSimpleResult(value uint32) []byte {
+	bf := byteframe.NewByteFrame()
+	bf.WriteUint32(value)
+	return bf.Data()
+}
+
+func encodeGuildMissionRecord(snapshot GuildMissionSnapshot) []byte {
+	type record struct {
+		run   GuildMissionRun
+		state uint16
+	}
+	records := make([]record, 0, guildMissionRecordMaxCount)
+	if snapshot.Active != nil {
+		records = append(records, record{run: *snapshot.Active, state: guildMissionStateActive})
+	}
+	for index, effect := range snapshot.Effects {
+		if index >= guildMissionEffectMaxCount {
+			break
+		}
+		if len(records) >= guildMissionRecordMaxCount {
+			break
+		}
+		records = append(records, record{run: effect, state: guildMissionStateEffect})
+	}
+
+	bf := byteframe.NewByteFrame()
+	bf.WriteUint32(uint32(len(records)))
+	for _, entry := range records {
+		run := entry.run
+		bf.WriteUint32(run.MissionID)
+		bf.WriteUint16(run.TargetType)
+		bf.WriteUint16(uint16(run.TargetID))
+		bf.WriteUint16(uint16(run.RequiredCount))
+		bf.WriteUint16(uint16(run.Progress))
+		bf.WriteUint16(run.SkipTickets)
+		bf.WriteUint16(run.ProgressPerExchange)
+		bf.WriteUint16(run.CancelTicketCost)
+		bf.WriteBool(run.GR)
+		bf.WriteUint16(run.RewardType)
+		bf.WriteUint16(run.RewardLevel)
+		bf.WriteUint16(entry.state)
+
+		var startedAt int64
+		if entry.state == guildMissionStateActive {
+			startedAt = run.SetAt.Unix()
+		} else if run.CompletedAt != nil {
+			startedAt = run.CompletedAt.Unix()
+		}
+		bf.WriteUint32(uint32(startedAt))
+	}
+
+	data := bf.Data()
+	if len(data) > guildMissionRecordSize {
+		// The count cap above makes this unreachable, but retain a hard bound
+		// because the client parser itself performs no destination bounds check.
+		data = data[:guildMissionRecordSize]
+	}
+	if len(data) < guildMissionRecordSize {
+		data = append(data, make([]byte, guildMissionRecordSize-len(data))...)
+	}
+	return data
 }

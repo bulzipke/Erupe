@@ -130,6 +130,14 @@ type GuildRepo interface {
 	AddMember(guildID, charID uint32) error
 }
 
+// GuildMissionRepo defines transactional persistence for guild-wide targets.
+type GuildMissionRepo interface {
+	GetSnapshot(charID uint32, now time.Time) (GuildMissionSnapshot, error)
+	Start(charID uint32, def GuildMissionDefinition, now time.Time) (GuildMissionRun, error)
+	AddProgress(charID, missionID, requested uint32, now time.Time) (GuildMissionProgressResult, error)
+	Cancel(charID, missionID uint32, now time.Time) error
+}
+
 // UserRepo defines the contract for user account data access.
 type UserRepo interface {
 	GetGachaPoints(userID uint32) (fp, premium, trial uint32, err error)

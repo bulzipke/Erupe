@@ -72,6 +72,12 @@ func ensureGuildService(s *Server) {
 	s.guildService = NewGuildService(s.guildRepo, s.mailService, s.charRepo, s.logger)
 }
 
+// ensureGuildMissionService wires the GuildMissionService from the server's
+// current repository.
+func ensureGuildMissionService(s *Server) {
+	s.guildMissionService = NewGuildMissionService(s.guildMissionRepo, s.logger)
+}
+
 // ensureAchievementService wires the AchievementService from the server's current repos.
 func ensureAchievementService(s *Server) {
 	s.achievementService = NewAchievementService(s.achievementRepo, s.logger)

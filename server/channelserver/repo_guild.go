@@ -271,6 +271,17 @@ func (r *GuildRepository) Disband(guildID uint32) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// Mission mutations lock the guild before its membership rows. Keep the
+	// same order here so disbanding cannot deadlock with a concurrent mission
+	// report, target change, or cancellation.
+	var lockedGuildID uint32
+	if err := tx.QueryRow(
+		"SELECT id FROM guilds WHERE id = $1 FOR UPDATE",
+		guildID,
+	).Scan(&lockedGuildID); err != nil {
+		return err
+	}
+
 	stmts := []string{
 		"DELETE FROM guild_characters WHERE guild_id = $1",
 		"DELETE FROM guilds WHERE id = $1",

@@ -123,6 +123,9 @@ type Server struct {
 	rengokuBin []byte // Cached rengoku_data.bin (ECD-encrypted, served to clients as-is)
 
 	handlerTable map[network.PacketID]handlerFunc
+
+	guildMissionRepo    GuildMissionRepo
+	guildMissionService *GuildMissionService
 }
 
 // NewServer creates a new Server type.
@@ -155,6 +158,7 @@ func NewServer(config *Config) *Server {
 
 	s.charRepo = NewCharacterRepository(config.DB)
 	s.guildRepo = NewGuildRepository(config.DB)
+	s.guildMissionRepo = NewGuildMissionRepository(config.DB)
 	s.userRepo = NewUserRepository(config.DB)
 	s.gachaRepo = NewGachaRepository(config.DB, s.logger)
 	s.houseRepo = NewHouseRepository(config.DB)
@@ -179,6 +183,7 @@ func NewServer(config *Config) *Server {
 
 	s.mailService = NewMailService(s.mailRepo, s.guildRepo, s.logger)
 	s.guildService = NewGuildService(s.guildRepo, s.mailService, s.charRepo, s.logger)
+	s.guildMissionService = NewGuildMissionService(s.guildMissionRepo, s.logger)
 	s.achievementService = NewAchievementService(s.achievementRepo, s.logger)
 	s.gachaService = NewGachaService(s.gachaRepo, s.userRepo, s.charRepo, s.logger, config.ErupeConfig.GameplayOptions.MaximumNP)
 	s.towerService = NewTowerService(s.towerRepo, s.logger)
