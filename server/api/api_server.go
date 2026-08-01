@@ -85,6 +85,7 @@ func (s *APIServer) Start() error {
 
 	// Dashboard routes (before catch-all)
 	r.HandleFunc("/dashboard", s.Dashboard)
+	r.HandleFunc("/dashboard/assets/{name}", s.DashboardMonsterIcon).Methods("GET")
 	r.HandleFunc("/api/dashboard/stats", s.DashboardStatsJSON).Methods("GET")
 	r.HandleFunc("/api/dashboard/chat", s.DashboardChat).Methods("GET", "POST")
 

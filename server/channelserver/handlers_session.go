@@ -3,9 +3,11 @@ package channelserver
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"erupe-ce/common/byteframe"
 	"erupe-ce/common/mhfcourse"
 	"erupe-ce/common/mhfmon"
+	"erupe-ce/common/mhfquest"
 	ps "erupe-ce/common/pascalstring"
 	"erupe-ce/common/stringsupport"
 	cfg "erupe-ce/config"
@@ -39,6 +41,16 @@ const maxTerminalLogEntriesLogged = 16
 
 func handleMsgSysTerminalLog(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgSysTerminalLog)
+	if s.server.erupeConfig.DebugOptions.QuestTools {
+		s.logger.Debug("QuestTerminalLogDiagnostic",
+			zap.Uint32("charID", uint32(s.charID)),
+			zap.String("name", s.Name),
+			zap.Uint32("ackHandle", pkt.AckHandle),
+			zap.Uint32("logID", pkt.LogID),
+			zap.Int("entryCount", len(pkt.Entries)),
+			zap.Any("entries", pkt.Entries),
+		)
+	}
 	loggedEntries := len(pkt.Entries)
 	if loggedEntries > maxTerminalLogEntriesLogged {
 		loggedEntries = maxTerminalLogEntriesLogged
@@ -607,8 +619,12 @@ const localhostAddrLE = uint32(0x0100007F) // 127.0.0.1 in little-endian
 
 // Kill log binary layout constants
 const (
-	killLogHeaderSize   = 32  // bytes before monster kill count array
-	killLogMonsterCount = 176 // monster table entries
+	killLogHeaderSize            = 32  // bytes before monster kill count array
+	killLogMonsterCount          = 176 // monster table entries
+	questIDOffset                = 0   // uint16 quest ID in the ZZ record-log header
+	questElapsedFramesOffset     = 12  // uint32, 30 Hz, reverse-engineered from ZZ mhfo-hd.dll
+	questTimerFramesPerSecond    = 30
+	maxRankedQuestDurationFrames = 4 * 60 * 60 * questTimerFramesPerSecond
 )
 
 // RP accrual rate constants (seconds per RP point)
@@ -619,18 +635,106 @@ const (
 
 func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgSysRecordLog)
-	if s.server.erupeConfig.RealClientMode == cfg.ZZ {
+	if s.server.erupeConfig.DebugOptions.QuestTools {
+		fields := []zap.Field{
+			zap.Uint32("charID", uint32(s.charID)),
+			zap.String("name", s.Name),
+			zap.Uint32("ackHandle", pkt.AckHandle),
+			zap.Uint32("unk0", pkt.Unk0),
+			zap.Uint32("unk1", pkt.Unk1),
+			zap.Int("dataBytes", len(pkt.Data)),
+			zap.String("dataHex", hex.EncodeToString(pkt.Data)),
+		}
+		if len(pkt.Data) >= questIDOffset+2 {
+			questID := binary.LittleEndian.Uint16(pkt.Data[questIDOffset : questIDOffset+2])
+			fields = append(fields, zap.Uint16("questID", questID))
+			if s.server.erupeConfig.RealClientMode == cfg.ZZ {
+				fields = append(fields,
+					zap.String("stageRunMode", s.peekQuestRunMode(questID).String()),
+					zap.String("recordRunMode", decodeQuestRunModeFromRecordLog(pkt.Data).String()),
+				)
+			}
+		}
+		if len(pkt.Data) >= questElapsedFramesOffset+4 {
+			fields = append(fields, zap.Uint32("elapsedFrames", binary.LittleEndian.Uint32(pkt.Data[questElapsedFramesOffset:questElapsedFramesOffset+4])))
+		}
+		s.logger.Debug("QuestRecordLogDiagnostic", fields...)
+	}
+	if s.server.erupeConfig.RealClientMode == cfg.ZZ && len(pkt.Data) >= killLogHeaderSize+killLogMonsterCount {
 		bf := byteframe.NewByteFrameFromBytes(pkt.Data)
 		_, _ = bf.Seek(killLogHeaderSize, 0)
+		questID := binary.LittleEndian.Uint16(pkt.Data[questIDOffset : questIDOffset+2])
+		elapsedFrames := binary.LittleEndian.Uint32(pkt.Data[questElapsedFramesOffset : questElapsedFramesOffset+4])
+		stageRunMode := s.peekQuestRunMode(questID)
+		recordRunMode := decodeQuestRunModeFromRecordLog(pkt.Data)
+		recordTime := elapsedFrames > 0 && elapsedFrames <= maxRankedQuestDurationFrames && !s.questHadParty.Load()
+		recordedAt := TimeAdjusted()
+		questName := ""
+		questMetadata := mhfquest.HuntQuestMetadata{RankKind: mhfquest.HuntRankUnknown}
+		if recordTime && s.server.huntRecordRepo != nil {
+			questName = questTitleForRecord(s, questID)
+			questMetadata = mhfquest.ResolveHuntQuestMetadata(s.server.erupeConfig.BinPath, questID)
+		}
 		var val uint8
+		runModeSkipLogged := false
 		for i := 0; i < killLogMonsterCount; i++ {
 			val = bf.ReadUint8()
 			if val > 0 && mhfmon.Monsters[i].Large {
-				if err := s.server.guildRepo.InsertKillLog(s.charID, i, val, TimeAdjusted()); err != nil {
+				if err := s.server.guildRepo.InsertKillLog(s.charID, i, val, recordedAt); err != nil {
 					s.logger.Error("Failed to insert kill log", zap.Error(err))
+				}
+				if recordTime && s.server.huntRecordRepo != nil {
+					baseVariant := mhfquest.MonsterHuntVariantForMetadata(questID, i, questMetadata)
+					monsterVariant, resolved := resolveQuestRunVariant(baseVariant, stageRunMode, recordRunMode)
+					if !resolved {
+						if !runModeSkipLogged {
+							fields := []zap.Field{
+								zap.Uint16("questID", questID),
+								zap.String("stageRunMode", stageRunMode.String()),
+								zap.String("recordRunMode", recordRunMode.String()),
+							}
+							if stageRunMode != questRunModeUnknown && recordRunMode != questRunModeUnknown && stageRunMode != recordRunMode {
+								s.logger.Warn("Skipped optional-HC hunt record because runtime mode signals disagree", fields...)
+							} else if s.server.erupeConfig.DebugOptions.QuestTools {
+								s.logger.Debug("Skipped optional-HC hunt record because runtime mode is unknown", fields...)
+							}
+							runModeSkipLogged = true
+						}
+						continue
+					}
+					record := HuntRecordUpsert{
+						CharacterID:    s.charID,
+						MonsterID:      i,
+						QuestID:        questID,
+						QuestName:      questName,
+						RankKind:       string(questMetadata.RankKind),
+						VariantKind:    string(monsterVariant),
+						QuestVariant1:  questMetadata.Variant1,
+						QuestVariant2:  questMetadata.Variant2,
+						QuestVariant3:  questMetadata.Variant3,
+						QuestVariant4:  questMetadata.Variant4,
+						RankBand:       questMetadata.RankBand,
+						StatTable1:     questMetadata.StatTable1,
+						StatTable2:     questMetadata.StatTable2,
+						BestTimeFrames: elapsedFrames,
+						RecordedAt:     recordedAt,
+					}
+					if err := s.server.huntRecordRepo.UpsertPersonalBest(record); err != nil {
+						s.logger.Error("Failed to update monster hunt personal best",
+							zap.Error(err),
+							zap.Int("monsterID", i),
+							zap.String("variantKind", string(monsterVariant)),
+							zap.String("rankKind", string(questMetadata.RankKind)),
+							zap.Uint16("questID", questID),
+							zap.Uint32("elapsedFrames", elapsedFrames),
+						)
+					}
 				}
 			}
 		}
+		// A result packet ends this quest run. Clear only matching setup state so
+		// a delayed result from another quest cannot erase a newer selection.
+		s.clearQuestRunMode(questID)
 	}
 	// Remove a client returning to town from reserved slots to make sure the
 	// stage is hidden from the board.

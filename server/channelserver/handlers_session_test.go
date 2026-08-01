@@ -10,12 +10,23 @@ import (
 
 	"erupe-ce/common/byteframe"
 	"erupe-ce/common/mhfcourse"
+	"erupe-ce/common/mhfquest"
 	cfg "erupe-ce/config"
 	"erupe-ce/network/clientctx"
 	"erupe-ce/network/mhfpacket"
 
 	"go.uber.org/zap"
 )
+
+type mockHuntRecordRepo struct {
+	records []HuntRecordUpsert
+	err     error
+}
+
+func (m *mockHuntRecordRepo) UpsertPersonalBest(record HuntRecordUpsert) error {
+	m.records = append(m.records, record)
+	return m.err
+}
 
 func TestHandleMsgSysTerminalLog_ReturnsLogIDPlusOne(t *testing.T) {
 	server := createMockServer()
@@ -219,6 +230,8 @@ func TestHandleMsgSysRecordLog_ZZMode(t *testing.T) {
 
 	guildRepo := &mockGuildRepo{}
 	server.guildRepo = guildRepo
+	huntRecordRepo := &mockHuntRecordRepo{}
+	server.huntRecordRepo = huntRecordRepo
 
 	session := createMockSession(1, server)
 
@@ -233,14 +246,24 @@ func TestHandleMsgSysRecordLog_ZZMode(t *testing.T) {
 
 	// Build kill log data: 32 header bytes + 176 monster bytes
 	data := make([]byte, 32+176)
+	binary.LittleEndian.PutUint16(data[questIDOffset:questIDOffset+2], 12345)
+	binary.LittleEndian.PutUint32(data[questElapsedFramesOffset:questElapsedFramesOffset+4], 3_750)
 	// Set monster index 5 to have 2 kills (a large monster per mhfmon)
-	data[32+5] = 2
+	data[32+6] = 2
 
 	pkt := &mhfpacket.MsgSysRecordLog{
 		AckHandle: 100,
 		Data:      data,
 	}
 	handleMsgSysRecordLog(session, pkt)
+
+	if len(huntRecordRepo.records) != 1 {
+		t.Fatalf("hunt record count = %d, want 1", len(huntRecordRepo.records))
+	}
+	record := huntRecordRepo.records[0]
+	if record.CharacterID != 1 || record.MonsterID != 6 || record.VariantKind != string(mhfquest.HuntVariantUnknown) || record.RankKind != string(mhfquest.HuntRankUnknown) || record.QuestID != 12345 || record.QuestName != "퀘스트 #12345" || record.BestTimeFrames != 3_750 {
+		t.Errorf("hunt record = %+v, want char=1 monster=6 quest=12345 fallback-title frames=3750", record)
+	}
 
 	// Check that reserved slot was cleaned up
 	if _, exists := stage.reservedClientSlots[1]; exists {
@@ -252,6 +275,56 @@ func TestHandleMsgSysRecordLog_ZZMode(t *testing.T) {
 		// success
 	default:
 		t.Error("No response packet queued")
+	}
+}
+
+func TestHandleMsgSysRecordLog_PartyHuntExcludedFromTimeRanking(t *testing.T) {
+	server := createMockServer()
+	server.erupeConfig.RealClientMode = cfg.ZZ
+	server.guildRepo = &mockGuildRepo{}
+	huntRecordRepo := &mockHuntRecordRepo{}
+	server.huntRecordRepo = huntRecordRepo
+
+	session := createMockSession(1, server)
+	session.stage = NewStage("sl1Ns200p0a0u1")
+	session.questHadParty.Store(true)
+
+	data := make([]byte, killLogHeaderSize+killLogMonsterCount)
+	binary.LittleEndian.PutUint16(data[questIDOffset:questIDOffset+2], 12345)
+	binary.LittleEndian.PutUint32(data[questElapsedFramesOffset:questElapsedFramesOffset+4], 3_750)
+	data[killLogHeaderSize+6] = 1
+
+	handleMsgSysRecordLog(session, &mhfpacket.MsgSysRecordLog{AckHandle: 100, Data: data})
+	if len(huntRecordRepo.records) != 0 {
+		t.Fatalf("party hunt created %d time-ranking records, want 0", len(huntRecordRepo.records))
+	}
+}
+
+func TestHandleMsgSysRecordLog_GuaranteedPhantomEventSplitsBothMonsters(t *testing.T) {
+	server := createMockServer()
+	server.erupeConfig.RealClientMode = cfg.ZZ
+	server.guildRepo = &mockGuildRepo{}
+	huntRecordRepo := &mockHuntRecordRepo{}
+	server.huntRecordRepo = huntRecordRepo
+
+	session := createMockSession(1, server)
+	session.stage = NewStage("sl1Ns200p0a0u1")
+
+	data := make([]byte, killLogHeaderSize+killLogMonsterCount)
+	binary.LittleEndian.PutUint16(data[questIDOffset:questIDOffset+2], 54340)
+	binary.LittleEndian.PutUint32(data[questElapsedFramesOffset:questElapsedFramesOffset+4], 3_750)
+	data[killLogHeaderSize+53] = 1
+	data[killLogHeaderSize+95] = 1
+
+	handleMsgSysRecordLog(session, &mhfpacket.MsgSysRecordLog{AckHandle: 100, Data: data})
+	if len(huntRecordRepo.records) != 2 {
+		t.Fatalf("phantom event created %d records, want 2", len(huntRecordRepo.records))
+	}
+	if got := huntRecordRepo.records[0].VariantKind; got != string(mhfquest.HuntVariantPhantomRedRajang) {
+		t.Errorf("Rajang variant = %q", got)
+	}
+	if got := huntRecordRepo.records[1].VariantKind; got != string(mhfquest.HuntVariantPhantomDora) {
+		t.Errorf("Doragyurosu variant = %q", got)
 	}
 }
 

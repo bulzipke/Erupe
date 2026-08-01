@@ -14,6 +14,38 @@ import (
 
 const raceTestCompletionMsg = "Test completed. No race conditions with fixed locking - verified with -race flag"
 
+func TestUpdateQuestPartyTrackingLocked(t *testing.T) {
+	server := createMockServer()
+	first := createMockSession(1, server)
+	second := createMockSession(2, server)
+	stage := NewStage("sl1Qs123p0a0u1")
+
+	stage.Lock()
+	stage.clients[first] = first.charID
+	updateQuestPartyTrackingLocked(stage, first, false)
+	stage.Unlock()
+	if first.questHadParty.Load() {
+		t.Fatal("a lone quest client was marked as a party hunt")
+	}
+
+	stage.Lock()
+	stage.clients[second] = second.charID
+	updateQuestPartyTrackingLocked(stage, second, false)
+	stage.Unlock()
+	if !first.questHadParty.Load() || !second.questHadParty.Load() {
+		t.Fatal("all quest clients must be marked after a second client joins")
+	}
+
+	soloStage := NewStage("sl1Qs456p0a0u1")
+	soloStage.Lock()
+	soloStage.clients[first] = first.charID
+	updateQuestPartyTrackingLocked(soloStage, first, false)
+	soloStage.Unlock()
+	if first.questHadParty.Load() {
+		t.Fatal("entering a new solo quest did not reset the previous party flag")
+	}
+}
+
 func TestDestructEmptyStagesShortIDDoesNotPanic(t *testing.T) {
 	server := createMockServer()
 	session := createMockSession(1, server)

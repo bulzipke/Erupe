@@ -138,6 +138,12 @@ type GuildMissionRepo interface {
 	Cancel(charID, missionID uint32, now time.Time) error
 }
 
+// HuntRecordRepo persists the fastest quest time observed for each
+// hunter/monster/quest/rank/form identity.
+type HuntRecordRepo interface {
+	UpsertPersonalBest(record HuntRecordUpsert) error
+}
+
 // UserRepo defines the contract for user account data access.
 type UserRepo interface {
 	GetGachaPoints(userID uint32) (fp, premium, trial uint32, err error)

@@ -1,20 +1,28 @@
 package api
 
 import (
+	"bytes"
 	"context"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
+	"path"
 	"strings"
 	"time"
+
+	"erupe-ce/common/mhfmon"
+	"erupe-ce/common/mhfquest"
 
 	"go.uber.org/zap"
 )
 
 //go:embed dashboard.html
 var dashboardHTML string
+
+//go:embed dashboard_assets/namu_*
+var dashboardMonsterIconFS embed.FS
 
 var dashboardTmpl = template.Must(template.New("dashboard").Parse(dashboardHTML))
 
@@ -170,15 +178,104 @@ type PlaytimeRankEntry struct {
 	Seconds int64  `db:"playtime_seconds" json:"seconds"`
 }
 
+// MonsterTimeRankEntry is one hunter's personal-best quest time for a large
+// monster. Frames are reported by the ZZ client at 30 Hz.
+type MonsterTimeRankEntry struct {
+	MonsterID     int    `db:"monster_id" json:"monsterId"`
+	RankKind      string `db:"rank_kind" json:"rankKind"`
+	VariantKind   string `db:"variant_kind" json:"variantKind"`
+	RankingKey    string `json:"rankingKey"`
+	FeaturedGroup string `json:"featuredGroup"`
+	MonsterName   string `json:"monsterName"`
+	Icon          string `json:"icon,omitempty"`
+	Name          string `db:"character_name" json:"name"`
+	QuestID       int    `db:"quest_id" json:"questId"`
+	QuestName     string `db:"quest_name" json:"questName"`
+	Frames        int64  `db:"best_time_frames" json:"frames"`
+}
+
 // DashboardRankings contains the read-only rankings shown on the dashboard.
 type DashboardRankings struct {
 	Hunters      []HunterRankEntry      `json:"hunters"`
 	MonsterHunts []MonsterHuntRankEntry `json:"monsterHunts"`
 	Guilds       []GuildRankEntry       `json:"guilds"`
 	Playtime     []PlaytimeRankEntry    `json:"playtime"`
+	MonsterTimes []MonsterTimeRankEntry `json:"monsterTimes"`
 }
 
 const dashboardRankingTTL = time.Minute
+
+const dashboardMonsterTimesQuery = `
+	WITH eligible_records AS (
+		SELECT
+			r.character_id,
+			r.monster_id,
+			COALESCE(r.rank_kind, 'unknown') AS rank_kind,
+			COALESCE(r.variant_kind, 'unknown') AS variant_kind,
+			c.name AS character_name,
+			r.quest_id,
+			CASE
+				WHEN r.quest_name <> '' THEN r.quest_name
+				WHEN r.quest_id > 0 THEN '퀘스트 #' || r.quest_id::text
+				ELSE '퀘스트 번호 없음'
+			END AS quest_name,
+			r.best_time_frames,
+			ROW_NUMBER() OVER (
+				PARTITION BY
+					r.character_id,
+					r.monster_id,
+					COALESCE(r.rank_kind, 'unknown'),
+					COALESCE(r.variant_kind, 'unknown')
+				ORDER BY r.best_time_frames ASC, r.quest_id ASC
+			) AS personal_position
+		FROM monster_hunt_records r
+		INNER JOIN characters c ON c.id = r.character_id
+		WHERE c.deleted = false
+		  AND COALESCE(c.is_new_character, false) = false
+		  AND c.name IS NOT NULL
+		  AND c.name <> ''
+		  AND (
+			COALESCE(r.variant_kind, '') = 'zenith'
+			OR COALESCE(r.variant_kind, '') = 'challenge'
+			OR COALESCE(r.variant_kind, '') LIKE 'extreme\_%' ESCAPE '\'
+			OR COALESCE(r.variant_kind, '') = 'upper_shiten'
+			OR COALESCE(r.rank_kind, '') = 'g'
+			OR r.monster_id IN (7, 50, 55, 58, 60, 119, 120)
+		  )
+	), personal_bests AS (
+		SELECT *
+		FROM eligible_records
+		WHERE personal_position = 1
+	), ranked AS (
+		SELECT
+			monster_id,
+			rank_kind,
+			variant_kind,
+			character_name,
+			quest_id,
+			quest_name,
+			best_time_frames,
+			ROW_NUMBER() OVER (
+				PARTITION BY monster_id, rank_kind, variant_kind
+				ORDER BY best_time_frames ASC, character_id ASC
+			) AS position
+		FROM personal_bests
+	)
+	SELECT monster_id, rank_kind, variant_kind, character_name, quest_id, quest_name, best_time_frames
+	FROM ranked
+	WHERE position <= 10
+	ORDER BY
+		CASE
+			WHEN variant_kind = 'zenith' THEN 0
+			WHEN variant_kind = 'challenge' OR variant_kind LIKE 'extreme\_%' ESCAPE '\' THEN 1
+			WHEN variant_kind = 'upper_shiten' THEN 2
+			ELSE 3
+		END,
+		monster_id ASC,
+		rank_kind ASC,
+		variant_kind ASC,
+		position ASC
+`
 
 // Dashboard serves the embedded HTML dashboard page at /dashboard.
 func (s *APIServer) Dashboard(w http.ResponseWriter, r *http.Request) {
@@ -188,6 +285,28 @@ func (s *APIServer) Dashboard(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("Failed to render dashboard", zap.Error(err))
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
+}
+
+// DashboardMonsterIcon serves the small embedded icon set used by monster
+// ranking cards. Assets are immutable and may be cached for a year.
+func (s *APIServer) DashboardMonsterIcon(w http.ResponseWriter, r *http.Request) {
+	name := path.Base(r.URL.Path)
+	data, err := dashboardMonsterIconFS.ReadFile("dashboard_assets/" + name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	switch strings.ToLower(path.Ext(name)) {
+	case ".png":
+		w.Header().Set("Content-Type", "image/png")
+	case ".webp":
+		w.Header().Set("Content-Type", "image/webp")
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(data))
 }
 
 // DashboardStatsJSON serves GET /api/dashboard/stats with live server statistics.
@@ -334,6 +453,7 @@ func emptyDashboardRankings() DashboardRankings {
 		MonsterHunts: make([]MonsterHuntRankEntry, 0),
 		Guilds:       make([]GuildRankEntry, 0),
 		Playtime:     make([]PlaytimeRankEntry, 0),
+		MonsterTimes: make([]MonsterTimeRankEntry, 0),
 	}
 }
 
@@ -412,9 +532,151 @@ func (s *APIServer) getDashboardRankings(ctx context.Context) DashboardRankings 
 		return s.dashboardRankings
 	}
 
+	if err := s.db.SelectContext(ctx, &rankings.MonsterTimes, dashboardMonsterTimesQuery); err != nil {
+		s.logger.Warn("Dashboard: failed to query monster time rankings", zap.Error(err))
+		return s.dashboardRankings
+	}
+	questTitles := make(map[int]string)
+	for i := range rankings.MonsterTimes {
+		entry := &rankings.MonsterTimes[i]
+		monsterID := entry.MonsterID
+		entry.FeaturedGroup = dashboardMonsterFeaturedGroup(monsterID, entry.RankKind, entry.VariantKind)
+		entry.RankingKey = fmt.Sprintf("%d:%s:%s", monsterID, entry.RankKind, entry.VariantKind)
+		entry.MonsterName = dashboardMonsterDisplayName(monsterID, entry.VariantKind, entry.RankKind)
+		entry.Icon = dashboardMonsterIcon(monsterID, entry.VariantKind)
+		if entry.Icon == "" {
+			entry.Icon = dashboardMonsterIcon(monsterID, "normal")
+		}
+		questID := entry.QuestID
+		if questID >= 0 && questID <= int(^uint16(0)) {
+			title, cached := questTitles[questID]
+			if !cached {
+				title, _ = mhfquest.ResolveTitle(s.erupeConfig.BinPath, uint16(questID), "ko")
+				questTitles[questID] = title
+			}
+			if title != "" {
+				entry.QuestName = title
+			}
+		}
+	}
+
 	s.dashboardRankings = rankings
 	s.dashboardRankingsAt = time.Now()
 	return rankings
+}
+
+func dashboardMonsterFeaturedGroup(monsterID int, rankKind, variantKind string) string {
+	rankKind = strings.ToLower(strings.TrimSpace(rankKind))
+	variantKind = strings.ToLower(strings.TrimSpace(variantKind))
+	switch {
+	case variantKind == "zenith":
+		return "zenith"
+	case variantKind == "challenge", strings.HasPrefix(variantKind, "extreme_"):
+		return "challenge"
+	case variantKind == "upper_shiten":
+		return "upper_shiten"
+	case rankKind == "g", dashboardMonsterExceptionRecord(monsterID):
+		return ""
+	default:
+		return ""
+	}
+}
+
+func dashboardMonsterExceptionRecord(monsterID int) bool {
+	switch monsterID {
+	case 7, 50, 55, 58, 60, 119, 120:
+		return true
+	default:
+		return false
+	}
+}
+
+func dashboardMonsterDisplayName(monsterID int, variantKind string, rankKinds ...string) string {
+	// These four extreme forms have their own raw IDs, so their identity is
+	// definitive even when the quest-wide flags look normal or hardcore.
+	switch monsterID {
+	case 163:
+		return "극도로 달리는 나르가쿠르가"
+	case 167:
+		return "극도로 교만하는 두레무디라"
+	case 172:
+		return "극도로 엄습하는 보가바도름"
+	case 174:
+		return "극도로 빛나는 제르레우스"
+	}
+
+	base := mhfmon.KoreanName(monsterID)
+	if base == "" {
+		base = fmt.Sprintf("몬스터 #%d", monsterID)
+	}
+	variantKind = strings.ToLower(strings.TrimSpace(variantKind))
+	specialName := ""
+	switch variantKind {
+	case "phantom_red_rajang":
+		specialName = "붉은 라잔"
+	case "phantom_doragyurosu":
+		specialName = "환상의 드라규로스"
+	case "violent_raviente":
+		specialName = "라비엔테 광폭기"
+	case "extreme_zinogre":
+		specialName = "극도로 울부짖는 진오우거"
+	case "extreme_guanzorumu":
+		specialName = "극도로 통솔하는 관조룸"
+	case "extreme_deviljho":
+		specialName = "극도로 먹어치우는 이블조"
+	case "extreme_elzelion":
+		specialName = "극도로 태워 얼리는 엘제리온"
+	}
+	if specialName != "" {
+		return specialName
+	}
+
+	rankKind := ""
+	if len(rankKinds) > 0 {
+		rankKind = strings.ToLower(strings.TrimSpace(rankKinds[0]))
+	}
+	switch variantKind {
+	case "senyu":
+		return "천유종 " + base
+	case "zenith":
+		return "천이종 " + base
+	case "conquest":
+		return "극정(레벨 미확정) " + base
+	case "shiten":
+		return "지천 " + base
+	case "upper_shiten":
+		return "상급 지천 " + base
+	case "challenge":
+		return "초난관 " + base
+	}
+
+	if rankKind == "g" {
+		switch variantKind {
+		case "normal", "":
+			return "G급 " + base
+		case "hardcore":
+			return "G급 특이개체 " + base
+		case "hardcore_optional":
+			return "G급 일반/특이개체 미확정 · " + base
+		case "ul_fixed":
+			return "G급 UL · " + base
+		case "unknown":
+			return "G급 분류 미확정 · " + base
+		}
+	}
+
+	switch variantKind {
+	case "hardcore":
+		return "특이개체 " + base
+	case "hardcore_optional":
+		return "일반/특이개체 미확정 · " + base
+	case "ul_fixed":
+		return "UL · " + base
+	case "unknown":
+		return "분류 미확정 · " + base
+	default:
+		return base
+	}
 }
 
 // formatDuration produces a Korean human-readable duration string.

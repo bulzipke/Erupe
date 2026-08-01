@@ -28,15 +28,17 @@ func (r *LocalChannelRegistry) Worldcast(pkt mhfpacket.MHFPacket, ignoredSession
 	}
 }
 
-// BroadcastWorldChat sends a web-originated chat line to every connected
-// character across every local channel.
+// BroadcastWorldChat sends a web-originated operator line to every connected
+// character across every local channel. The client hides ordinary world chat
+// while a hunter is in a quest, so this uses the same server-message envelope
+// as command replies and notices; those remain visible in quest UI.
 func (r *LocalChannelRegistry) BroadcastWorldChat(sender, message string) error {
 	bf := byteframe.NewByteFrame()
 	bf.SetLE()
 	chat := &binpacket.MsgBinChat{
 		Unk0:       0,
-		Type:       binpacket.ChatTypeWorld,
-		Flags:      0,
+		Type:       binpacket.ChatTypeWhisper,
+		Flags:      chatFlagServer,
 		Message:    message,
 		SenderName: sender,
 	}
@@ -46,7 +48,6 @@ func (r *LocalChannelRegistry) BroadcastWorldChat(sender, message string) error 
 
 	r.Worldcast(&mhfpacket.MsgSysCastedBinary{
 		CharID:         0,
-		BroadcastType:  BroadcastTypeWorld,
 		MessageType:    BinaryMessageTypeChat,
 		RawDataPayload: bf.Data(),
 	}, nil, nil)

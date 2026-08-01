@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"erupe-ce/common/mhfmon"
 	cfg "erupe-ce/config"
 )
 
@@ -69,7 +70,8 @@ func TestDashboardStatsJSON_NoDB(t *testing.T) {
 	if len(stats.OnlineCharacters) != 0 {
 		t.Errorf("Expected empty OnlineCharacters without DB, got %v", stats.OnlineCharacters)
 	}
-	if stats.Rankings.Hunters == nil || stats.Rankings.MonsterHunts == nil || stats.Rankings.Guilds == nil {
+	if stats.Rankings.Hunters == nil || stats.Rankings.MonsterHunts == nil || stats.Rankings.Guilds == nil ||
+		stats.Rankings.Playtime == nil || stats.Rankings.MonsterTimes == nil {
 		t.Error("Expected ranking arrays to be initialized without DB")
 	}
 }
@@ -143,6 +145,9 @@ func TestDashboardStatsJSON_JSONShape(t *testing.T) {
 	if _, ok := rankings["playtime"]; !ok {
 		t.Error("Missing rankings.playtime JSON key")
 	}
+	if _, ok := rankings["monsterTimes"]; !ok {
+		t.Error("Missing rankings.monsterTimes JSON key")
+	}
 }
 
 func TestDashboardConfiguredChannelsExcludesDisabledAndStaleChannels(t *testing.T) {
@@ -193,11 +198,26 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, marker := range []string{
-		"Erupe 월드 현황",
 		"접속 중인 헌터",
 		"위치",
 		"월드 채팅",
 		"대형 몬스터 토벌",
+		"대형 몬스터별 최단 토벌",
+		"개인 토벌 기록만 집계합니다.",
+		"천이종 · 초난관·무쌍·극한 · 상급 지천은 기본 표시",
+		"기타 기록은 접어서 표시합니다.",
+		"기타 (펼침)",
+		"기타 (접기)",
+		"몬스터별 상위 10명 중 3위 이후는 카드 안에서 세로로 스크롤",
+		"id=\"monster-time-zenith\"",
+		"id=\"monster-time-challenge\"",
+		"id=\"monster-time-upper-shiten\"",
+		"id=\"monster-time-other-details\"",
+		"id=\"monster-time-other\"",
+		"detailsOpen",
+		"scrollState",
+		"캐릭터이름",
+		"퀘스트명",
 		"플레이 타임",
 		"/api/dashboard/stats",
 		"/api/dashboard/chat",
@@ -205,6 +225,38 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 		if !strings.Contains(body, marker) {
 			t.Errorf("Dashboard HTML missing %q", marker)
 		}
+	}
+	for _, removed := range []string{
+		`class="masthead"`,
+		`class="metrics"`,
+		`id="version"`,
+		`id="status-dot"`,
+		`id="status-text"`,
+		`id="online-players"`,
+		`id="channel-count"`,
+		`id="total-characters"`,
+		`id="uptime"`,
+	} {
+		if strings.Contains(body, removed) {
+			t.Errorf("Dashboard still contains removed summary element %q", removed)
+		}
+	}
+	if strings.Contains(body, "monster-time-select") {
+		t.Error("Monster time ranking should render every monster without a selector")
+	}
+	if strings.Contains(body, "<details class=\"monster-time-details\" id=\"monster-time-other-details\" open") {
+		t.Error("Other G-rank records should be collapsed by default")
+	}
+	zenithIndex := strings.Index(body, "id=\"monster-time-zenith\"")
+	challengeIndex := strings.Index(body, "id=\"monster-time-challenge\"")
+	upperShitenIndex := strings.Index(body, "id=\"monster-time-upper-shiten\"")
+	otherIndex := strings.Index(body, "id=\"monster-time-other-details\"")
+	if zenithIndex == -1 || challengeIndex == -1 || upperShitenIndex == -1 || otherIndex == -1 ||
+		!(zenithIndex < challengeIndex && challengeIndex < upperShitenIndex && upperShitenIndex < otherIndex) {
+		t.Error("Monster time groups are not ordered Zenith, challenge, upper Shiten, other")
+	}
+	if strings.Contains(body, "monsterIconById") {
+		t.Error("Dashboard still contains the removed legacy icon mapping")
 	}
 	channelIndex := strings.Index(body, "채널 상태")
 	onlineIndex := strings.Index(body, "접속 중인 헌터")
@@ -222,10 +274,192 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 	}
 }
 
-func TestEmptyDashboardRankingsIncludesPlaytime(t *testing.T) {
+func TestDashboardMonsterIcon(t *testing.T) {
+	server := &APIServer{}
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/assets/namu_ad1ae05706f8dc9d.webp", nil)
+	rec := httptest.NewRecorder()
+
+	server.DashboardMonsterIcon(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+	if contentType := rec.Header().Get("Content-Type"); contentType != "image/webp" {
+		t.Fatalf("Expected WebP content type, got %q", contentType)
+	}
+	want, err := dashboardMonsterIconFS.ReadFile("dashboard_assets/namu_ad1ae05706f8dc9d.webp")
+	if err != nil {
+		t.Fatalf("Read embedded icon: %v", err)
+	}
+	if rec.Body.Len() != len(want) {
+		t.Fatalf("Icon body length = %d, want %d", rec.Body.Len(), len(want))
+	}
+	if cacheControl := rec.Header().Get("Cache-Control"); !strings.Contains(cacheControl, "immutable") {
+		t.Fatalf("Expected immutable cache header, got %q", cacheControl)
+	}
+}
+
+func TestDashboardMonsterIconRejectsUnknownAsset(t *testing.T) {
+	server := &APIServer{}
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/assets/namu_missing.webp", nil)
+	rec := httptest.NewRecorder()
+
+	server.DashboardMonsterIcon(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("Expected status %d, got %d", http.StatusNotFound, rec.Code)
+	}
+}
+
+func TestDashboardMonsterIconMappingUsesVariantAndPlaceholderArtwork(t *testing.T) {
+	tests := []struct {
+		name        string
+		monsterID   int
+		variantKind string
+		want        string
+	}{
+		{name: "normal Khezu", monsterID: 15, variantKind: "normal", want: "namu_78af28ce436f64c9.webp"},
+		{name: "Zenith Khezu", monsterID: 15, variantKind: "zenith", want: "namu_14e64396175bd611.webp"},
+		{name: "intentional question mark", monsterID: 2, variantKind: "normal", want: "namu_3e900d35cbd184fb.webp"},
+		{name: "phantom form reuses base icon", monsterID: 53, variantKind: "phantom_red_rajang", want: dashboardMonsterNormalIcons[53]},
+		{name: "violent Raviente uses distinct icon", monsterID: 93, variantKind: "violent_raviente", want: "namu_517a8fb942ea0258.webp"},
+		{name: "extreme Zinogre reuses base icon", monsterID: 146, variantKind: "extreme_zinogre", want: dashboardMonsterNormalIcons[146]},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := dashboardMonsterIcon(tt.monsterID, tt.variantKind); got != tt.want {
+				t.Fatalf("dashboardMonsterIcon(%d, %q) = %q, want %q", tt.monsterID, tt.variantKind, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDashboardMonsterNormalIconsCoverAllRankedLargeMonsters(t *testing.T) {
+	for monsterID, monster := range mhfmon.Monsters {
+		if !monster.Large {
+			continue
+		}
+		icon := dashboardMonsterIcon(monsterID, "normal")
+		if icon == "" {
+			t.Errorf("large monster %d (%s) has no normal icon", monsterID, monster.Name)
+			continue
+		}
+		if _, err := dashboardMonsterIconFS.ReadFile("dashboard_assets/" + icon); err != nil {
+			t.Errorf("large monster %d (%s) icon %q is not embedded: %v", monsterID, monster.Name, icon, err)
+		}
+	}
+}
+
+func TestDashboardMonsterDisplayNameSeparatesForms(t *testing.T) {
+	if got := dashboardMonsterDisplayName(15, "zenith"); got != "천이종 푸르푸르" {
+		t.Fatalf("Zenith display name = %q", got)
+	}
+	if got := dashboardMonsterDisplayName(27, "hardcore"); got != "특이개체 도스란포스" {
+		t.Fatalf("Hardcore display name = %q", got)
+	}
+	if got := dashboardMonsterDisplayName(95, "phantom_doragyurosu"); got != "환상의 드라규로스" {
+		t.Fatalf("Phantom display name = %q", got)
+	}
+	if got := dashboardMonsterDisplayName(93, "violent_raviente"); got != "라비엔테 광폭기" {
+		t.Fatalf("Violent Raviente display name = %q", got)
+	}
+	if got := dashboardMonsterDisplayName(146, "extreme_zinogre"); got != "극도로 울부짖는 진오우거" {
+		t.Fatalf("Extreme Zinogre display name = %q", got)
+	}
+	if got := dashboardMonsterDisplayName(167, "hardcore"); got != "극도로 교만하는 두레무디라" {
+		t.Fatalf("Raw-ID extreme Duremudira display name = %q", got)
+	}
+	if got := dashboardMonsterDisplayName(172, "normal"); got != "극도로 엄습하는 보가바도름" {
+		t.Fatalf("Raw-ID extreme Bogabadorumu display name = %q", got)
+	}
+	for _, tt := range []struct {
+		name        string
+		monsterID   int
+		rankKind    string
+		variantKind string
+		want        string
+	}{
+		{name: "Senyu", monsterID: 7, rankKind: "hr", variantKind: "senyu", want: "천유종 라오샨롱"},
+		{name: "Zenith", monsterID: 15, rankKind: "g", variantKind: "zenith", want: "천이종 푸르푸르"},
+		{name: "Conquest", monsterID: 107, rankKind: "hr", variantKind: "conquest", want: "극정(레벨 미확정) 디스필로아"},
+		{name: "Shiten", monsterID: 100, rankKind: "hr", variantKind: "shiten", want: "지천 안노운"},
+		{name: "Upper Shiten", monsterID: 100, rankKind: "hr", variantKind: "upper_shiten", want: "상급 지천 안노운"},
+		{name: "Challenge", monsterID: 53, rankKind: "hr", variantKind: "challenge", want: "초난관 라잔"},
+		{name: "G normal", monsterID: 6, rankKind: "g", variantKind: "normal", want: "G급 얀쿡"},
+		{name: "G hardcore", monsterID: 6, rankKind: "g", variantKind: "hardcore", want: "G급 특이개체 얀쿡"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := dashboardMonsterDisplayName(tt.monsterID, tt.variantKind, tt.rankKind); got != tt.want {
+				t.Fatalf("display name = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDashboardMonsterFeaturedGroup(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		monsterID   int
+		rankKind    string
+		variantKind string
+		want        string
+	}{
+		{name: "Zenith", monsterID: 15, rankKind: "g", variantKind: "zenith", want: "zenith"},
+		{name: "Challenge", monsterID: 53, rankKind: "hr", variantKind: "challenge", want: "challenge"},
+		{name: "Extreme", monsterID: 146, rankKind: "unknown", variantKind: "extreme_zinogre", want: "challenge"},
+		{name: "Upper Shiten", monsterID: 100, rankKind: "hr", variantKind: "upper_shiten", want: "upper_shiten"},
+		{name: "G rank", monsterID: 6, rankKind: "g", variantKind: "normal", want: ""},
+		{name: "Exception raw ID", monsterID: 7, rankKind: "hr", variantKind: "normal", want: ""},
+		{name: "Hidden HR", monsterID: 6, rankKind: "hr", variantKind: "normal", want: ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := dashboardMonsterFeaturedGroup(tt.monsterID, tt.rankKind, tt.variantKind); got != tt.want {
+				t.Fatalf("featured group = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDashboardMonsterTimeRankingQuerySelectsPersonalBestBeforeTopTen(t *testing.T) {
+	query := strings.Join(strings.Fields(dashboardMonsterTimesQuery), " ")
+	for _, marker := range []string{
+		"PARTITION BY r.character_id, r.monster_id, COALESCE(r.rank_kind, 'unknown'), COALESCE(r.variant_kind, 'unknown')",
+		"WHERE personal_position = 1",
+		"PARTITION BY monster_id, rank_kind, variant_kind",
+		"WHERE position <= 10",
+		"COALESCE(r.variant_kind, '') = 'zenith'",
+		"COALESCE(r.variant_kind, '') = 'challenge'",
+		`COALESCE(r.variant_kind, '') LIKE 'extreme\_%' ESCAPE '\'`,
+		"COALESCE(r.variant_kind, '') = 'upper_shiten'",
+		"COALESCE(r.rank_kind, '') = 'g'",
+		"r.monster_id IN (7, 50, 55, 58, 60, 119, 120)",
+	} {
+		if !strings.Contains(query, marker) {
+			t.Errorf("monster time ranking query missing %q", marker)
+		}
+	}
+}
+
+func TestMonsterTimeRankEntryJSONIncludesClassification(t *testing.T) {
+	data, err := json.Marshal(MonsterTimeRankEntry{RankKind: "g", VariantKind: "normal", FeaturedGroup: ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["rankKind"] != "g" || raw["variantKind"] != "normal" || raw["featuredGroup"] != "" {
+		t.Fatalf("classification fields missing from JSON: %s", data)
+	}
+}
+
+func TestEmptyDashboardRankingsIncludesOptionalRankings(t *testing.T) {
 	rankings := emptyDashboardRankings()
 	if rankings.Playtime == nil {
 		t.Fatal("playtime ranking must encode as an empty array, not null")
+	}
+	if rankings.MonsterTimes == nil {
+		t.Fatal("monster time ranking must encode as an empty array, not null")
 	}
 }
 

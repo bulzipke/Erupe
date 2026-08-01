@@ -68,6 +68,9 @@ func TestLocalRegistryBroadcastWorldChat(t *testing.T) {
 	for i, channel := range channels {
 		conn := &mockConn{}
 		session := createTestSessionForServer(channel, conn, uint32(i+1), "Player")
+		if i == 1 {
+			session.stage = NewStage("sl1Qs123p0a0u2")
+		}
 		channel.Lock()
 		channel.sessions[conn] = session
 		channel.Unlock()
@@ -89,7 +92,7 @@ func TestLocalRegistryBroadcastWorldChat(t *testing.T) {
 			if err := casted.Parse(frame, session.clientContext); err != nil {
 				t.Fatalf("session %d parse casted: %v", index, err)
 			}
-			if casted.BroadcastType != BroadcastTypeWorld || casted.MessageType != BinaryMessageTypeChat {
+			if casted.BroadcastType != 0 || casted.MessageType != BinaryMessageTypeChat {
 				t.Fatalf("session %d casted metadata = %+v", index, casted)
 			}
 			payload := byteframe.NewByteFrameFromBytes(casted.RawDataPayload)
@@ -98,7 +101,7 @@ func TestLocalRegistryBroadcastWorldChat(t *testing.T) {
 			if err := chat.Parse(payload); err != nil {
 				t.Fatalf("session %d parse chat: %v", index, err)
 			}
-			if chat.SenderName != "WebUser" || chat.Message != "Hello world" || chat.Type != binpacket.ChatTypeWorld {
+			if chat.SenderName != "WebUser" || chat.Message != "Hello world" || chat.Type != binpacket.ChatTypeWhisper || chat.Flags != chatFlagServer {
 				t.Fatalf("session %d chat = %+v", index, chat)
 			}
 		default:

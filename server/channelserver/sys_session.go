@@ -84,7 +84,9 @@ type Session struct {
 
 	Name           string
 	closed         atomic.Bool
-	hidden         atomic.Bool // Set via MsgSysHideClient; excludes this session from MsgSysEnumerateClient's "All" results.
+	hidden         atomic.Bool   // Set via MsgSysHideClient; excludes this session from MsgSysEnumerateClient's "All" results.
+	questHadParty  atomic.Bool   // Sticky for one quest; prevents party hunts from entering solo time rankings.
+	questRunState  atomic.Uint32 // Packed quest ID and runtime normal/HC selection for the active quest.
 	closeOnce      sync.Once
 	logoutOnce     sync.Once
 	lifecycleMu    sync.Mutex

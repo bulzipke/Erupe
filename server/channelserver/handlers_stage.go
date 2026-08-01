@@ -1,11 +1,13 @@
 package channelserver
 
 import (
+	"encoding/hex"
 	"strings"
 	"time"
 
 	"erupe-ce/common/byteframe"
 	ps "erupe-ce/common/pascalstring"
+	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
 
 	"go.uber.org/zap"
@@ -139,6 +141,7 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	}
 	stage.clients[s] = s.charID
 	delete(stage.reservedClientSlots, s.charID)
+	updateQuestPartyTrackingLocked(stage, s, alreadyClient)
 	stage.Unlock()
 
 	// Ensure this session no longer belongs to reservations.
@@ -153,6 +156,11 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	s.Lock()
 	s.stage = stage
 	s.Unlock()
+	if stageKind(stageID) != "Qs" {
+		// Failed or abandoned quests may not send a record log. Returning to any
+		// non-quest stage is therefore the reliable boundary for stale run state.
+		s.clearQuestRunMode(0)
+	}
 	s.lifecycleMu.Unlock()
 	lifecycleHeld = false
 
@@ -236,6 +244,25 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	// causing the client to timeout after 60 seconds.
 	s.QueueSend(newNotif.Data())
 	return true
+}
+
+// updateQuestPartyTrackingLocked marks every participant once a quest stage
+// has held more than one client. The flag remains set even if a party member
+// leaves early, so the result cannot later be mistaken for a solo hunt.
+// stage must be write-locked by the caller.
+func updateQuestPartyTrackingLocked(stage *Stage, joining *Session, alreadyClient bool) {
+	if stageKind(stage.id) != "Qs" {
+		return
+	}
+	if !alreadyClient {
+		joining.questHadParty.Store(false)
+	}
+	if len(stage.clients) <= 1 {
+		return
+	}
+	for session := range stage.clients {
+		session.questHadParty.Store(true)
+	}
 }
 
 func destructEmptyStages(s *Session) {
@@ -581,8 +608,38 @@ func handleMsgSysSetStagePass(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgSysSetStageBinary(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgSysSetStageBinary)
+	questID, runMode, runModeDecoded := decodeQuestRunModeFromStageBinary(
+		pkt.StageID,
+		pkt.BinaryType0,
+		pkt.BinaryType1,
+		pkt.RawDataPayload,
+	)
+	if s.server.erupeConfig.RealClientMode != cfg.ZZ {
+		runModeDecoded = false
+	}
+	if s.server.erupeConfig.DebugOptions.QuestTools {
+		fields := []zap.Field{
+			zap.Uint32("charID", uint32(s.charID)),
+			zap.String("name", s.Name),
+			zap.String("stageID", pkt.StageID),
+			zap.Uint8("binaryType0", pkt.BinaryType0),
+			zap.Uint8("binaryType1", pkt.BinaryType1),
+			zap.Int("payloadBytes", len(pkt.RawDataPayload)),
+			zap.String("payloadHex", hex.EncodeToString(pkt.RawDataPayload)),
+		}
+		if runModeDecoded {
+			fields = append(fields,
+				zap.Uint16("questID", questID),
+				zap.String("runMode", runMode.String()),
+			)
+		}
+		s.logger.Debug("QuestStageBinaryDiagnostic", fields...)
+	}
 	stage, exists := s.server.stages.Get(pkt.StageID)
 	if exists {
+		if runModeDecoded {
+			s.storeQuestRunMode(questID, runMode)
+		}
 		const maxStageBinaryEntries = 256
 		key := stageBinaryKey{pkt.BinaryType0, pkt.BinaryType1}
 		stage.Lock()
