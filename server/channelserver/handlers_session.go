@@ -114,7 +114,7 @@ func handleMsgSysLogin(s *Session, p mhfpacket.MHFPacket) {
 	}
 
 	bf := byteframe.NewByteFrame()
-	bf.WriteUint32(uint32(TimeAdjusted().Unix())) // Unix timestamp
+	bf.WriteUint32(uint32(TimeClientAdjusted(s.server.erupeConfig.DebugOptions.InGameTimeOverrideHour).Unix())) // Client game clock
 
 	err = s.server.sessionRepo.UpdatePlayerCount(s.server.ID, s.server.sessionCount())
 	if err != nil {
@@ -580,7 +580,7 @@ func handleMsgSysPing(s *Session, p mhfpacket.MHFPacket) {
 func handleMsgSysTime(s *Session, p mhfpacket.MHFPacket) {
 	resp := &mhfpacket.MsgSysTime{
 		GetRemoteTime: false,
-		Timestamp:     uint32(TimeAdjusted().Unix()), // JP timezone
+		Timestamp:     uint32(TimeClientAdjusted(s.server.erupeConfig.DebugOptions.InGameTimeOverrideHour).Unix()),
 	}
 	s.QueueSendMHF(resp)
 	s.notifyRavi()

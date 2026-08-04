@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -569,6 +570,9 @@ func TestMinimalConfigDefaults(t *testing.T) {
 	if cfg.DebugOptions.FestaOverride != -1 {
 		t.Errorf("DebugOptions.FestaOverride = %d, want -1", cfg.DebugOptions.FestaOverride)
 	}
+	if cfg.DebugOptions.InGameTimeOverrideHour != nil {
+		t.Errorf("DebugOptions.InGameTimeOverrideHour = %v, want nil", *cfg.DebugOptions.InGameTimeOverrideHour)
+	}
 
 	// Standard ports
 	if cfg.Sign.Port != 53312 {
@@ -616,6 +620,51 @@ func TestMinimalConfigDefaults(t *testing.T) {
 	// Gameplay limits
 	if cfg.GameplayOptions.MaximumNP != 100000 {
 		t.Errorf("MaximumNP = %d, want 100000", cfg.GameplayOptions.MaximumNP)
+	}
+}
+
+func TestInGameTimeOverrideHour(t *testing.T) {
+	tests := []struct {
+		name    string
+		hour    int
+		wantErr bool
+	}{
+		{name: "dawn", hour: 3},
+		{name: "midnight", hour: 0},
+		{name: "last hour", hour: 23},
+		{name: "too low", hour: -1, wantErr: true},
+		{name: "too high", hour: 24, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			viper.Reset()
+			dir := t.TempDir()
+			origDir, _ := os.Getwd()
+			defer func() { _ = os.Chdir(origDir) }()
+			if err := os.Chdir(dir); err != nil {
+				t.Fatal(err)
+			}
+
+			writeMinimalConfig(t, dir, fmt.Sprintf(`{
+				"Database": { "Password": "test" },
+				"DebugOptions": { "InGameTimeOverrideHour": %d }
+			}`, tt.hour))
+
+			cfg, err := LoadConfig()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("LoadConfig() error = nil, want invalid hour error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("LoadConfig() error: %v", err)
+			}
+			if cfg.DebugOptions.InGameTimeOverrideHour == nil || *cfg.DebugOptions.InGameTimeOverrideHour != tt.hour {
+				t.Fatalf("InGameTimeOverrideHour = %v, want %d", cfg.DebugOptions.InGameTimeOverrideHour, tt.hour)
+			}
+		})
 	}
 }
 

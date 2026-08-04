@@ -56,6 +56,7 @@
     "QuestTools": false,
     "AutoQuestBackport": true,
     "ProxyPort": 0,
+    "InGameTimeOverrideHour": null,
     "CapLink": {
       "Values": [51728, 20000, 51729, 1, 20000],
       "Key": "",

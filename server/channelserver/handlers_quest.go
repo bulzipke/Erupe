@@ -225,7 +225,7 @@ func seasonConversion(s *Session, questFile string) string {
 	// Try constructing a day/night base file (e.g., 00001d0 or 00001n0).
 	// Quest filenames are formatted as [5-digit ID][d/n][season]: e.g., "00001d0".
 	var currentTime, oppositeTime string
-	if TimeGameAbsolute() > 2880 {
+	if TimeGameAbsoluteAdjusted(s.server.erupeConfig.DebugOptions.InGameTimeOverrideHour) > 2880 {
 		currentTime = "d"
 		oppositeTime = "n"
 	} else {

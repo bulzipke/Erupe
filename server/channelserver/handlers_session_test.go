@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"erupe-ce/common/byteframe"
+	"erupe-ce/common/gametime"
 	"erupe-ce/common/mhfcourse"
 	"erupe-ce/common/mhfquest"
 	cfg "erupe-ce/config"
@@ -835,6 +836,8 @@ func TestHandleMsgSysPing(t *testing.T) {
 
 func TestHandleMsgSysTime(t *testing.T) {
 	server := createMockServer()
+	hour := 3
+	server.erupeConfig.DebugOptions.InGameTimeOverrideHour = &hour
 	session := createMockSession(1, server)
 
 	pkt := &mhfpacket.MsgSysTime{
@@ -847,6 +850,15 @@ func TestHandleMsgSysTime(t *testing.T) {
 	case p := <-session.sendPackets:
 		if len(p.data) == 0 {
 			t.Error("Response packet should have data")
+		}
+		bf := byteframe.NewByteFrameFromBytes(p.data)
+		bf.ReadUint16() // MSG_SYS_TIME opcode
+		resp := &mhfpacket.MsgSysTime{}
+		if err := resp.Parse(bf, session.clientContext); err != nil {
+			t.Fatalf("parsing MSG_SYS_TIME response: %v", err)
+		}
+		if got := gametime.GameAbsoluteAt(time.Unix(int64(resp.Timestamp), 0)); got != 720 {
+			t.Errorf("client game time position = %d, want 720 (03:00)", got)
 		}
 	default:
 		t.Error("No response packet queued")

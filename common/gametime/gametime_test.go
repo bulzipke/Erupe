@@ -155,3 +155,37 @@ func TestGameAbsolute(t *testing.T) {
 		t.Errorf("GameAbsolute() = %d, should be < 5760", result)
 	}
 }
+
+func TestAtGameHour(t *testing.T) {
+	zone := time.FixedZone("UTC+9", 9*60*60)
+	now := time.Date(2026, 8, 4, 17, 23, 45, 0, zone)
+
+	tests := []struct {
+		hour         int
+		wantPosition uint32
+	}{
+		{hour: 0, wantPosition: 0},
+		{hour: 3, wantPosition: 720},
+		{hour: 12, wantPosition: 2880},
+		{hour: 23, wantPosition: 5520},
+	}
+
+	for _, tt := range tests {
+		shifted := AtGameHour(now, tt.hour)
+		if got := GameAbsoluteAt(shifted); got != tt.wantPosition {
+			t.Errorf("AtGameHour(%d) position = %d, want %d", tt.hour, got, tt.wantPosition)
+		}
+		if shifted.Location() != now.Location() {
+			t.Errorf("AtGameHour(%d) changed timezone", tt.hour)
+		}
+	}
+}
+
+func TestAtGameHourInvalidUnchanged(t *testing.T) {
+	now := time.Date(2026, 8, 4, 17, 23, 45, 123, time.UTC)
+	for _, hour := range []int{-1, 24} {
+		if got := AtGameHour(now, hour); !got.Equal(now) {
+			t.Errorf("AtGameHour(%d) = %v, want unchanged %v", hour, got, now)
+		}
+	}
+}

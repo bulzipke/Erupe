@@ -130,21 +130,22 @@ type CaptureOptions struct {
 
 // DebugOptions holds various debug/temporary options for use while developing Erupe.
 type DebugOptions struct {
-	CleanDB             bool   // Automatically wipes the DB on server reset.
-	MaxLauncherHR       bool   // Sets the HR returned in the launcher to HR7 so that you can join non-beginner worlds.
-	LogInboundMessages  bool   // Log all messages sent to the server
-	LogOutboundMessages bool   // Log all messages sent to the clients
-	LogMessageData      bool   // Log all bytes transferred as a hexdump
-	MaxHexdumpLength    int    // Maximum number of bytes printed when logs are enabled
-	DivaOverride        int    // Diva Defense event status
-	FestaOverride       int    // Hunter's Festa event status
-	TournamentOverride  int    // VS Tournament event status
-	DisableTokenCheck   bool   // Disables checking login token exists in the DB (security risk!)
-	QuestTools          bool   // Enable various quest debug logs
-	AutoQuestBackport   bool   // Automatically backport quest files
-	TraceSaveCorruption bool   // Log savedata blob offsets + per-packet group framing to trace corruption
-	ProxyPort           uint16 // Forces the game to connect to a channel server proxy
-	CapLink             CapLinkOptions
+	CleanDB                bool   // Automatically wipes the DB on server reset.
+	MaxLauncherHR          bool   // Sets the HR returned in the launcher to HR7 so that you can join non-beginner worlds.
+	LogInboundMessages     bool   // Log all messages sent to the server
+	LogOutboundMessages    bool   // Log all messages sent to the clients
+	LogMessageData         bool   // Log all bytes transferred as a hexdump
+	MaxHexdumpLength       int    // Maximum number of bytes printed when logs are enabled
+	DivaOverride           int    // Diva Defense event status
+	FestaOverride          int    // Hunter's Festa event status
+	TournamentOverride     int    // VS Tournament event status
+	DisableTokenCheck      bool   // Disables checking login token exists in the DB (security risk!)
+	QuestTools             bool   // Enable various quest debug logs
+	AutoQuestBackport      bool   // Automatically backport quest files
+	TraceSaveCorruption    bool   // Log savedata blob offsets + per-packet group framing to trace corruption
+	ProxyPort              uint16 // Forces the game to connect to a channel server proxy
+	InGameTimeOverrideHour *int   // Fixed 96-minute-cycle game hour (0-23); nil keeps the normal cycle
+	CapLink                CapLinkOptions
 }
 
 type CapLinkOptions struct {
@@ -624,6 +625,9 @@ func LoadConfig() (*Config, error) {
 		if !IsValidCollabEvent(entry.CollabEvent) {
 			return nil, fmt.Errorf("invalid Entrance.Entries[%q].CollabEvent %q (expected none, random, kaiji, higanjima, nier, or empty)", entry.Name, entry.CollabEvent)
 		}
+	}
+	if hour := c.DebugOptions.InGameTimeOverrideHour; hour != nil && (*hour < 0 || *hour > 23) {
+		return nil, fmt.Errorf("invalid DebugOptions.InGameTimeOverrideHour %d (expected 0-23 or null)", *hour)
 	}
 
 	return c, nil
