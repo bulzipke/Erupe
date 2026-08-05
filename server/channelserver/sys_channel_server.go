@@ -431,8 +431,23 @@ func (s *Server) sessionSnapshot() []*Session {
 	return sessions
 }
 
+// sessionCheckInterval is how often invalidateSessions scans for stalled sessions. It is
+// capped at the timeout itself so short timeouts are not rounded up by the scan period.
+const sessionCheckInterval = 10 * time.Second
+
 func (s *Server) invalidateSessions() {
-	ticker := time.NewTicker(10 * time.Second)
+	timeout := s.erupeConfig.DebugOptions.SessionTimeout()
+	if timeout == 0 {
+		s.logger.Warn("Session timeout disabled (DebugOptions.SessionTimeoutSeconds=0); " +
+			"stalled sessions will not be disconnected")
+		return
+	}
+
+	interval := sessionCheckInterval
+	if timeout < interval {
+		interval = timeout
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -444,14 +459,17 @@ func (s *Server) invalidateSessions() {
 		s.Lock()
 		var timedOut []*Session
 		for _, sess := range s.sessions {
-			if time.Since(sess.lastPacketAt()) > 30*time.Second {
+			if time.Since(sess.lastPacketAt()) > timeout {
 				timedOut = append(timedOut, sess)
 			}
 		}
 		s.Unlock()
 
 		for _, sess := range timedOut {
-			s.logger.Info("session timeout", zap.String("Name", sess.Name))
+			s.logger.Info("session timeout",
+				zap.String("Name", sess.Name),
+				zap.Duration("timeout", timeout),
+			)
 			logoutPlayer(sess)
 		}
 	}

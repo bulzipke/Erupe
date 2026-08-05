@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"erupe-ce/common/mhfcourse"
 
@@ -145,7 +146,42 @@ type DebugOptions struct {
 	TraceSaveCorruption    bool   // Log savedata blob offsets + per-packet group framing to trace corruption
 	ProxyPort              uint16 // Forces the game to connect to a channel server proxy
 	InGameTimeOverrideHour *int   // Fixed 96-minute-cycle game hour (0-23); nil keeps the normal cycle
-	CapLink                CapLinkOptions
+	// Seconds without a received packet before a channel session is disconnected (default 30).
+	// The client pings continuously, so this only fires when it is genuinely stalled — which
+	// includes a debugger breakpoint or a held window, both of which block its message pump.
+	// 0 disables the timeout entirely: debugging only, as stalled sessions are then never reaped.
+	SessionTimeoutSeconds int
+	// Socket read deadline in seconds. 0 (default) derives it as SessionTimeoutSeconds + 5 so the
+	// idle check above is always what disconnects a stalled client. Set explicitly only to pin the
+	// socket-level backstop; it must exceed SessionTimeoutSeconds. Ignored when the timeout is 0.
+	SessionReadTimeoutSeconds int
+	CapLink                   CapLinkOptions
+}
+
+// readTimeoutGrace is how far the socket read deadline sits beyond the idle timeout when
+// SessionReadTimeoutSeconds is left at 0, so the idle check reports the disconnect first.
+const readTimeoutGrace = 5 * time.Second
+
+// SessionTimeout returns how long a channel session may go without receiving a packet before
+// it is disconnected. Zero means the timeout is disabled.
+func (d DebugOptions) SessionTimeout() time.Duration {
+	if d.SessionTimeoutSeconds <= 0 {
+		return 0
+	}
+	return time.Duration(d.SessionTimeoutSeconds) * time.Second
+}
+
+// SessionReadTimeout returns the socket read deadline for a channel session. Zero means no
+// deadline is applied, which is the case when SessionTimeoutSeconds disables the timeout.
+func (d DebugOptions) SessionReadTimeout() time.Duration {
+	idle := d.SessionTimeout()
+	if idle == 0 {
+		return 0
+	}
+	if d.SessionReadTimeoutSeconds <= 0 {
+		return idle + readTimeoutGrace
+	}
+	return time.Duration(d.SessionReadTimeoutSeconds) * time.Second
 }
 
 type CapLinkOptions struct {
@@ -436,6 +472,8 @@ func registerDefaults() {
 	viper.SetDefault("DebugOptions.FestaOverride", -1)
 	viper.SetDefault("DebugOptions.AutoQuestBackport", true)
 	viper.SetDefault("DebugOptions.TraceSaveCorruption", false)
+	viper.SetDefault("DebugOptions.SessionTimeoutSeconds", 30)
+	viper.SetDefault("DebugOptions.SessionReadTimeoutSeconds", 0)
 	viper.SetDefault("DebugOptions.CapLink", CapLinkOptions{
 		Values: []uint16{51728, 20000, 51729, 1, 20000},
 		Port:   80,
@@ -628,6 +666,20 @@ func LoadConfig() (*Config, error) {
 	}
 	if hour := c.DebugOptions.InGameTimeOverrideHour; hour != nil && (*hour < 0 || *hour > 23) {
 		return nil, fmt.Errorf("invalid DebugOptions.InGameTimeOverrideHour %d (expected 0-23 or null)", *hour)
+	}
+	if c.DebugOptions.SessionTimeoutSeconds < 0 {
+		return nil, fmt.Errorf("invalid DebugOptions.SessionTimeoutSeconds %d (expected 0 or greater)", c.DebugOptions.SessionTimeoutSeconds)
+	}
+	if c.DebugOptions.SessionReadTimeoutSeconds < 0 {
+		return nil, fmt.Errorf("invalid DebugOptions.SessionReadTimeoutSeconds %d (expected 0 or greater)", c.DebugOptions.SessionReadTimeoutSeconds)
+	}
+	// A read deadline at or below the idle timeout would make the socket error the reported cause
+	// of every stalled disconnect instead of the idle check, so reject that rather than silently
+	// reordering the two.
+	if c.DebugOptions.SessionTimeoutSeconds > 0 && c.DebugOptions.SessionReadTimeoutSeconds > 0 &&
+		c.DebugOptions.SessionReadTimeoutSeconds <= c.DebugOptions.SessionTimeoutSeconds {
+		return nil, fmt.Errorf("invalid DebugOptions.SessionReadTimeoutSeconds %d (must exceed SessionTimeoutSeconds %d, or be 0 to derive it)",
+			c.DebugOptions.SessionReadTimeoutSeconds, c.DebugOptions.SessionTimeoutSeconds)
 	}
 
 	return c, nil

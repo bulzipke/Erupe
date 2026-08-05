@@ -298,7 +298,13 @@ func (s *Session) recvLoop() {
 			return
 		}
 		if s.rawConn != nil {
-			if err := s.rawConn.SetReadDeadline(time.Now().Add(35 * time.Second)); err != nil {
+			// A zero deadline means "no deadline", which is what SessionReadTimeout returns
+			// when the session timeout is disabled for debugging.
+			deadline := time.Time{}
+			if readTimeout := s.server.erupeConfig.DebugOptions.SessionReadTimeout(); readTimeout > 0 {
+				deadline = time.Now().Add(readTimeout)
+			}
+			if err := s.rawConn.SetReadDeadline(deadline); err != nil {
 				s.logger.Debug("Failed to set channel read deadline", zap.Error(err))
 			}
 		}

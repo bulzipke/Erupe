@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -574,6 +575,18 @@ func TestMinimalConfigDefaults(t *testing.T) {
 		t.Errorf("DebugOptions.InGameTimeOverrideHour = %v, want nil", *cfg.DebugOptions.InGameTimeOverrideHour)
 	}
 
+	// Session timeout must keep its historical 30s value when unconfigured, with the
+	// socket read deadline derived 5s beyond it.
+	if cfg.DebugOptions.SessionTimeoutSeconds != 30 {
+		t.Errorf("DebugOptions.SessionTimeoutSeconds = %d, want 30", cfg.DebugOptions.SessionTimeoutSeconds)
+	}
+	if got := cfg.DebugOptions.SessionTimeout(); got != 30*time.Second {
+		t.Errorf("SessionTimeout() = %v, want 30s", got)
+	}
+	if got := cfg.DebugOptions.SessionReadTimeout(); got != 35*time.Second {
+		t.Errorf("SessionReadTimeout() = %v, want 35s", got)
+	}
+
 	// Standard ports
 	if cfg.Sign.Port != 53312 {
 		t.Errorf("Sign.Port = %d, want 53312", cfg.Sign.Port)
@@ -663,6 +676,105 @@ func TestInGameTimeOverrideHour(t *testing.T) {
 			}
 			if cfg.DebugOptions.InGameTimeOverrideHour == nil || *cfg.DebugOptions.InGameTimeOverrideHour != tt.hour {
 				t.Fatalf("InGameTimeOverrideHour = %v, want %d", cfg.DebugOptions.InGameTimeOverrideHour, tt.hour)
+			}
+		})
+	}
+}
+
+func TestSessionTimeoutOptions(t *testing.T) {
+	tests := []struct {
+		name         string
+		debugOptions string
+		wantErr      bool
+		wantIdle     time.Duration
+		wantRead     time.Duration
+	}{
+		{
+			name:         "defaults preserve historical behaviour",
+			debugOptions: `{}`,
+			wantIdle:     30 * time.Second,
+			wantRead:     35 * time.Second,
+		},
+		{
+			name:         "raised timeout derives the read deadline",
+			debugOptions: `{ "SessionTimeoutSeconds": 600 }`,
+			wantIdle:     600 * time.Second,
+			wantRead:     605 * time.Second,
+		},
+		{
+			name:         "explicit read deadline is honoured",
+			debugOptions: `{ "SessionTimeoutSeconds": 60, "SessionReadTimeoutSeconds": 120 }`,
+			wantIdle:     60 * time.Second,
+			wantRead:     120 * time.Second,
+		},
+		{
+			// Zero is the debugging escape hatch: no idle reaping and no socket deadline,
+			// so a breakpoint can be held indefinitely.
+			name:         "zero disables both",
+			debugOptions: `{ "SessionTimeoutSeconds": 0 }`,
+			wantIdle:     0,
+			wantRead:     0,
+		},
+		{
+			// An explicit read deadline is ignored once the timeout is disabled, rather
+			// than becoming the sole (and surprising) disconnect path.
+			name:         "zero timeout ignores an explicit read deadline",
+			debugOptions: `{ "SessionTimeoutSeconds": 0, "SessionReadTimeoutSeconds": 120 }`,
+			wantIdle:     0,
+			wantRead:     0,
+		},
+		{
+			name:         "negative timeout rejected",
+			debugOptions: `{ "SessionTimeoutSeconds": -1 }`,
+			wantErr:      true,
+		},
+		{
+			name:         "negative read deadline rejected",
+			debugOptions: `{ "SessionReadTimeoutSeconds": -1 }`,
+			wantErr:      true,
+		},
+		{
+			name:         "read deadline below timeout rejected",
+			debugOptions: `{ "SessionTimeoutSeconds": 60, "SessionReadTimeoutSeconds": 30 }`,
+			wantErr:      true,
+		},
+		{
+			name:         "read deadline equal to timeout rejected",
+			debugOptions: `{ "SessionTimeoutSeconds": 60, "SessionReadTimeoutSeconds": 60 }`,
+			wantErr:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			viper.Reset()
+			dir := t.TempDir()
+			origDir, _ := os.Getwd()
+			defer func() { _ = os.Chdir(origDir) }()
+			if err := os.Chdir(dir); err != nil {
+				t.Fatal(err)
+			}
+
+			writeMinimalConfig(t, dir, fmt.Sprintf(`{
+				"Database": { "Password": "test" },
+				"DebugOptions": %s
+			}`, tt.debugOptions))
+
+			cfg, err := LoadConfig()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("LoadConfig() error = nil, want session timeout validation error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("LoadConfig() error: %v", err)
+			}
+			if got := cfg.DebugOptions.SessionTimeout(); got != tt.wantIdle {
+				t.Errorf("SessionTimeout() = %v, want %v", got, tt.wantIdle)
+			}
+			if got := cfg.DebugOptions.SessionReadTimeout(); got != tt.wantRead {
+				t.Errorf("SessionReadTimeout() = %v, want %v", got, tt.wantRead)
 			}
 		})
 	}

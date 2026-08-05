@@ -57,6 +57,8 @@
     "AutoQuestBackport": true,
     "ProxyPort": 0,
     "InGameTimeOverrideHour": null,
+    "SessionTimeoutSeconds": 30,
+    "SessionReadTimeoutSeconds": 0,
     "CapLink": {
       "Values": [51728, 20000, 51729, 1, 20000],
       "Key": "",
