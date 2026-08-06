@@ -34,7 +34,9 @@ func (s *Server) registerDBAccount(username string, password string) (uint32, er
 		return 0, err
 	}
 
-	uid, err := s.userRepo.Register(username, string(passwordHash), time.Now().Add(time.Hour*24*30))
+	// No returning-player status for a new account: it is earned by being away for
+	// 90 days (see getReturnExpiry), not by registering. The zero time stores NULL.
+	uid, err := s.userRepo.Register(username, string(passwordHash), time.Time{})
 	if err != nil {
 		return 0, err
 	}
@@ -59,12 +61,13 @@ func (s *Server) getReturnExpiry(uid uint32) time.Time {
 			s.logger.Warn("Failed to update return expiry", zap.Uint32("uid", uid), zap.Error(err))
 		}
 	} else {
+		// A NULL expiry (never earned the status) comes back as the zero time with
+		// no error. Only a real query failure lands here, and writing a value on
+		// that path would invent status the account never had — leave it unset.
 		returnExpiry, err = s.userRepo.GetReturnExpiry(uid)
 		if err != nil {
-			returnExpiry = time.Now()
-			if err := s.userRepo.UpdateReturnExpiry(uid, returnExpiry); err != nil {
-				s.logger.Warn("Failed to update return expiry (fallback)", zap.Uint32("uid", uid), zap.Error(err))
-			}
+			s.logger.Warn("Failed to read return expiry", zap.Uint32("uid", uid), zap.Error(err))
+			returnExpiry = time.Time{}
 		}
 	}
 	if err := s.userRepo.UpdateLastLogin(uid, time.Now()); err != nil {

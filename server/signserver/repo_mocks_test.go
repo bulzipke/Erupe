@@ -20,6 +20,9 @@ type mockSignUserRepo struct {
 	registerUID uint32
 	registerErr error
 	registered  bool
+	// registeredReturnExpires records what Register was handed, so tests can assert
+	// a new account is created without returning-player status.
+	registeredReturnExpires time.Time
 
 	// GetRights
 	rights    uint32
@@ -84,6 +87,7 @@ func (m *mockSignUserRepo) GetCredentials(username string) (uint32, string, erro
 
 func (m *mockSignUserRepo) Register(username, passwordHash string, returnExpires time.Time) (uint32, error) {
 	m.registered = true
+	m.registeredReturnExpires = returnExpires
 	return m.registerUID, m.registerErr
 }
 

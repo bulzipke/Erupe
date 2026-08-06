@@ -1,6 +1,7 @@
 package signserver
 
 import (
+	"database/sql"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -23,11 +24,18 @@ func (r *SignUserRepository) GetCredentials(username string) (uint32, string, er
 	return uid, passwordHash, err
 }
 
+// Register creates an account. A zero returnExpires stores NULL, which is what a
+// brand-new account gets: returning-player status is earned by being away, not by
+// signing up. Passing a real time is still supported for admin-granted status.
 func (r *SignUserRepository) Register(username, passwordHash string, returnExpires time.Time) (uint32, error) {
+	var expiry any
+	if !returnExpires.IsZero() {
+		expiry = returnExpires
+	}
 	var uid uint32
 	err := r.db.QueryRow(
 		"INSERT INTO users (username, password, return_expires) VALUES ($1, $2, $3) RETURNING id",
-		username, passwordHash, returnExpires,
+		username, passwordHash, expiry,
 	).Scan(&uid)
 	return uid, err
 }
@@ -50,10 +58,19 @@ func (r *SignUserRepository) GetLastLogin(uid uint32) (time.Time, error) {
 	return lastLogin, err
 }
 
+// GetReturnExpiry returns the account's returning-player expiry. NULL means the
+// account has never earned the status and yields the zero time with no error, so
+// callers can tell "no status" apart from a real query failure.
 func (r *SignUserRepository) GetReturnExpiry(uid uint32) (time.Time, error) {
-	var expiry time.Time
+	var expiry sql.NullTime
 	err := r.db.Get(&expiry, "SELECT return_expires FROM users WHERE id=$1", uid)
-	return expiry, err
+	if err != nil {
+		return time.Time{}, err
+	}
+	if !expiry.Valid {
+		return time.Time{}, nil
+	}
+	return expiry.Time, nil
 }
 
 func (r *SignUserRepository) UpdateReturnExpiry(uid uint32, expiry time.Time) error {

@@ -16,7 +16,9 @@ func (s *APIServer) createNewUser(ctx context.Context, username string, password
 	if err != nil {
 		return 0, 0, err
 	}
-	return s.userRepo.Register(ctx, username, string(passwordHash), time.Now().Add(time.Hour*24*30))
+	// No returning-player status for a new account: it is earned by being away for
+	// 90 days (see getReturnExpiry), not by registering. The zero time stores NULL.
+	return s.userRepo.Register(ctx, username, string(passwordHash), time.Time{})
 }
 
 func (s *APIServer) createLoginToken(ctx context.Context, uid uint32) (uint32, string, error) {
@@ -72,11 +74,13 @@ func (s *APIServer) getReturnExpiry(uid uint32) time.Time {
 		returnExpiry = time.Now().Add(time.Hour * 24 * 30)
 		_ = s.userRepo.UpdateReturnExpiry(uid, returnExpiry)
 	} else {
+		// A NULL expiry (never earned the status) comes back as the zero time with
+		// no error. Only a real query failure lands here, and writing a value on
+		// that path would invent status the account never had — leave it unset.
 		var err error
 		returnExpiry, err = s.userRepo.GetReturnExpiry(uid)
 		if err != nil {
-			returnExpiry = time.Now()
-			_ = s.userRepo.UpdateReturnExpiry(uid, returnExpiry)
+			returnExpiry = time.Time{}
 		}
 	}
 	_ = s.userRepo.UpdateLastLogin(uid, time.Now())

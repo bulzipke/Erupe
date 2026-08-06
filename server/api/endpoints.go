@@ -109,9 +109,18 @@ type ExportData struct {
 }
 
 func (s *APIServer) newAuthData(userID uint32, userRights uint32, userTokenID uint32, userToken string, characters []Character) AuthData {
+	// The zero time means the account has no returning-player status. Its Unix() is
+	// negative, so convert it explicitly instead of letting the uint32 cast wrap it
+	// into a far-future timestamp that would unlock the Return world.
+	var expiryTS uint32
+	if returnExpiry := s.getReturnExpiry(userID); !returnExpiry.IsZero() {
+		if unix := returnExpiry.Unix(); unix > 0 {
+			expiryTS = uint32(unix)
+		}
+	}
 	resp := AuthData{
 		CurrentTS:     uint32(gametime.Adjusted().Unix()),
-		ExpiryTS:      uint32(s.getReturnExpiry(userID).Unix()),
+		ExpiryTS:      expiryTS,
 		EntranceCount: 1,
 		User: User{
 			Rights:  userRights,
@@ -573,8 +582,12 @@ func (s *APIServer) buildMezFes() *MezFes {
 		stalls[4] = 2
 	}
 	return &MezFes{
-		ID:           uint32(gametime.WeekStart().Unix()),
-		Start:        uint32(gametime.WeekStart().Add(-time.Duration(s.erupeConfig.GameplayOptions.MezFesDuration) * time.Second).Unix()),
+		ID: uint32(gametime.WeekStart().Unix()),
+		// The event ends at the week boundary and runs backwards from it for
+		// MezFesDuration, so the start is relative to WeekNext — the same window the
+		// sign response reports. Deriving it from WeekStart put the start a week
+		// early, which the launcher then handed to the game as the event window.
+		Start:        uint32(gametime.WeekNext().Add(-time.Duration(s.erupeConfig.GameplayOptions.MezFesDuration) * time.Second).Unix()),
 		End:          uint32(gametime.WeekNext().Unix()),
 		SoloTickets:  s.erupeConfig.GameplayOptions.MezFesSoloTickets,
 		GroupTickets: s.erupeConfig.GameplayOptions.MezFesGroupTickets,

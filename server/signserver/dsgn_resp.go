@@ -373,7 +373,16 @@ func (s *Session) makeSignResponse(uid uint32) []byte {
 		ps.Uint16(bf, fmt.Sprintf(`%s:%d`, s.server.erupeConfig.DebugOptions.CapLink.Host, s.server.erupeConfig.DebugOptions.CapLink.Port), false)
 	}
 
-	bf.WriteUint32(uint32(s.server.getReturnExpiry(uid).Unix()))
+	// The zero time means the account has no returning-player status. Its Unix()
+	// is negative, so convert it explicitly instead of letting the uint32 cast
+	// wrap it into a far-future timestamp that would unlock the Return world.
+	var returnExpiryTS uint32
+	if returnExpiry := s.server.getReturnExpiry(uid); !returnExpiry.IsZero() {
+		if unix := returnExpiry.Unix(); unix > 0 {
+			returnExpiryTS = uint32(unix)
+		}
+	}
+	bf.WriteUint32(returnExpiryTS)
 	bf.WriteUint32(0)
 
 	tickets := []uint32{

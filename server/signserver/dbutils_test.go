@@ -573,6 +573,58 @@ func TestRegisterDBAccount(t *testing.T) {
 	if !userRepo.registered {
 		t.Error("registerDBAccount() should call Register")
 	}
+	// A new account must not be born a returning player: the status is earned by
+	// 90 days of absence. The zero time is what the repository stores as NULL.
+	if !userRepo.registeredReturnExpires.IsZero() {
+		t.Errorf("registerDBAccount() granted return status at signup (%v), want the zero time",
+			userRepo.registeredReturnExpires)
+	}
+}
+
+func TestGetReturnExpiryNoStatus(t *testing.T) {
+	// A NULL return_expires reaches us as the zero time with no error. The account
+	// has simply never earned the status, so nothing should be granted or written.
+	userRepo := &mockSignUserRepo{
+		lastLogin:    time.Now(),
+		returnExpiry: time.Time{},
+	}
+	server := &Server{
+		logger:      zap.NewNop(),
+		erupeConfig: &cfg.Config{},
+		userRepo:    userRepo,
+	}
+
+	expiry := server.getReturnExpiry(1)
+
+	if !expiry.IsZero() {
+		t.Errorf("getReturnExpiry() = %v, want the zero time for an account without return status", expiry)
+	}
+	if userRepo.updateReturnExpiryCalled {
+		t.Error("getReturnExpiry() wrote a return expiry for an account that never earned one")
+	}
+}
+
+func TestGetReturnExpiryReadErrorGrantsNothing(t *testing.T) {
+	// A query failure must not be papered over by inventing status, which is what
+	// stamping time.Now() used to do.
+	userRepo := &mockSignUserRepo{
+		lastLogin:       time.Now(),
+		returnExpiryErr: sql.ErrConnDone,
+	}
+	server := &Server{
+		logger:      zap.NewNop(),
+		erupeConfig: &cfg.Config{},
+		userRepo:    userRepo,
+	}
+
+	expiry := server.getReturnExpiry(1)
+
+	if !expiry.IsZero() {
+		t.Errorf("getReturnExpiry() = %v, want the zero time when the read fails", expiry)
+	}
+	if userRepo.updateReturnExpiryCalled {
+		t.Error("getReturnExpiry() wrote a return expiry after a read failure")
+	}
 }
 
 func TestRegisterDBAccountDuplicateUser(t *testing.T) {

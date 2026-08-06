@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -17,18 +18,25 @@ func NewAPIUserRepository(db *sqlx.DB) *APIUserRepository {
 	return &APIUserRepository{db: db}
 }
 
+// Register creates an account. A zero returnExpires stores NULL, which is what a
+// brand-new account gets: returning-player status is earned by being away, not by
+// signing up. Passing a real time is still supported for admin-granted status.
 func (r *APIUserRepository) Register(ctx context.Context, username, passwordHash string, returnExpires time.Time) (uint32, uint32, error) {
 	var (
 		id     uint32
 		rights uint32
 	)
+	var expiry any
+	if !returnExpires.IsZero() {
+		expiry = returnExpires
+	}
 	err := r.db.QueryRowContext(
 		ctx, `
 		INSERT INTO users (username, password, return_expires)
 		VALUES ($1, $2, $3)
 		RETURNING id, rights
 		`,
-		username, passwordHash, returnExpires,
+		username, passwordHash, expiry,
 	).Scan(&id, &rights)
 	return id, rights, err
 }
@@ -49,10 +57,19 @@ func (r *APIUserRepository) GetLastLogin(uid uint32) (time.Time, error) {
 	return lastLogin, err
 }
 
+// GetReturnExpiry returns the account's returning-player expiry. NULL means the
+// account has never earned the status and yields the zero time with no error, so
+// callers can tell "no status" apart from a real query failure.
 func (r *APIUserRepository) GetReturnExpiry(uid uint32) (time.Time, error) {
-	var returnExpiry time.Time
+	var returnExpiry sql.NullTime
 	err := r.db.Get(&returnExpiry, "SELECT return_expires FROM users WHERE id=$1", uid)
-	return returnExpiry, err
+	if err != nil {
+		return time.Time{}, err
+	}
+	if !returnExpiry.Valid {
+		return time.Time{}, nil
+	}
+	return returnExpiry.Time, nil
 }
 
 func (r *APIUserRepository) UpdateReturnExpiry(uid uint32, expiry time.Time) error {
