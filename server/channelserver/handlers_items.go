@@ -52,20 +52,11 @@ func handleMsgMhfGetExtraInfo(s *Session, p mhfpacket.MHFPacket) {
 }
 
 func userGetItems(s *Session) []mhfitem.MHFItemStack {
-	var items []mhfitem.MHFItemStack
 	data, err := s.server.userRepo.GetItemBox(s.userID)
 	if err != nil {
 		s.logger.Warn("Failed to load user item box", zap.Error(err))
 	}
-	if len(data) > 0 {
-		box := byteframe.NewByteFrameFromBytes(data)
-		numStacks := box.ReadUint16()
-		box.ReadUint16() // Unused
-		for i := 0; i < int(numStacks); i++ {
-			items = append(items, mhfitem.ReadWarehouseItem(box))
-		}
-	}
-	return items
+	return mhfitem.DeserializeWarehouseItems(data)
 }
 
 func handleMsgMhfEnumerateUnionItem(s *Session, p mhfpacket.MHFPacket) {
@@ -78,9 +69,18 @@ func handleMsgMhfEnumerateUnionItem(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfUpdateUnionItem(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfUpdateUnionItem)
-	newStacks := mhfitem.DiffItemStacks(userGetItems(s), pkt.UpdatedItems)
-	if err := s.server.userRepo.SetItemBox(s.userID, mhfitem.SerializeWarehouseItems(newStacks)); err != nil {
-		s.logger.Error("Failed to update union item box", zap.Error(err))
+	// The read, diff and write must happen under one row lock: the box is shared by
+	// every character on the account, so an unsynchronized cycle loses whichever
+	// write lands first. Re-reading inside the transaction also means the diff is
+	// applied to the committed state rather than a snapshot taken before the lock.
+	err := s.server.userRepo.UpdateItemBox(s.userID, func(current []byte) []byte {
+		merged := mhfitem.DiffItemStacks(mhfitem.DeserializeWarehouseItems(current), pkt.UpdatedItems)
+		return mhfitem.SerializeWarehouseItems(merged)
+	})
+	if err != nil {
+		s.logger.Error("Failed to update union item box", zap.Error(err), zap.Uint32("userID", s.userID))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }

@@ -2,6 +2,8 @@ package channelserver
 
 import (
 	"database/sql"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -213,6 +215,33 @@ func (r *UserRepository) GetItemBox(userID uint32) ([]byte, error) {
 func (r *UserRepository) SetItemBox(userID uint32, data []byte) error {
 	_, err := r.db.Exec(`UPDATE users SET item_box=$1 WHERE id=$2`, data, userID)
 	return err
+}
+
+// UpdateItemBox applies mutate to the user's item box inside a single transaction
+// that holds a row lock for the duration. The item box is account-scoped, so two
+// characters on the same account share it; without the lock their read-modify-write
+// cycles interleave and the later write silently discards the earlier one, which
+// duplicates or destroys items. Row locking (rather than an in-process mutex) also
+// holds if more than one server process shares the database.
+func (r *UserRepository) UpdateItemBox(userID uint32, mutate func(current []byte) []byte) error {
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return fmt.Errorf("begin item box tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // rollback is no-op after commit
+
+	var current []byte
+	err = tx.QueryRow(`SELECT item_box FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(&current)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("update item box: user %d not found", userID)
+	} else if err != nil {
+		return fmt.Errorf("lock item box: %w", err)
+	}
+
+	if _, err := tx.Exec(`UPDATE users SET item_box=$1 WHERE id=$2`, mutate(current), userID); err != nil {
+		return fmt.Errorf("write item box: %w", err)
+	}
+	return tx.Commit()
 }
 
 // Discord bot methods (Server-level)

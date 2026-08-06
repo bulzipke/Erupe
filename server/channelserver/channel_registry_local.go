@@ -68,6 +68,41 @@ func (r *LocalChannelRegistry) FindSessionByCharID(charID uint32) *Session {
 	return nil
 }
 
+func (r *LocalChannelRegistry) FindOtherCharacterSession(userID, charID uint32) (string, bool) {
+	if userID == 0 {
+		return "", false
+	}
+
+	// Collect first, inspect after: reading session fields requires the session
+	// lock, and taking it while a channel lock is held would invert the ordering
+	// used elsewhere (session -> server).
+	var candidates []*Session
+	for _, c := range r.channels {
+		c.Lock()
+		for _, session := range c.sessions {
+			candidates = append(candidates, session)
+		}
+		c.Unlock()
+	}
+
+	for _, session := range candidates {
+		// A session that has already been marked closed is on its way out; treating
+		// it as live would lock the account out until cleanup finishes.
+		if session.closed.Load() {
+			continue
+		}
+		session.Lock()
+		otherUser := session.userID
+		otherChar := session.charID
+		name := session.Name
+		session.Unlock()
+		if otherUser == userID && otherChar != charID {
+			return name, true
+		}
+	}
+	return "", false
+}
+
 func (r *LocalChannelRegistry) DisconnectUser(cids []uint32) {
 	for _, c := range r.channels {
 		c.Lock()

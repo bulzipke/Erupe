@@ -592,6 +592,7 @@ func (m *mockGuildRepo) DeclineInvite(_, charID uint32) error {
 func (m *mockGuildRepo) ArrangeCharacters(_ []uint32) error                        { return nil }
 func (m *mockGuildRepo) GetItemBox(_ uint32) ([]byte, error)                       { return nil, nil }
 func (m *mockGuildRepo) SaveItemBox(_ uint32, _ []byte) error                      { return nil }
+func (m *mockGuildRepo) UpdateItemBox(_ uint32, _ func([]byte) []byte) error       { return nil }
 func (m *mockGuildRepo) SetRecruiting(_ uint32, _ bool) error                      { return nil }
 func (m *mockGuildRepo) SetPugiOutfits(_ uint32, _ uint32) error                   { return nil }
 func (m *mockGuildRepo) SetRecruiter(_ uint32, _ bool) error                       { return nil }
@@ -633,6 +634,17 @@ func (m *mockUserRepoForItems) GetItemBox(_ uint32) ([]byte, error) {
 
 func (m *mockUserRepoForItems) SetItemBox(_ uint32, data []byte) error {
 	m.setData = data
+	return nil
+}
+
+// UpdateItemBox mirrors the real repository's contract: mutate sees the currently
+// stored bytes and its result becomes the new stored value.
+func (m *mockUserRepoForItems) UpdateItemBox(_ uint32, mutate func(current []byte) []byte) error {
+	if m.itemBoxErr != nil {
+		return m.itemBoxErr
+	}
+	m.setData = mutate(m.itemBoxData)
+	m.itemBoxData = m.setData
 	return nil
 }
 

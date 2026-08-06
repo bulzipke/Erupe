@@ -100,6 +100,26 @@ func handleMsgSysLogin(s *Session, p mhfpacket.MHFPacket) {
 	}
 	s.userID = userID
 
+	// Refuse a second character on an account that is already playing. The item box
+	// is account-scoped, so two live characters can both withdraw the same stack —
+	// the server stores whatever the client reports and cannot tell a stale
+	// withdrawal from a genuine deposit. Sessions for this same character are
+	// allowed through, since a channel transfer briefly holds two of them.
+	if !s.server.erupeConfig.GameplayOptions.AllowAccountMultiSession {
+		if otherName, found := s.server.FindOtherCharacterSession(userID, s.charID); found {
+			s.logger.Warn("Rejecting login: another character on this account is online",
+				zap.Uint32("userID", userID),
+				zap.Uint32("charID", s.charID),
+				zap.String("online_character", otherName),
+			)
+			// Closing without an ack matches the invalid-token path above: the send
+			// loop batches on a timer, so an ack queued here would not reach the
+			// client before the connection drops.
+			_ = s.rawConn.Close()
+			return
+		}
+	}
+
 	// Load per-user language preference. A DB error or an empty value both
 	// mean "use the server default", which is what Session.Lang() returns
 	// when clientLang is empty — so we don't need to fail the login here.

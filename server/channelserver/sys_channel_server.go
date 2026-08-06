@@ -553,6 +553,12 @@ func (s *Server) FindSessionByCharID(charID uint32) *Session {
 	return s.Registry.FindSessionByCharID(charID)
 }
 
+// FindOtherCharacterSession reports whether another character on the same account
+// is already connected, returning its name.
+func (s *Server) FindOtherCharacterSession(userID, charID uint32) (string, bool) {
+	return s.Registry.FindOtherCharacterSession(userID, charID)
+}
+
 // DisconnectUser disconnects all sessions belonging to the given user ID.
 func (s *Server) DisconnectUser(uid uint32) {
 	cids, err := s.charRepo.GetCharIDsByUserID(uid)

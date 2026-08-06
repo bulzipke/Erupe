@@ -287,9 +287,16 @@ func handleMsgMhfEnumerateGuildItem(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfUpdateGuildItem(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfUpdateGuildItem)
-	newStacks := mhfitem.DiffItemStacks(guildGetItems(s, pkt.GuildID), pkt.UpdatedItems)
-	if err := s.server.guildRepo.SaveItemBox(pkt.GuildID, mhfitem.SerializeWarehouseItems(newStacks)); err != nil {
-		s.logger.Error("Failed to update guild item box", zap.Error(err))
+	// Same row-locked read-modify-write as the union box. A guild box is reachable
+	// by every member at once, so this races without any multi-boxing.
+	err := s.server.guildRepo.UpdateItemBox(pkt.GuildID, func(current []byte) []byte {
+		merged := mhfitem.DiffItemStacks(mhfitem.DeserializeWarehouseItems(current), pkt.UpdatedItems)
+		return mhfitem.SerializeWarehouseItems(merged)
+	})
+	if err != nil {
+		s.logger.Error("Failed to update guild item box", zap.Error(err), zap.Uint32("guildID", pkt.GuildID))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }
@@ -488,14 +495,5 @@ func guildGetItems(s *Session, guildID uint32) []mhfitem.MHFItemStack {
 		s.logger.Error("Failed to get guild item box", zap.Error(err))
 		return nil
 	}
-	var items []mhfitem.MHFItemStack
-	if len(data) > 0 {
-		box := byteframe.NewByteFrameFromBytes(data)
-		numStacks := box.ReadUint16()
-		box.ReadUint16() // Unused
-		for i := 0; i < int(numStacks); i++ {
-			items = append(items, mhfitem.ReadWarehouseItem(box))
-		}
-	}
-	return items
+	return mhfitem.DeserializeWarehouseItems(data)
 }

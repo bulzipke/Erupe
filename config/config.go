@@ -246,6 +246,12 @@ type GameplayOptions struct {
 	EnableNierEvent                bool    // Enables the Nier event in the Rasta Bar
 	DisableRoad                    bool    // Disables the Hunting Road
 	SeasonOverride                 bool    // Overrides the Quest Season with the current Mezeporta Season
+
+	// AllowAccountMultiSession lets two characters on one account be online at the
+	// same time. Off by default: the item box is account-scoped, and the server
+	// stores whatever box contents the client reports, so two live characters can
+	// each withdraw the same stack. Enable only if multi-boxing matters more.
+	AllowAccountMultiSession bool
 }
 
 // Discord holds the discord integration config.

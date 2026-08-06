@@ -239,3 +239,62 @@ func TestLocalRegistryConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestLocalRegistryFindOtherCharacterSession(t *testing.T) {
+	// Two channels, so the lookup is exercised across the whole world rather than
+	// just the channel the new login landed on.
+	channels := createTestChannels(2)
+	reg := NewLocalChannelRegistry(channels)
+
+	addSession := func(channel *Server, charID, userID uint32, name string, closed bool) {
+		conn := &mockConn{}
+		sess := createTestSessionForServer(channel, conn, charID, name)
+		sess.userID = userID
+		if closed {
+			sess.closed.Store(true)
+		}
+		channel.Lock()
+		channel.sessions[conn] = sess
+		channel.Unlock()
+	}
+
+	addSession(channels[0], 100, 7, "Alice", false)
+	addSession(channels[1], 200, 8, "Bob", false)
+	addSession(channels[1], 300, 9, "GhostChar", true)
+
+	t.Run("other character on same account is reported", func(t *testing.T) {
+		name, found := reg.FindOtherCharacterSession(7, 101)
+		if !found || name != "Alice" {
+			t.Errorf("FindOtherCharacterSession(7, 101) = (%q, %v), want (\"Alice\", true)", name, found)
+		}
+	})
+
+	t.Run("same character is ignored", func(t *testing.T) {
+		// A channel transfer briefly holds two sessions for one character; treating
+		// that as a conflict would make every channel change fail.
+		if _, found := reg.FindOtherCharacterSession(7, 100); found {
+			t.Error("FindOtherCharacterSession(7, 100) = true, want false for the same character")
+		}
+	})
+
+	t.Run("unrelated account is ignored", func(t *testing.T) {
+		if _, found := reg.FindOtherCharacterSession(42, 1); found {
+			t.Error("FindOtherCharacterSession(42, 1) = true, want false")
+		}
+	})
+
+	t.Run("closed session is ignored", func(t *testing.T) {
+		// A session already torn down must not lock the account out while cleanup
+		// finishes, or a crash-reconnect would be blocked for the timeout window.
+		if _, found := reg.FindOtherCharacterSession(9, 301); found {
+			t.Error("FindOtherCharacterSession(9, 301) = true, want false for a closed session")
+		}
+	})
+
+	t.Run("zero user id never matches", func(t *testing.T) {
+		// Sessions that have not logged in yet still carry userID 0.
+		if _, found := reg.FindOtherCharacterSession(0, 1); found {
+			t.Error("FindOtherCharacterSession(0, 1) = true, want false")
+		}
+	})
+}

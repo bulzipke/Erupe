@@ -15,6 +15,12 @@ type ChannelRegistry interface {
 	// FindSessionByCharID looks up a session by character ID across all channels.
 	FindSessionByCharID(charID uint32) *Session
 
+	// FindOtherCharacterSession returns the name of a live session that belongs to
+	// userID but is playing a character other than charID, and whether one exists.
+	// Sessions for charID itself are ignored so a channel transfer — which briefly
+	// holds two sessions for the same character — is not mistaken for multi-boxing.
+	FindOtherCharacterSession(userID, charID uint32) (string, bool)
+
 	// DisconnectUser disconnects all sessions belonging to the given character IDs.
 	DisconnectUser(cids []uint32)
 

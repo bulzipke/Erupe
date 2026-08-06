@@ -483,6 +483,31 @@ func (r *GuildRepository) SaveItemBox(guildID uint32, data []byte) error {
 	return err
 }
 
+// UpdateItemBox applies mutate to the guild's item box inside a single transaction
+// that holds a row lock for the duration. A guild box is shared across accounts, so
+// unlike the per-account box it races whenever two members use it at once — no
+// multi-boxing required. See UserRepository.UpdateItemBox for the failure mode.
+func (r *GuildRepository) UpdateItemBox(guildID uint32, mutate func(current []byte) []byte) error {
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return fmt.Errorf("begin guild item box tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // rollback is no-op after commit
+
+	var current []byte
+	err = tx.QueryRow(`SELECT item_box FROM guilds WHERE id=$1 FOR UPDATE`, guildID).Scan(&current)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("update guild item box: guild %d not found", guildID)
+	} else if err != nil {
+		return fmt.Errorf("lock guild item box: %w", err)
+	}
+
+	if _, err := tx.Exec(`UPDATE guilds SET item_box=$1 WHERE id=$2`, mutate(current), guildID); err != nil {
+		return fmt.Errorf("write guild item box: %w", err)
+	}
+	return tx.Commit()
+}
+
 // GetMembers loads all members (or applicants) of a guild.
 func (r *GuildRepository) GetMembers(guildID uint32, applicants bool) ([]*GuildMember, error) {
 	rows, err := r.db.Queryx(fmt.Sprintf(`

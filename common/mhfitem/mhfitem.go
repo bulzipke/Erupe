@@ -61,6 +61,27 @@ func ReadWarehouseItem(bf *byteframe.ByteFrame) MHFItemStack {
 	return item
 }
 
+// DeserializeWarehouseItems parses the stored representation written by
+// SerializeWarehouseItems. Empty or malformed input yields no items rather than
+// an error, matching how the callers previously treated an unreadable box.
+func DeserializeWarehouseItems(data []byte) []MHFItemStack {
+	if len(data) < 4 {
+		return nil
+	}
+	bf := byteframe.NewByteFrameFromBytes(data)
+	numStacks := bf.ReadUint16()
+	bf.ReadUint16() // Unused
+	// Each stack is 12 bytes; a truncated blob would otherwise read past the end.
+	if int(numStacks)*12 > len(data)-4 {
+		numStacks = uint16((len(data) - 4) / 12)
+	}
+	items := make([]MHFItemStack, 0, numStacks)
+	for i := 0; i < int(numStacks); i++ {
+		items = append(items, ReadWarehouseItem(bf))
+	}
+	return items
+}
+
 // DiffItemStacks merges an updated item stack list into an existing one,
 // matching by warehouse ID. New items receive a random ID; items with zero
 // quantity in the old list are removed.
@@ -78,10 +99,17 @@ func DiffItemStacks(o []MHFItemStack, u []MHFItemStack) []MHFItemStack {
 	for _, uItem := range u {
 		if _, exists := existing[uItem.WarehouseID]; exists {
 			quantities[uItem.WarehouseID] = uItem.Quantity
-		} else {
-			uItem.WarehouseID = token.RNG.Uint32()
-			f = append(f, uItem)
+			continue
 		}
+		// An unknown warehouse ID is normally a deposit, which always carries a
+		// quantity. A zero-quantity one is a withdrawal of a stack that is no
+		// longer in the box — a stale client view — so there is nothing to add;
+		// keeping it would append an empty stack that accumulates forever.
+		if uItem.Quantity == 0 {
+			continue
+		}
+		uItem.WarehouseID = token.RNG.Uint32()
+		f = append(f, uItem)
 	}
 	for i := range o {
 		if quantity, updated := quantities[o[i].WarehouseID]; updated {

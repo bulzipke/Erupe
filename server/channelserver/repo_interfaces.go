@@ -75,6 +75,9 @@ type GuildRepo interface {
 	HasApplication(guildID, charID uint32) (bool, error)
 	GetItemBox(guildID uint32) ([]byte, error)
 	SaveItemBox(guildID uint32, data []byte) error
+	// UpdateItemBox applies mutate under a row lock so concurrent members cannot
+	// lose each other's writes.
+	UpdateItemBox(guildID uint32, mutate func(current []byte) []byte) error
 	GetMembers(guildID uint32, applicants bool) ([]*GuildMember, error)
 	GetCharacterMembership(charID uint32) (*GuildMember, error)
 	SaveMember(member *GuildMember) error
@@ -169,6 +172,9 @@ type UserRepo interface {
 	SetDiscordToken(userID uint32, token string) error
 	GetItemBox(userID uint32) ([]byte, error)
 	SetItemBox(userID uint32, data []byte) error
+	// UpdateItemBox applies mutate under a row lock so concurrent sessions on the
+	// same account cannot lose each other's writes.
+	UpdateItemBox(userID uint32, mutate func(current []byte) []byte) error
 	LinkDiscord(discordID string, token string) (string, error)
 	SetPasswordByDiscordID(discordID string, hash []byte) error
 	GetByIDAndUsername(charID uint32) (userID uint32, username string, err error)

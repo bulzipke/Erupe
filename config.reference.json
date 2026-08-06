@@ -73,6 +73,7 @@
     "MaximumRP": 50000,
     "MaximumFP": 120000,
     "TreasureHuntExpiry": 604800,
+    "AllowAccountMultiSession": false,
     "DisableLoginBoost": false,
     "DisableBoostTime": false,
     "BoostTimeDuration": 7200,

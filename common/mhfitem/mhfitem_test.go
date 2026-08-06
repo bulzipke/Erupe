@@ -524,3 +524,70 @@ func TestDiffItemStacks_GeneratesNewWarehouseID(t *testing.T) {
 		t.Error("New item should have generated WarehouseID, got 0")
 	}
 }
+
+func TestDeserializeWarehouseItems_RoundTrip(t *testing.T) {
+	items := []MHFItemStack{
+		{WarehouseID: 100, Item: MHFItem{ItemID: 500}, Quantity: 3, Unk0: 7},
+		{WarehouseID: 101, Item: MHFItem{ItemID: 501}, Quantity: 1},
+	}
+
+	got := DeserializeWarehouseItems(SerializeWarehouseItems(items))
+
+	if len(got) != len(items) {
+		t.Fatalf("DeserializeWarehouseItems returned %d items, want %d", len(got), len(items))
+	}
+	for i := range items {
+		if got[i] != items[i] {
+			t.Errorf("item %d = %+v, want %+v", i, got[i], items[i])
+		}
+	}
+}
+
+func TestDeserializeWarehouseItems_ShortInput(t *testing.T) {
+	// A nil box is the normal state for an account that has never used one, and a
+	// truncated blob must not read past the buffer.
+	tests := []struct {
+		name string
+		data []byte
+		want int
+	}{
+		{name: "nil", data: nil, want: 0},
+		{name: "header only", data: []byte{0x00, 0x00, 0x00, 0x00}, want: 0},
+		{name: "shorter than header", data: []byte{0x00, 0x01}, want: 0},
+		{
+			// Claims 5 stacks but carries the bytes for one.
+			name: "count exceeds payload",
+			data: append([]byte{0x00, 0x05, 0x00, 0x00}, make([]byte, 12)...),
+			want: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := DeserializeWarehouseItems(tt.data); len(got) != tt.want {
+				t.Errorf("DeserializeWarehouseItems() returned %d items, want %d", len(got), tt.want)
+			}
+		})
+	}
+}
+
+func TestDiffItemStacks_IgnoresUnknownZeroQuantity(t *testing.T) {
+	// A second session withdrawing a stack the first one already took sends a
+	// zero-quantity update for an ID the box no longer holds. That must be a
+	// no-op rather than an appended empty stack.
+	old := []MHFItemStack{
+		{WarehouseID: 100, Item: MHFItem{ItemID: 500}, Quantity: 3},
+	}
+	update := []MHFItemStack{
+		{WarehouseID: 999, Item: MHFItem{ItemID: 501}, Quantity: 0},
+	}
+
+	result := DiffItemStacks(old, update)
+
+	if len(result) != 1 {
+		t.Fatalf("DiffItemStacks returned %d stacks, want 1: %+v", len(result), result)
+	}
+	if result[0].WarehouseID != 100 {
+		t.Errorf("surviving stack = %d, want the untouched stack 100", result[0].WarehouseID)
+	}
+}

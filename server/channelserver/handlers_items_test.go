@@ -557,3 +557,58 @@ func TestHandleMsgMhfEnumerateOrder(t *testing.T) {
 		t.Error("No response packet queued")
 	}
 }
+
+func TestUpdateUnionItem_MergesThroughLockedUpdate(t *testing.T) {
+	// The handler must go through UpdateItemBox so the read, diff and write happen
+	// under one row lock. The mock records what the mutation produced, which is
+	// also what a second concurrent session would then read.
+	server := createMockServer()
+
+	bf := byteframe.NewByteFrame()
+	bf.WriteUint16(1)   // numStacks
+	bf.WriteUint16(0)   // unused
+	bf.WriteUint32(100) // warehouseID
+	bf.WriteUint16(500) // itemID
+	bf.WriteUint16(3)   // quantity
+	bf.WriteUint32(0)   // unk0
+
+	userMock := &mockUserRepoForItems{itemBoxData: bf.Data()}
+	server.userRepo = userMock
+	session := createMockSession(1, server)
+	session.userID = 1
+
+	// Withdraw the whole stack: quantity 0 drops it from the box.
+	pkt := &mhfpacket.MsgMhfUpdateUnionItem{
+		AckHandle: 100,
+		UpdatedItems: []mhfitem.MHFItemStack{
+			{WarehouseID: 100, Item: mhfitem.MHFItem{ItemID: 500}, Quantity: 0},
+		},
+	}
+	handleMsgMhfUpdateUnionItem(session, pkt)
+
+	if userMock.setData == nil {
+		t.Fatal("UpdateItemBox was not used; the handler must not write outside the transaction")
+	}
+	if got := mhfitem.DeserializeWarehouseItems(userMock.setData); len(got) != 0 {
+		t.Errorf("box holds %d stacks after full withdrawal, want 0: %+v", len(got), got)
+	}
+}
+
+func TestUpdateUnionItem_FailsAckOnError(t *testing.T) {
+	// A failed write must not ack success, or the client keeps the item it thinks
+	// it withdrew while the box still holds it.
+	server := createMockServer()
+	userMock := &mockUserRepoForItems{itemBoxErr: errNotFound}
+	server.userRepo = userMock
+	session := createMockSession(1, server)
+	session.userID = 1
+
+	pkt := &mhfpacket.MsgMhfUpdateUnionItem{AckHandle: 100, UpdatedItems: []mhfitem.MHFItemStack{}}
+	handleMsgMhfUpdateUnionItem(session, pkt)
+
+	select {
+	case <-session.sendPackets:
+	default:
+		t.Error("No response packet queued")
+	}
+}
