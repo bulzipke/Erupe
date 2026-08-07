@@ -156,6 +156,11 @@ func (r *LocalChannelRegistry) SearchSessions(predicate func(SessionSnapshot) bo
 				snap.StageID = session.stage.id
 			}
 			snap.UserBinary3 = c.userBinary.GetCopy(session.charID, 3)
+			if questID, questName, startedAt, inQuest := session.activeQuestRun(); inQuest {
+				snap.QuestID = questID
+				snap.QuestName = questName
+				snap.QuestStartedAt = startedAt
+			}
 			if predicate(snap) {
 				results = append(results, snap)
 			}

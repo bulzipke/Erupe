@@ -3,7 +3,10 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -26,6 +29,154 @@ var dashboardMonsterIconFS embed.FS
 
 var dashboardTmpl = template.Must(template.New("dashboard").Parse(dashboardHTML))
 
+// dashboardOperatorCookie holds the unlock token issued after the scroll
+// sequence is matched. It is HttpOnly so page scripts cannot read it back out.
+const dashboardOperatorCookie = "erupe_dashboard_operator"
+
+// dashboardOperatorRememberAge is how long "remember this device" keeps the
+// cookie. Without it the cookie is a session cookie and dies with the browser.
+const dashboardOperatorRememberAge = 90 * 24 * time.Hour
+
+// dashboardMaxUnlockGestures bounds how many gestures a client may submit before
+// the attempt is rejected, so the endpoint cannot be walked indefinitely.
+const dashboardMaxUnlockGestures = 32
+
+// dashboardOperatorSequence returns the configured unlock gestures. An empty
+// result means the operator panels are disabled entirely.
+func (s *APIServer) dashboardOperatorSequence() []string {
+	if s.erupeConfig == nil {
+		return nil
+	}
+	raw := strings.Split(s.erupeConfig.API.DashboardOperatorSequence, ",")
+	sequence := make([]string, 0, len(raw))
+	for _, part := range raw {
+		switch strings.ToLower(strings.TrimSpace(part)) {
+		case "up":
+			sequence = append(sequence, "up")
+		case "down":
+			sequence = append(sequence, "down")
+		}
+	}
+	return sequence
+}
+
+// operatorToken returns this process's unlock token, generating it on first use.
+// It is random per start, so restarting the server signs every device out.
+func (s *APIServer) operatorToken() string {
+	s.operatorTokenOnce.Do(func() {
+		buf := make([]byte, 32)
+		if _, err := rand.Read(buf); err != nil {
+			// Without a token nothing can authenticate, which is the safe result.
+			if s.logger != nil {
+				s.logger.Error("Failed to generate dashboard operator token", zap.Error(err))
+			}
+			return
+		}
+		s.operatorTokenValue = hex.EncodeToString(buf)
+	})
+	return s.operatorTokenValue
+}
+
+// dashboardOperatorAuthorized reports whether a request may see who is online
+// and broadcast to every world. An unset sequence closes those features to
+// everyone rather than opening them.
+func (s *APIServer) dashboardOperatorAuthorized(r *http.Request) bool {
+	if len(s.dashboardOperatorSequence()) == 0 {
+		return false
+	}
+	token := s.operatorToken()
+	if token == "" {
+		return false
+	}
+	cookie, err := r.Cookie(dashboardOperatorCookie)
+	if err != nil {
+		return false
+	}
+	// Constant time so a wrong token cannot be recovered by timing the response.
+	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(token)) == 1
+}
+
+type dashboardUnlockRequest struct {
+	Gestures []string `json:"gestures"`
+	Remember bool     `json:"remember"`
+}
+
+type dashboardUnlockResponse struct {
+	// Status is "pending" while the gestures so far are a prefix of the
+	// sequence, "matched" once they equal it, and "rejected" otherwise.
+	Status string `json:"status"`
+}
+
+// DashboardUnlock validates the scroll sequence and issues the operator cookie.
+// Keeping the sequence server side means it never appears in the page source,
+// unlike a check written in the page's own script.
+func (s *APIServer) DashboardUnlock(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "application/json")
+
+	sequence := s.dashboardOperatorSequence()
+	if len(sequence) == 0 {
+		writeJSON(w, http.StatusForbidden, dashboardUnlockResponse{Status: "rejected"})
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+	var request dashboardUnlockRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, dashboardUnlockResponse{Status: "rejected"})
+		return
+	}
+
+	// A client that is already unlocked only wants to change how long the
+	// cookie lives, so accept the remember toggle without re-running gestures.
+	if len(request.Gestures) == 0 && s.dashboardOperatorAuthorized(r) {
+		s.setOperatorCookie(w, r, request.Remember)
+		writeJSON(w, http.StatusOK, dashboardUnlockResponse{Status: "matched"})
+		return
+	}
+
+	if len(request.Gestures) == 0 || len(request.Gestures) > dashboardMaxUnlockGestures ||
+		len(request.Gestures) > len(sequence) {
+		writeJSON(w, http.StatusOK, dashboardUnlockResponse{Status: "rejected"})
+		return
+	}
+	for i, gesture := range request.Gestures {
+		if gesture != sequence[i] {
+			writeJSON(w, http.StatusOK, dashboardUnlockResponse{Status: "rejected"})
+			return
+		}
+	}
+	if len(request.Gestures) < len(sequence) {
+		writeJSON(w, http.StatusOK, dashboardUnlockResponse{Status: "pending"})
+		return
+	}
+
+	s.setOperatorCookie(w, r, request.Remember)
+	writeJSON(w, http.StatusOK, dashboardUnlockResponse{Status: "matched"})
+}
+
+func (s *APIServer) setOperatorCookie(w http.ResponseWriter, r *http.Request, remember bool) {
+	cookie := &http.Cookie{
+		Name:     dashboardOperatorCookie,
+		Value:    s.operatorToken(),
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		// Behind a TLS-terminating proxy r.TLS is nil, so trust the forwarded
+		// scheme as well or the cookie would never carry the Secure flag.
+		Secure: r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"),
+	}
+	if remember {
+		cookie.MaxAge = int(dashboardOperatorRememberAge / time.Second)
+	}
+	http.SetCookie(w, cookie)
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
 // DashboardStats is the JSON payload returned by GET /api/dashboard/stats.
 type DashboardStats struct {
 	Uptime           string            `json:"uptime"`
@@ -38,6 +189,9 @@ type DashboardStats struct {
 	OnlineCharacters []OnlineCharacter `json:"onlineCharacters"`
 	Rankings         DashboardRankings `json:"rankings"`
 	DatabaseOK       bool              `json:"databaseOK"`
+	// Operator is false for ordinary visitors. The page uses it to decide whether
+	// to render the channel, online hunter, and world chat panels at all.
+	Operator bool `json:"operator"`
 }
 
 // ChannelInfo describes a single channel server entry from the servers table.
@@ -88,17 +242,28 @@ type OnlineCharacter struct {
 	Channel  string `db:"channel_name" json:"channel"`
 	Land     int    `db:"land" json:"land"`
 	Location string `json:"location"`
+	// Quest fields are empty unless the character is inside a quest.
+	QuestName      string `json:"questName"`
+	QuestElapsedMs int64  `json:"questElapsedMs"`
+}
+
+// DashboardSessionInfo is the live per-character state the channel servers
+// publish to the dashboard. Quest fields are zero outside a quest.
+type DashboardSessionInfo struct {
+	StageID        string
+	QuestName      string
+	QuestStartedAt time.Time
 }
 
 // SetDashboardStageProvider connects the API dashboard to the channel
 // registry without making the API package depend on channelserver internals.
-func (s *APIServer) SetDashboardStageProvider(provider func() map[uint32]string) {
+func (s *APIServer) SetDashboardStageProvider(provider func() map[uint32]DashboardSessionInfo) {
 	s.dashboardStageMu.Lock()
 	s.dashboardStageIDs = provider
 	s.dashboardStageMu.Unlock()
 }
 
-func (s *APIServer) dashboardStageSnapshot() map[uint32]string {
+func (s *APIServer) dashboardStageSnapshot() map[uint32]DashboardSessionInfo {
 	s.dashboardStageMu.RLock()
 	provider := s.dashboardStageIDs
 	s.dashboardStageMu.RUnlock()
@@ -152,13 +317,6 @@ func dashboardLocationForStage(stageID string) string {
 	return "기타 장소"
 }
 
-// HunterRankEntry describes one character in the HR/GR leaderboard.
-type HunterRankEntry struct {
-	Name string `db:"character_name" json:"name"`
-	HR   int    `db:"hr" json:"hr"`
-	GR   int    `db:"gr" json:"gr"`
-}
-
 // MonsterHuntRankEntry describes cumulative large-monster kills recorded by
 // MSG_SYS_RECORD_LOG.
 type MonsterHuntRankEntry struct {
@@ -194,16 +352,44 @@ type MonsterTimeRankEntry struct {
 	Frames        int64  `db:"best_time_frames" json:"frames"`
 }
 
+// QuestResultRankEntry describes how often a quest was cleared or left
+// uncleared. Quests whose title was never resolved fall back to their ID.
+type QuestResultRankEntry struct {
+	QuestID   int    `db:"quest_id" json:"questId"`
+	QuestName string `db:"quest_name" json:"questName"`
+	Count     int64  `db:"result_count" json:"count"`
+}
+
 // DashboardRankings contains the read-only rankings shown on the dashboard.
 type DashboardRankings struct {
-	Hunters      []HunterRankEntry      `json:"hunters"`
 	MonsterHunts []MonsterHuntRankEntry `json:"monsterHunts"`
 	Guilds       []GuildRankEntry       `json:"guilds"`
 	Playtime     []PlaytimeRankEntry    `json:"playtime"`
 	MonsterTimes []MonsterTimeRankEntry `json:"monsterTimes"`
+	QuestClears  []QuestResultRankEntry `json:"questClears"`
+	QuestFails   []QuestResultRankEntry `json:"questFails"`
 }
 
 const dashboardRankingTTL = time.Minute
+
+// dashboardQuestResultQuery ranks quests by one of the two counter columns. The
+// column is chosen from a fixed pair rather than interpolated from a request,
+// so this cannot become an injection point.
+func dashboardQuestResultQuery(column string) string {
+	if column != "cleared" && column != "failed" {
+		column = "cleared"
+	}
+	return `
+		SELECT
+			quest_id,
+			quest_name,
+			` + column + `::bigint AS result_count
+		FROM quest_result_stats
+		WHERE ` + column + ` > 0
+		ORDER BY ` + column + ` DESC, quest_id ASC
+		LIMIT 50
+	`
+}
 
 const dashboardMonsterTimesQuery = `
 	WITH eligible_records AS (
@@ -320,6 +506,7 @@ func (s *APIServer) DashboardStatsJSON(w http.ResponseWriter, r *http.Request) {
 		Channels:         make([]ChannelInfo, 0),
 		OnlineCharacters: make([]OnlineCharacter, 0),
 		Rankings:         emptyDashboardRankings(),
+		Operator:         s.dashboardOperatorAuthorized(r),
 	}
 
 	// Compute uptime.
@@ -405,6 +592,21 @@ func (s *APIServer) DashboardStatsJSON(w http.ResponseWriter, r *http.Request) {
 		stats.Rankings = s.getDashboardRankings(ctx)
 	}
 
+	// Rankings are public; everything that names who is currently playing, or
+	// reveals the channel layout, is stripped for ordinary visitors. Filtering
+	// here rather than skipping the queries keeps one code path, and the queries
+	// are already served from the shared ranking cache.
+	if !stats.Operator {
+		stats.Channels = make([]ChannelInfo, 0)
+		stats.OnlineCharacters = make([]OnlineCharacter, 0)
+		stats.OnlinePlayers = 0
+		stats.TotalAccounts = 0
+		stats.TotalCharacters = 0
+		stats.Uptime = ""
+		stats.ServerVersion = ""
+		stats.ClientMode = ""
+	}
+
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(stats); err != nil {
@@ -440,20 +642,31 @@ func (s *APIServer) dashboardOnlineCharacters(ctx context.Context) ([]OnlineChar
 	if err != nil {
 		return online, err
 	}
-	stageIDs := s.dashboardStageSnapshot()
+	sessions := s.dashboardStageSnapshot()
+	now := time.Now()
 	for i := range online {
-		online[i].Location = dashboardLocationForStage(stageIDs[online[i].CharID])
+		session := sessions[online[i].CharID]
+		online[i].Location = dashboardLocationForStage(session.StageID)
+		// Quest columns stay empty unless the character is actually in one, so a
+		// hunter standing in town shows blanks rather than a stale last quest.
+		if !session.QuestStartedAt.IsZero() {
+			online[i].QuestName = session.QuestName
+			if elapsed := now.Sub(session.QuestStartedAt); elapsed > 0 {
+				online[i].QuestElapsedMs = elapsed.Milliseconds()
+			}
+		}
 	}
 	return online, err
 }
 
 func emptyDashboardRankings() DashboardRankings {
 	return DashboardRankings{
-		Hunters:      make([]HunterRankEntry, 0),
 		MonsterHunts: make([]MonsterHuntRankEntry, 0),
 		Guilds:       make([]GuildRankEntry, 0),
 		Playtime:     make([]PlaytimeRankEntry, 0),
 		MonsterTimes: make([]MonsterTimeRankEntry, 0),
+		QuestClears:  make([]QuestResultRankEntry, 0),
+		QuestFails:   make([]QuestResultRankEntry, 0),
 	}
 }
 
@@ -466,23 +679,6 @@ func (s *APIServer) getDashboardRankings(ctx context.Context) DashboardRankings 
 	}
 
 	rankings := emptyDashboardRankings()
-	if err := s.db.SelectContext(ctx, &rankings.Hunters, `
-		SELECT
-			name AS character_name,
-			COALESCE(hr, 0)::integer AS hr,
-			COALESCE(gr, 0)::integer AS gr
-		FROM characters
-		WHERE deleted = false
-		  AND COALESCE(is_new_character, false) = false
-		  AND name IS NOT NULL
-		  AND name <> ''
-		ORDER BY COALESCE(gr, 0) DESC, COALESCE(hr, 0) DESC, id ASC
-		LIMIT 5
-	`); err != nil {
-		s.logger.Warn("Dashboard: failed to query hunter rankings", zap.Error(err))
-		return s.dashboardRankings
-	}
-
 	if err := s.db.SelectContext(ctx, &rankings.MonsterHunts, `
 		SELECT
 			c.name AS character_name,
@@ -529,6 +725,16 @@ func (s *APIServer) getDashboardRankings(ctx context.Context) DashboardRankings 
 		LIMIT 5
 	`); err != nil {
 		s.logger.Warn("Dashboard: failed to query playtime rankings", zap.Error(err))
+		return s.dashboardRankings
+	}
+
+	if err := s.db.SelectContext(ctx, &rankings.QuestClears, dashboardQuestResultQuery("cleared")); err != nil {
+		s.logger.Warn("Dashboard: failed to query quest clear rankings", zap.Error(err))
+		return s.dashboardRankings
+	}
+
+	if err := s.db.SelectContext(ctx, &rankings.QuestFails, dashboardQuestResultQuery("failed")); err != nil {
+		s.logger.Warn("Dashboard: failed to query quest failure rankings", zap.Error(err))
 		return s.dashboardRankings
 	}
 

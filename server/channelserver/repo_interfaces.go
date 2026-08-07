@@ -147,6 +147,12 @@ type HuntRecordRepo interface {
 	UpsertPersonalBest(record HuntRecordUpsert) error
 }
 
+// QuestStatsRepo defines the contract for server-wide quest clear/failure counts.
+type QuestStatsRepo interface {
+	// RecordResult adds one clear or one failure for a quest.
+	RecordResult(questID uint16, questName string, cleared bool) error
+}
+
 // UserRepo defines the contract for user account data access.
 type UserRepo interface {
 	GetGachaPoints(userID uint32) (fp, premium, trial uint32, err error)

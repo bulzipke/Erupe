@@ -1,8 +1,10 @@
 package channelserver
 
 import (
-	"erupe-ce/network/mhfpacket"
 	"net"
+	"time"
+
+	"erupe-ce/network/mhfpacket"
 )
 
 // ChannelRegistry abstracts cross-channel operations behind an interface.
@@ -48,6 +50,10 @@ type SessionSnapshot struct {
 	ServerIP    net.IP
 	ServerPort  uint16
 	UserBinary3 []byte // Copy of userBinaryParts index 3
+	// Quest fields are only set while the session is inside a quest stage.
+	QuestID        uint16
+	QuestName      string
+	QuestStartedAt time.Time
 }
 
 // StageSnapshot is an immutable copy of stage data taken under lock.

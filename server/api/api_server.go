@@ -41,9 +41,11 @@ type APIServer struct {
 	dashboardRankings   DashboardRankings
 	dashboardRankingsAt time.Time
 	dashboardStageMu    sync.RWMutex
-	dashboardStageIDs   func() map[uint32]string
+	dashboardStageIDs   func() map[uint32]DashboardSessionInfo
 
 	chatMu               sync.RWMutex
+	operatorTokenOnce    sync.Once
+	operatorTokenValue   string
 	chatMessages         []DashboardChatMessage
 	worldChatBroadcaster func(sender, message string) error
 }
@@ -80,6 +82,11 @@ func NewAPIServer(config *Config) *APIServer {
 func (s *APIServer) Start() error {
 	s.startTime = time.Now()
 
+	if len(s.dashboardOperatorSequence()) == 0 {
+		s.logger.Warn("API.DashboardOperatorSequence is unset: the dashboard shows rankings only, " +
+			"and the online hunter list and world chat broadcast stay disabled")
+	}
+
 	// Set up the routes responsible for serving the launcher HTML, serverlist, unique name check, and JP auth.
 	r := mux.NewRouter()
 
@@ -88,6 +95,7 @@ func (s *APIServer) Start() error {
 	r.HandleFunc("/dashboard/assets/{name}", s.DashboardMonsterIcon).Methods("GET")
 	r.HandleFunc("/api/dashboard/stats", s.DashboardStatsJSON).Methods("GET")
 	r.HandleFunc("/api/dashboard/chat", s.DashboardChat).Methods("GET", "POST")
+	r.HandleFunc("/api/dashboard/unlock", s.DashboardUnlock).Methods("POST")
 
 	// Legacy routes (unchanged, no method enforcement)
 	r.HandleFunc("/launcher", s.Launcher)

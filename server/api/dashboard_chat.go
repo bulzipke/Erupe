@@ -101,6 +101,14 @@ func (s *APIServer) DashboardChat(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 
+	// Both directions are operator-only: the log carries player chat, and POST
+	// broadcasts to every world. Without this the page's key sequence would be
+	// decoration, since anyone can call these endpoints directly.
+	if !s.dashboardOperatorAuthorized(r) {
+		writeDashboardChatError(w, http.StatusForbidden, "권한이 없습니다.")
+		return
+	}
+
 	if r.Method == http.MethodGet {
 		s.writeDashboardChatResponse(w, http.StatusOK)
 		return

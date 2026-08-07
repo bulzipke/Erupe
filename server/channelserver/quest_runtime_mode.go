@@ -2,8 +2,11 @@ package channelserver
 
 import (
 	"encoding/binary"
+	"time"
 
 	"erupe-ce/common/mhfquest"
+
+	"go.uber.org/zap"
 )
 
 type questRunMode uint8
@@ -137,5 +140,62 @@ func resolveQuestRunVariant(base mhfquest.HuntVariant, stageMode, recordMode que
 		return mhfquest.HuntVariantHardcore, true
 	default:
 		return mhfquest.HuntVariantHardcoreOptional, false
+	}
+}
+
+// beginQuestRun publishes the quest this session just entered, so the dashboard
+// can show what is being hunted and for how long. The title is resolved once
+// here because it reads the quest file, which is far too costly to repeat on
+// every dashboard poll.
+func (s *Session) beginQuestRun() {
+	questID := uint16(s.questRunState.Load())
+	if questID == 0 {
+		// The quest was selected without a decodable run mode, so the ID is not
+		// known. Leave the previous run cleared rather than showing a stale one.
+		s.endQuestRun()
+		return
+	}
+	s.activeQuestID.Store(uint32(questID))
+	s.activeQuestStart.Store(TimeAdjusted().Unix())
+	s.activeQuestName.Store(questTitleForRecord(s, questID))
+}
+
+// endQuestRun clears the published quest run.
+func (s *Session) endQuestRun() {
+	s.activeQuestID.Store(0)
+	s.activeQuestStart.Store(0)
+	s.activeQuestName.Store("")
+}
+
+// activeQuestRun returns the quest this session is currently in. ok is false
+// when the session is not in a quest.
+func (s *Session) activeQuestRun() (questID uint16, name string, startedAt time.Time, ok bool) {
+	id := uint16(s.activeQuestID.Load())
+	if id == 0 {
+		return 0, "", time.Time{}, false
+	}
+	started := s.activeQuestStart.Load()
+	if started == 0 {
+		return 0, "", time.Time{}, false
+	}
+	title, _ := s.activeQuestName.Load().(string)
+	return id, title, time.Unix(started, 0), true
+}
+
+// recordQuestResult stores one finished quest attempt.
+//
+// The ZZ client sends a record log whenever a quest ends, with the outcome in a
+// header byte, so nothing has to be inferred from session state: retires are
+// simply not recorded, and an attempt that never reports a result (a disconnect
+// mid-quest) is not counted either way.
+func (s *Session) recordQuestResult(questID uint16, questName string, cleared bool) {
+	if questID == 0 || s.server == nil || s.server.questStatsRepo == nil {
+		return
+	}
+	if err := s.server.questStatsRepo.RecordResult(questID, questName, cleared); err != nil {
+		s.logger.Warn("Failed to record quest result",
+			zap.Uint16("questID", questID),
+			zap.Bool("cleared", cleared),
+			zap.Error(err))
 	}
 }

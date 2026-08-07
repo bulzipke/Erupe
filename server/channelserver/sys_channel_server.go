@@ -132,6 +132,7 @@ type Server struct {
 	guildMissionRepo    GuildMissionRepo
 	guildMissionService *GuildMissionService
 	huntRecordRepo      HuntRecordRepo
+	questStatsRepo      QuestStatsRepo
 }
 
 // NewServer creates a new Server type.
@@ -171,6 +172,7 @@ func NewServer(config *Config) *Server {
 	s.guildRepo = NewGuildRepository(config.DB)
 	s.guildMissionRepo = NewGuildMissionRepository(config.DB)
 	s.huntRecordRepo = NewHuntRecordRepository(config.DB)
+	s.questStatsRepo = NewQuestStatsRepository(config.DB)
 	s.userRepo = NewUserRepository(config.DB)
 	s.gachaRepo = NewGachaRepository(config.DB, s.logger)
 	s.houseRepo = NewHouseRepository(config.DB)

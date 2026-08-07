@@ -26,6 +26,7 @@ func TestDashboardStatsJSON_NoDB(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/stats", nil)
+	authorizeDashboard(req, server)
 	rec := httptest.NewRecorder()
 
 	server.DashboardStatsJSON(rec, req)
@@ -70,7 +71,7 @@ func TestDashboardStatsJSON_NoDB(t *testing.T) {
 	if len(stats.OnlineCharacters) != 0 {
 		t.Errorf("Expected empty OnlineCharacters without DB, got %v", stats.OnlineCharacters)
 	}
-	if stats.Rankings.Hunters == nil || stats.Rankings.MonsterHunts == nil || stats.Rankings.Guilds == nil ||
+	if stats.Rankings.MonsterHunts == nil || stats.Rankings.Guilds == nil ||
 		stats.Rankings.Playtime == nil || stats.Rankings.MonsterTimes == nil {
 		t.Error("Expected ranking arrays to be initialized without DB")
 	}
@@ -88,6 +89,7 @@ func TestDashboardStatsJSON_UptimeUnknown(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/stats", nil)
+	authorizeDashboard(req, server)
 	rec := httptest.NewRecorder()
 
 	server.DashboardStatsJSON(rec, req)
@@ -118,6 +120,7 @@ func TestDashboardStatsJSON_JSONShape(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/stats", nil)
+	authorizeDashboard(req, server)
 	rec := httptest.NewRecorder()
 
 	server.DashboardStatsJSON(rec, req)
@@ -524,4 +527,174 @@ func TestFormatDuration(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDashboardStatsHidesOperatorDataWithoutKey(t *testing.T) {
+	// Rankings stay public; anything naming who is online must not.
+	server := &APIServer{
+		logger:      NewTestLogger(t),
+		erupeConfig: &cfg.Config{API: cfg.API{DashboardOperatorSequence: "up,down,up,up"}},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/stats", nil)
+	rec := httptest.NewRecorder()
+	server.DashboardStatsJSON(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var stats DashboardStats
+	if err := json.NewDecoder(rec.Body).Decode(&stats); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if stats.Operator {
+		t.Error("operator = true without a key")
+	}
+	if len(stats.Channels) != 0 || len(stats.OnlineCharacters) != 0 || stats.OnlinePlayers != 0 {
+		t.Errorf("leaked live server state: channels=%d online=%d players=%d",
+			len(stats.Channels), len(stats.OnlineCharacters), stats.OnlinePlayers)
+	}
+	if stats.TotalAccounts != 0 || stats.TotalCharacters != 0 || stats.ClientMode != "" {
+		t.Errorf("leaked server metadata: accounts=%d chars=%d mode=%q",
+			stats.TotalAccounts, stats.TotalCharacters, stats.ClientMode)
+	}
+}
+
+func TestDashboardStatsMarksOperatorWithKey(t *testing.T) {
+	server := &APIServer{
+		logger:      NewTestLogger(t),
+		erupeConfig: &cfg.Config{API: cfg.API{DashboardOperatorSequence: "up,down,up,up"}},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/stats", nil)
+	authorizeDashboard(req, server)
+	rec := httptest.NewRecorder()
+	server.DashboardStatsJSON(rec, req)
+
+	var stats DashboardStats
+	if err := json.NewDecoder(rec.Body).Decode(&stats); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !stats.Operator {
+		t.Fatal("operator = false with the correct key")
+	}
+	if stats.ClientMode == "" && stats.ServerVersion == "" {
+		t.Error("operator payload was still stripped")
+	}
+}
+
+func TestDashboardStatsRejectsWrongKey(t *testing.T) {
+	server := &APIServer{
+		logger:      NewTestLogger(t),
+		erupeConfig: &cfg.Config{API: cfg.API{DashboardOperatorSequence: "up,down,up,up"}},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/stats", nil)
+	req.AddCookie(&http.Cookie{Name: dashboardOperatorCookie, Value: server.operatorToken()[:8]})
+	rec := httptest.NewRecorder()
+	server.DashboardStatsJSON(rec, req)
+
+	var stats DashboardStats
+	if err := json.NewDecoder(rec.Body).Decode(&stats); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if stats.Operator {
+		t.Fatal("a prefix of the key was accepted")
+	}
+}
+
+func TestDashboardUnlockSequence(t *testing.T) {
+	newServer := func() *APIServer {
+		return &APIServer{
+			logger:      NewTestLogger(t),
+			erupeConfig: &cfg.Config{API: cfg.API{DashboardOperatorSequence: "up,down,up,up"}},
+		}
+	}
+
+	post := func(server *APIServer, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/dashboard/unlock", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		server.DashboardUnlock(rec, req)
+		return rec
+	}
+
+	status := func(rec *httptest.ResponseRecorder) string {
+		var resp dashboardUnlockResponse
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return resp.Status
+	}
+
+	t.Run("prefix is pending", func(t *testing.T) {
+		server := newServer()
+		rec := post(server, `{"gestures":["up","down"]}`)
+		if got := status(rec); got != "pending" {
+			t.Fatalf("status = %q, want pending", got)
+		}
+		if len(rec.Result().Cookies()) != 0 {
+			t.Fatal("a partial sequence issued a cookie")
+		}
+	})
+
+	t.Run("full sequence issues the cookie", func(t *testing.T) {
+		server := newServer()
+		rec := post(server, `{"gestures":["up","down","up","up"]}`)
+		if got := status(rec); got != "matched" {
+			t.Fatalf("status = %q, want matched", got)
+		}
+		cookies := rec.Result().Cookies()
+		if len(cookies) != 1 || cookies[0].Name != dashboardOperatorCookie {
+			t.Fatalf("cookies = %+v", cookies)
+		}
+		if cookies[0].Value != server.operatorToken() {
+			t.Fatal("cookie does not carry this process's token")
+		}
+		if !cookies[0].HttpOnly {
+			t.Error("operator cookie must be HttpOnly so page scripts cannot read it")
+		}
+		// Not remembered: a session cookie must not carry an expiry.
+		if cookies[0].MaxAge != 0 {
+			t.Errorf("MaxAge = %d, want 0 without remember", cookies[0].MaxAge)
+		}
+	})
+
+	t.Run("remember extends the cookie", func(t *testing.T) {
+		server := newServer()
+		rec := post(server, `{"gestures":["up","down","up","up"],"remember":true}`)
+		cookies := rec.Result().Cookies()
+		if len(cookies) != 1 || cookies[0].MaxAge <= 0 {
+			t.Fatalf("remember did not set a persistent cookie: %+v", cookies)
+		}
+	})
+
+	t.Run("wrong gesture is rejected", func(t *testing.T) {
+		server := newServer()
+		rec := post(server, `{"gestures":["down"]}`)
+		if got := status(rec); got != "rejected" {
+			t.Fatalf("status = %q, want rejected", got)
+		}
+		if len(rec.Result().Cookies()) != 0 {
+			t.Fatal("a wrong gesture issued a cookie")
+		}
+	})
+
+	t.Run("overlong sequence is rejected", func(t *testing.T) {
+		server := newServer()
+		rec := post(server, `{"gestures":["up","down","up","up","up"]}`)
+		if got := status(rec); got != "rejected" {
+			t.Fatalf("status = %q, want rejected", got)
+		}
+	})
+
+	t.Run("unset sequence keeps the panels closed", func(t *testing.T) {
+		server := &APIServer{logger: NewTestLogger(t), erupeConfig: &cfg.Config{}}
+		rec := post(server, `{"gestures":["up","down","up","up"]}`)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+		}
+		if len(rec.Result().Cookies()) != 0 {
+			t.Fatal("an unconfigured server issued a cookie")
+		}
+	})
 }

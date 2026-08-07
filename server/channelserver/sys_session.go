@@ -82,19 +82,25 @@ type Session struct {
 	// A value of -1 means no bead is currently assigned this session.
 	currentBeadIndex int
 
-	Name           string
-	closed         atomic.Bool
-	hidden         atomic.Bool   // Set via MsgSysHideClient; excludes this session from MsgSysEnumerateClient's "All" results.
-	questHadParty  atomic.Bool   // Sticky for one quest; prevents party hunts from entering solo time rankings.
-	questRunState  atomic.Uint32 // Packed quest ID and runtime normal/HC selection for the active quest.
-	closeOnce      sync.Once
-	logoutOnce     sync.Once
-	lifecycleMu    sync.Mutex
-	done           chan struct{}
-	ackMu          sync.Mutex
-	ackStart       map[uint32]time.Time
-	captureConn    *pcap.RecordingConn // non-nil when capture is active
-	captureCleanup func()              // Called on session close to flush/close capture file
+	Name          string
+	closed        atomic.Bool
+	hidden        atomic.Bool   // Set via MsgSysHideClient; excludes this session from MsgSysEnumerateClient's "All" results.
+	questHadParty atomic.Bool   // Sticky for one quest; prevents party hunts from entering solo time rankings.
+	questRunState atomic.Uint32 // Packed quest ID and runtime normal/HC selection for the active quest.
+	// Live quest run, published to the dashboard. Set on entering a quest stage
+	// and cleared on leaving one; the title is resolved once here rather than on
+	// every dashboard poll, which would re-read the quest file each time.
+	activeQuestID    atomic.Uint32
+	activeQuestStart atomic.Int64 // unix seconds, 0 when not in a quest
+	activeQuestName  atomic.Value // string
+	closeOnce        sync.Once
+	logoutOnce       sync.Once
+	lifecycleMu      sync.Mutex
+	done             chan struct{}
+	ackMu            sync.Mutex
+	ackStart         map[uint32]time.Time
+	captureConn      *pcap.RecordingConn // non-nil when capture is active
+	captureCleanup   func()              // Called on session close to flush/close capture file
 }
 
 // NewSession creates a new Session type.

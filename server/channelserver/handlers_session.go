@@ -639,10 +639,24 @@ const localhostAddrLE = uint32(0x0100007F) // 127.0.0.1 in little-endian
 
 // Kill log binary layout constants
 const (
-	killLogHeaderSize            = 32  // bytes before monster kill count array
-	killLogMonsterCount          = 176 // monster table entries
-	questIDOffset                = 0   // uint16 quest ID in the ZZ record-log header
-	questElapsedFramesOffset     = 12  // uint32, 30 Hz, reverse-engineered from ZZ mhfo-hd.dll
+	killLogHeaderSize        = 32  // bytes before monster kill count array
+	killLogMonsterCount      = 176 // monster table entries
+	questIDOffset            = 0   // uint16 quest ID in the ZZ record-log header
+	questElapsedFramesOffset = 12  // uint32, 30 Hz, reverse-engineered from ZZ mhfo-hd.dll
+	// questResultCodeOffset is the quest outcome byte. The ZZ client sends a
+	// record log whenever a quest ends, not only on a clear, so this byte is what
+	// separates the outcomes. Values observed in captured runs:
+	//
+	//	4  cleared
+	//	6  fainted out (the three-cart failure)
+	//	7  retired by the player
+	//
+	// Anything else is left uncounted and logged, so a new value shows up as a
+	// warning rather than silently landing in the wrong column.
+	questResultCodeOffset        = 8
+	questResultCodeCleared       = 4
+	questResultCodeFainted       = 6
+	questResultCodeRetired       = 7
 	questTimerFramesPerSecond    = 30
 	maxRankedQuestDurationFrames = 4 * 60 * 60 * questTimerFramesPerSecond
 )
@@ -755,6 +769,24 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 		// A result packet ends this quest run. Clear only matching setup state so
 		// a delayed result from another quest cannot erase a newer selection.
 		s.clearQuestRunMode(questID)
+
+		// The record log arrives after the client is already back in town and
+		// carries the outcome, so the whole result is decided here.
+		switch resultCode := pkt.Data[questResultCodeOffset]; resultCode {
+		case questResultCodeCleared:
+			s.recordQuestResult(questID, questTitleForRecord(s, questID), true)
+		case questResultCodeFainted:
+			s.recordQuestResult(questID, questTitleForRecord(s, questID), false)
+		case questResultCodeRetired:
+			// Retiring is a choice, not a failure, so it is deliberately not
+			// counted in either column.
+		default:
+			s.logger.Warn("Unrecognised quest result code, not counted",
+				zap.Uint16("questID", questID),
+				zap.Uint8("resultCode", resultCode),
+				zap.Uint32("elapsedFrames", elapsedFrames),
+			)
+		}
 	}
 	// Remove a client returning to town from reserved slots to make sure the
 	// stage is hidden from the board.

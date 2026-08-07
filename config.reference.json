@@ -229,6 +229,7 @@
     "Banners": [],
     "Messages": [],
     "Links": [],
+    "DashboardOperatorSequence": "",
     "LandingPage": {
       "Enabled": true,
       "Title": "My Frontier Server",

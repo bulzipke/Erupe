@@ -418,13 +418,17 @@ func main() {
 		}
 		if ApiServer != nil {
 			ApiServer.SetWorldChatBroadcaster(registry.BroadcastWorldChat)
-			ApiServer.SetDashboardStageProvider(func() map[uint32]string {
-				stageIDs := make(map[uint32]string)
+			ApiServer.SetDashboardStageProvider(func() map[uint32]api.DashboardSessionInfo {
+				sessions := make(map[uint32]api.DashboardSessionInfo)
 				snapshots := registry.SearchSessions(func(channelserver.SessionSnapshot) bool { return true }, 65535)
 				for _, snapshot := range snapshots {
-					stageIDs[snapshot.CharID] = snapshot.StageID
+					sessions[snapshot.CharID] = api.DashboardSessionInfo{
+						StageID:        snapshot.StageID,
+						QuestName:      snapshot.QuestName,
+						QuestStartedAt: snapshot.QuestStartedAt,
+					}
 				}
-				return stageIDs
+				return sessions
 			})
 			for _, c := range channels {
 				c.SetDashboardChatObserver(ApiServer.RecordGameChat)

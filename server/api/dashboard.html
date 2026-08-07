@@ -21,6 +21,7 @@
     --max-width:1180px
 }
 *{box-sizing:border-box}
+[hidden]{display:none !important}
 html{background:var(--bg)}
 body{
     margin:0;
@@ -41,9 +42,9 @@ button,input{font:inherit}
     color:#ffc2bd;
     font-size:.86rem
 }
-.layout{display:grid;grid-template-columns:minmax(0,.6fr) minmax(0,1.2fr) minmax(0,1.65fr);align-items:stretch;gap:18px}
+.layout{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);align-items:stretch;gap:18px}
 .panel{display:flex;min-width:0;flex-direction:column;background:var(--surface);border:1px solid var(--line)}
-.panel > #channels-content,.panel > #online-content{flex:1}
+.panel > #online-content{flex:1}
 .panel > #online-content > .empty{height:100%;box-sizing:border-box}
 .panel-header{
     min-height:58px;
@@ -66,6 +67,20 @@ button,input{font:inherit}
     font-weight:800
 }
 .table-wrap{overflow-x:auto}
+#online-content table{min-width:560px}
+/* Rank, channel and elapsed time hold short fixed-shape values, so shrink them
+   to their contents and give the space back to the quest title. */
+#online-content th:nth-child(2),#online-content td:nth-child(2),
+#online-content th:nth-child(3),#online-content td:nth-child(3),
+#online-content th:nth-child(5),#online-content td:nth-child(5){
+    width:1%;
+    padding-left:10px;
+    padding-right:10px;
+    white-space:nowrap
+}
+.quest-elapsed{color:var(--accent-soft);font-variant-numeric:tabular-nums;white-space:nowrap}
+/* The quest title is never truncated: the table grows and .table-wrap scrolls. */
+.quest-title{color:#d9dfda;white-space:nowrap}
 table{width:100%;border-collapse:collapse}
 th{
     padding:11px 18px;
@@ -91,16 +106,6 @@ tbody tr:last-child td{border-bottom:0}
     font-size:.85rem;
     text-align:center
 }
-.channel-list{list-style:none;margin:0;padding:0}
-.channel-item{padding:15px 18px;border-bottom:1px solid var(--line-soft)}
-.channel-item:last-child{border-bottom:0}
-.channel-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.channel-title{display:flex;align-items:center;gap:9px;font-size:.82rem;font-weight:750}
-.channel-dot{width:7px;height:7px;background:#53605a;border-radius:50%}
-.channel-dot.active{background:var(--live)}
-.channel-population{color:var(--muted);font-size:.73rem;font-variant-numeric:tabular-nums}
-.capacity{height:3px;margin-top:11px;background:#252e2a;overflow:hidden}
-.capacity-fill{height:100%;background:var(--accent)}
 .chat-panel{display:flex;min-width:0;flex-direction:column;background:var(--surface);border:1px solid var(--line)}
 .chat-log{
     flex:1;
@@ -183,13 +188,15 @@ tbody tr:last-child td{border-bottom:0}
 .monster-time-icon{width:38px;height:38px;flex:0 0 38px;object-fit:contain}
 .monster-time-heading-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .monster-time-table-scroll{width:100%;overflow-x:auto;scrollbar-color:#53605a #101513}
-.monster-time-table{width:100%;min-width:650px;table-layout:fixed}
+.monster-time-table{width:100%;min-width:594px;table-layout:fixed}
 .monster-time-table thead,.monster-time-table tbody tr{display:table;width:100%;table-layout:fixed}
 .monster-time-table tbody{display:block;max-height:102px;overflow-y:auto;scrollbar-color:#53605a #101513}
 .monster-time-table th,.monster-time-table td{padding:8px 7px;font-size:.67rem}
 .monster-time-table th:nth-child(1),.monster-time-table td:nth-child(1){width:38px;text-align:center}
-.monster-time-table th:nth-child(2),.monster-time-table td:nth-child(2){width:120px}
-.monster-time-table th:nth-child(3),.monster-time-table td:nth-child(3){width:100px}
+.monster-time-table th:nth-child(2),.monster-time-table td:nth-child(2){width:96px}
+/* Times are always MM:SS.ss and capped at 45 minutes, so this only has to fit
+   eight tabular digits plus the cell padding. */
+.monster-time-table th:nth-child(3),.monster-time-table td:nth-child(3){width:68px}
 .monster-time-table th:nth-child(4),.monster-time-table td:nth-child(4){width:392px}
 .monster-time-rank{color:#66716c;font-family:Georgia,"Times New Roman",serif;font-variant-numeric:tabular-nums}
 .monster-time-name,.monster-time-quest{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -198,17 +205,23 @@ tbody tr:last-child td{border-bottom:0}
 .monster-time-quest{color:var(--muted)}
 .monster-time-empty{width:100%;padding:28px;color:var(--muted);font-size:.78rem;text-align:center}
 .monster-time-grid>.monster-time-empty{grid-column:1/-1}
-.ranking-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+.ranking-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr))}
 .ranking-block{min-width:0;padding:18px;border-right:1px solid var(--line)}
 .ranking-block:last-child{border-right:0}
 .ranking-heading{margin:0 0 14px;color:var(--accent-soft);font-size:.78rem;font-weight:800}
 .ranking-list{list-style:none;margin:0;padding:0}
 .ranking-item{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:8px;min-height:37px;border-bottom:1px solid var(--line-soft);font-size:.78rem}
 .ranking-item:last-child{border-bottom:0}
+/* Quest titles are long and there are up to 50 of them, so this list scrolls in
+   both directions instead of stretching the section or truncating the name. */
+.quest-ranking-scroll{max-height:222px;overflow:auto;scrollbar-color:#53605a var(--surface)}
+.quest-ranking{width:max-content;min-width:100%}
+.quest-ranking .ranking-item{gap:12px}
+.quest-ranking .ranking-name{overflow:visible;text-overflow:clip}
 .ranking-number{font-family:Georgia,"Times New Roman",serif;color:#66716c}
 .ranking-item:first-child .ranking-number{color:var(--accent);font-size:1rem}
 .ranking-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ranking-score{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ranking-score{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
 .ranking-empty{padding:18px 0;color:var(--muted);font-size:.76rem}
 .footer{
     display:flex;
@@ -222,6 +235,11 @@ tbody tr:last-child td{border-bottom:0}
 }
 @media (max-width:1050px){
     .monster-time-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+    /* Five columns only fit the full desktop width; below it the quest titles
+       have no room left, so drop to a 3+2 layout before the mobile stack. */
+    .ranking-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .ranking-block:nth-child(3n){border-right:0}
+    .ranking-block:nth-child(-n+3){border-bottom:1px solid var(--line)}
 }
 @media (max-width:900px){
     .shell{width:min(calc(100% - 24px),var(--max-width));padding-top:14px}
@@ -243,6 +261,19 @@ tbody tr:last-child td{border-bottom:0}
     .chat-form{grid-template-columns:1fr}
     .chat-submit{grid-column:auto}
 }
+    .operator-unlock {
+        display: flex;
+        align-items: flex-end;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 18px;
+        padding: 14px 16px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--panel);
+    }
+    .operator-unlock label { display: flex; flex-direction: column; gap: 4px; }
+    .operator-remember { flex-direction: row !important; align-items: center; gap: 6px !important; }
 </style>
 </head>
 <body>
@@ -251,19 +282,18 @@ tbody tr:last-child td{border-bottom:0}
         서버 현황을 불러오지 못했습니다. 잠시 후 자동으로 다시 시도합니다.
     </div>
 
-    <section class="layout">
-        <aside class="panel">
-            <div class="panel-header">
-                <div>
-                    <h2 class="panel-title">채널 상태</h2>
-                    <span class="panel-note">5초마다 갱신</span>
-                </div>
-            </div>
-            <div id="channels-content">
-                <div class="empty">채널 정보를 확인하고 있습니다.</div>
-            </div>
-        </aside>
+    <div class="operator-unlock" id="operator-unlock" hidden>
+        <label class="operator-remember">
+            <input id="operator-remember" type="checkbox">
+            <span class="panel-note">이 기기에서 기억하기</span>
+        </label>
+        <span class="chat-feedback" id="operator-feedback">운영자 화면이 열렸습니다.</span>
+    </div>
 
+    <!-- Operator-only. Hidden until the server confirms the key: the sequence
+         below is readable in this page's source, so it only reveals the prompt.
+         The panels stay empty for anyone the server does not authorise. -->
+    <section class="layout" id="operator-layout" hidden>
         <article class="panel">
             <div class="panel-header">
                 <div>
@@ -310,10 +340,6 @@ tbody tr:last-child td{border-bottom:0}
         </div>
         <div class="ranking-grid">
             <article class="ranking-block">
-                <h3 class="ranking-heading">헌터 랭크</h3>
-                <ol class="ranking-list" id="hunter-ranking"></ol>
-            </article>
-            <article class="ranking-block">
                 <h3 class="ranking-heading">대형 몬스터 토벌</h3>
                 <ol class="ranking-list" id="monster-ranking"></ol>
             </article>
@@ -324,6 +350,18 @@ tbody tr:last-child td{border-bottom:0}
             <article class="ranking-block">
                 <h3 class="ranking-heading">수렵단 RP</h3>
                 <ol class="ranking-list" id="guild-ranking"></ol>
+            </article>
+            <article class="ranking-block">
+                <h3 class="ranking-heading">가장 많이 클리어한 퀘스트</h3>
+                <div class="quest-ranking-scroll">
+                    <ol class="ranking-list quest-ranking" id="quest-clear-ranking"></ol>
+                </div>
+            </article>
+            <article class="ranking-block">
+                <h3 class="ranking-heading">가장 많이 실패한 퀘스트</h3>
+                <div class="quest-ranking-scroll">
+                    <ol class="ranking-list quest-ranking" id="quest-fail-ranking"></ol>
+                </div>
             </article>
         </div>
     </section>
@@ -370,8 +408,33 @@ tbody tr:last-child td{border-bottom:0}
     var numberFormatter = new Intl.NumberFormat("ko-KR");
     var monsterTimesSignature = "";
 
+    var operatorMode = false;
+
     function byId(id) {
         return document.getElementById(id);
+    }
+
+    // The operator cookie is HttpOnly, so the page can never read it. Whether the
+    // panels appear is decided purely by what the server reports.
+    function setOperator(enabled) {
+        if (operatorMode === enabled) return;
+        operatorMode = enabled;
+        byId("operator-layout").hidden = !enabled;
+        byId("operator-unlock").hidden = !enabled;
+        if (enabled) updateChat();
+    }
+
+    function unlockRequest(body) {
+        return fetch("/api/dashboard/unlock", {
+            method: "POST",
+            cache: "no-store",
+            credentials: "same-origin",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(body)
+        }).then(function (response) {
+            if (!response.ok) throw new Error("HTTP " + response.status);
+            return response.json();
+        });
     }
 
     function text(tag, className, value) {
@@ -413,6 +476,15 @@ tbody tr:last-child td{border-bottom:0}
         return land > 1 ? name + " · " + land + "채널" : name;
     }
 
+    // Quest runs are capped at 50 minutes, so mm:ss is always enough.
+    function questElapsedLabel(elapsedMs) {
+        var totalSeconds = Math.floor((Number(elapsedMs) || 0) / 1000);
+        if (totalSeconds <= 0) return "";
+        var minutes = Math.floor(totalSeconds / 60);
+        var seconds = totalSeconds % 60;
+        return String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
+    }
+
     function renderOnline(players) {
         var container = byId("online-content");
         byId("online-count").textContent = players.length;
@@ -424,7 +496,7 @@ tbody tr:last-child td{border-bottom:0}
         var table = document.createElement("table");
         var thead = document.createElement("thead");
         var headRow = document.createElement("tr");
-        ["헌터", "랭크", "접속 채널", "위치"].forEach(function (label) {
+        ["헌터", "랭크", "접속 채널", "위치", "경과시간", "퀘스트명"].forEach(function (label) {
             headRow.appendChild(text("th", "", label));
         });
         thead.appendChild(headRow);
@@ -436,6 +508,10 @@ tbody tr:last-child td{border-bottom:0}
             row.appendChild(text("td", "rank-mark", hunterRank(player.hr, player.gr)));
             row.appendChild(text("td", "channel-name", channelLabel(player.channel, player.land)));
             row.appendChild(text("td", "location-mark", player.location || "접속 중"));
+            // Both quest cells stay blank outside a quest, so a hunter in town
+            // reads as empty rather than showing a stale run.
+            row.appendChild(text("td", "quest-elapsed", questElapsedLabel(player.questElapsedMs)));
+            row.appendChild(text("td", "quest-title", player.questName || ""));
             tbody.appendChild(row);
         });
 
@@ -444,45 +520,6 @@ tbody tr:last-child td{border-bottom:0}
         container.replaceChildren(table);
     }
 
-    function renderChannels(channels) {
-        var container = byId("channels-content");
-        if (!channels.length) {
-            container.replaceChildren(text("div", "empty", "등록된 채널이 없습니다."));
-            return;
-        }
-
-        var list = document.createElement("ul");
-        list.className = "channel-list";
-        channels.forEach(function (channel) {
-            var item = document.createElement("li");
-            item.className = "channel-item";
-
-            var row = document.createElement("div");
-            row.className = "channel-row";
-            var title = document.createElement("div");
-            title.className = "channel-title";
-            var dot = document.createElement("span");
-            dot.className = "channel-dot" + (channel.players > 0 ? " active" : "");
-            title.appendChild(dot);
-            title.appendChild(document.createTextNode(channelLabel(channel.name, channel.land)));
-
-            var maximum = channel.maxPlayers > 0 ? channel.maxPlayers : "—";
-            row.appendChild(title);
-            row.appendChild(text("span", "channel-population", channel.players + " / " + maximum));
-            item.appendChild(row);
-
-            var capacity = document.createElement("div");
-            capacity.className = "capacity";
-            var fill = document.createElement("div");
-            fill.className = "capacity-fill";
-            var percentage = channel.maxPlayers > 0 ? Math.min(100, channel.players / channel.maxPlayers * 100) : 0;
-            fill.style.width = percentage + "%";
-            capacity.appendChild(fill);
-            item.appendChild(capacity);
-            list.appendChild(item);
-        });
-        container.replaceChildren(list);
-    }
 
     function chatTime(value) {
         var date = new Date(value);
@@ -514,7 +551,8 @@ tbody tr:last-child td{border-bottom:0}
     }
 
     function updateChat() {
-        fetch("/api/dashboard/chat", {cache: "no-store"})
+        if (!operatorMode) return;
+        fetch("/api/dashboard/chat", {cache: "no-store", credentials: "same-origin"})
             .then(function (response) {
                 if (!response.ok) throw new Error("HTTP " + response.status);
                 return response.json();
@@ -558,6 +596,7 @@ tbody tr:last-child td{border-bottom:0}
 
         fetch("/api/dashboard/chat", {
             method: "POST",
+            credentials: "same-origin",
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({sender: sender, message: message})
         })
@@ -600,6 +639,26 @@ tbody tr:last-child td{border-bottom:0}
             item.appendChild(text("span", "ranking-number", String(index + 1).padStart(2, "0")));
             item.appendChild(text("span", "ranking-name", entry.name));
             item.appendChild(text("span", "ranking-score", score(entry)));
+            fragment.appendChild(item);
+        });
+        list.replaceChildren(fragment);
+    }
+
+    // Quest rows fall back to the ID when the server never resolved a name.
+    function renderQuestRanking(targetId, entries) {
+        var list = byId(targetId);
+        if (!entries.length) {
+            list.replaceChildren(text("li", "ranking-empty", "표시할 기록이 없습니다."));
+            return;
+        }
+
+        var fragment = document.createDocumentFragment();
+        entries.forEach(function (entry, index) {
+            var item = document.createElement("li");
+            item.className = "ranking-item";
+            item.appendChild(text("span", "ranking-number", String(index + 1).padStart(2, "0")));
+            item.appendChild(text("span", "ranking-name", entry.questName || ("퀘스트 " + entry.questId)));
+            item.appendChild(text("span", "ranking-score", numberFormatter.format(entry.count) + "회"));
             fragment.appendChild(item);
         });
         list.replaceChildren(fragment);
@@ -747,18 +806,16 @@ tbody tr:last-child td{border-bottom:0}
 
     function render(data) {
         renderOnline(data.onlineCharacters || []);
-        renderChannels(data.channels || []);
 
         var rankings = data.rankings || {};
-        renderRanking("hunter-ranking", rankings.hunters || [], function (entry) {
-            return hunterRank(entry.hr, entry.gr);
-        });
         renderRanking("monster-ranking", rankings.monsterHunts || [], function (entry) {
             return numberFormatter.format(entry.kills) + "마리";
         });
         renderRanking("guild-ranking", rankings.guilds || [], function (entry) {
             return numberFormatter.format(entry.rp) + " RP";
         });
+        renderQuestRanking("quest-clear-ranking", rankings.questClears || []);
+        renderQuestRanking("quest-fail-ranking", rankings.questFails || []);
         renderRanking("playtime-ranking", rankings.playtime || [], function (entry) {
             return playtimeLabel(entry.seconds);
         });
@@ -768,13 +825,14 @@ tbody tr:last-child td{border-bottom:0}
     }
 
     function updateStats() {
-        fetch("/api/dashboard/stats", {cache: "no-store"})
+        fetch("/api/dashboard/stats", {cache: "no-store", credentials: "same-origin"})
             .then(function (response) {
                 if (!response.ok) throw new Error("HTTP " + response.status);
                 return response.json();
             })
             .then(function (data) {
                 byId("error-banner").style.display = "none";
+                setOperator(data.operator === true);
                 render(data);
             })
             .catch(function () {
@@ -793,10 +851,107 @@ tbody tr:last-child td{border-bottom:0}
         if (savedName) byId("chat-name").value = savedName;
     } catch (_) {}
 
+    // Scroll gesture: 위 아래 위 위. Works with a wheel, a trackpad, and a finger,
+    // so it is the one trigger available on every device. It reads wheel and touch
+    // movement rather than scroll position, so it still works pinned at the top or
+    // bottom of the page where the document itself cannot scroll any further.
+    var scrollGestures = [];    // reported to the server, which holds the sequence
+    var scrollDisarmed = false; // one wrong gesture disables it until reload
+    var gestureDir = "";
+    var gestureAmount = 0;
+    var gestureTimer = null;
+    var gestureMinPixels = 40; // ignore jitter and trackpad edge bounce
+    var gestureGapMs = 220;    // a pause ends the current gesture
+
+    // The sequence must be the first gestures made on the page. A single wrong
+    // one disarms the trigger for good, so someone who simply scrolls the
+    // rankings can never stumble into it; reloading is the only way to retry.
+    function advanceScroll(dir) {
+        if (scrollDisarmed) return;
+        scrollGestures.push(dir);
+        unlockRequest({gestures: scrollGestures, remember: false})
+            .then(function (data) {
+                if (data.status === "matched") {
+                    scrollDisarmed = true;
+                    scrollGestures = [];
+                    // Do not unhide here: the cookie is now set, so the next
+                    // stats response is what decides. Flipping it locally would
+                    // flash the panels open if the cookie failed to stick.
+                    updateStats();
+                    return;
+                }
+                if (data.status !== "pending") {
+                    scrollDisarmed = true;
+                    scrollGestures = [];
+                }
+            })
+            .catch(function () {
+                scrollDisarmed = true;
+                scrollGestures = [];
+            });
+    }
+
+    function commitGesture() {
+        clearTimeout(gestureTimer);
+        var dir = gestureDir;
+        var amount = gestureAmount;
+        gestureDir = "";
+        gestureAmount = 0;
+        if (dir && amount >= gestureMinPixels) advanceScroll(dir);
+    }
+
+    function trackMove(dir, amount) {
+        if (scrollDisarmed || operatorMode || !byId("operator-unlock").hidden) return;
+        // A reversal ends the previous gesture immediately; two gestures in the
+        // same direction are separated by the pause timer instead.
+        if (dir !== gestureDir) commitGesture();
+        gestureDir = dir;
+        gestureAmount += amount;
+        clearTimeout(gestureTimer);
+        gestureTimer = setTimeout(commitGesture, gestureGapMs);
+    }
+
+    window.addEventListener("wheel", function (event) {
+        if (!event.deltaY) return;
+        trackMove(event.deltaY < 0 ? "up" : "down", Math.abs(event.deltaY));
+    }, {passive: true});
+
+    var touchY = null;
+    window.addEventListener("touchstart", function (event) {
+        touchY = event.touches.length ? event.touches[0].clientY : null;
+    }, {passive: true});
+    window.addEventListener("touchmove", function (event) {
+        if (touchY === null || !event.touches.length) return;
+        var y = event.touches[0].clientY;
+        var delta = touchY - y; // finger up = content scrolls down
+        touchY = y;
+        if (!delta) return;
+        trackMove(delta > 0 ? "down" : "up", Math.abs(delta));
+    }, {passive: true});
+    window.addEventListener("touchend", function () {
+        touchY = null;
+    }, {passive: true});
+
+    // Toggling "remember this device" only changes how long the cookie lives.
+    byId("operator-remember").addEventListener("change", function () {
+        var feedback = byId("operator-feedback");
+        unlockRequest({gestures: [], remember: byId("operator-remember").checked})
+            .then(function () {
+                feedback.textContent = byId("operator-remember").checked
+                    ? "이 기기에서 운영자 화면을 기억합니다."
+                    : "이 브라우저를 닫으면 다시 잠깁니다.";
+                feedback.className = "chat-feedback";
+            })
+            .catch(function () {
+                feedback.textContent = "설정을 저장하지 못했습니다.";
+                feedback.className = "chat-feedback error";
+            });
+    });
+
     byId("chat-form").addEventListener("submit", submitChat);
     updateStats();
-    updateChat();
     setInterval(updateStats, 5000);
+    // Chat polling is operator-only; updateChat() no-ops until the server says so.
     setInterval(updateChat, 2000);
     setInterval(updateClock, 1000);
 })();

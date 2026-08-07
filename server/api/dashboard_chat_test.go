@@ -8,17 +8,31 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	cfg "erupe-ce/config"
 )
 
+func newOperatorChatServer() *APIServer {
+	return &APIServer{
+		erupeConfig: &cfg.Config{API: cfg.API{DashboardOperatorSequence: TestDashboardOperatorSequence}},
+	}
+}
+
+// authorizeDashboard attaches the operator cookie the unlock endpoint issues.
+func authorizeDashboard(req *http.Request, server *APIServer) *http.Request {
+	req.AddCookie(&http.Cookie{Name: dashboardOperatorCookie, Value: server.operatorToken()})
+	return req
+}
+
 func TestDashboardChatKeepsLatestTenMessages(t *testing.T) {
-	server := &APIServer{}
+	server := newOperatorChatServer()
 	for i := 0; i < 12; i++ {
 		server.RecordWorldChat(fmt.Sprintf("Hunter%02d", i), fmt.Sprintf("message-%02d", i))
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/chat", nil)
 	rec := httptest.NewRecorder()
-	server.DashboardChat(rec, req)
+	server.DashboardChat(rec, authorizeDashboard(req, server))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -39,7 +53,7 @@ func TestDashboardChatKeepsLatestTenMessages(t *testing.T) {
 }
 
 func TestDashboardChatRecordsPublicScopesOnly(t *testing.T) {
-	server := &APIServer{}
+	server := newOperatorChatServer()
 	for _, scope := range []string{"world", "land", "party", "guild", "alliance", "whisper", "unknown"} {
 		server.RecordGameChat(scope, "Hunter", scope+" message")
 	}
@@ -56,7 +70,7 @@ func TestDashboardChatRecordsPublicScopesOnly(t *testing.T) {
 }
 
 func TestDashboardChatPostBroadcastsAndRecords(t *testing.T) {
-	server := &APIServer{}
+	server := newOperatorChatServer()
 	var gotSender, gotMessage string
 	server.SetWorldChatBroadcaster(func(sender, message string) error {
 		gotSender = sender
@@ -67,7 +81,7 @@ func TestDashboardChatPostBroadcastsAndRecords(t *testing.T) {
 	body := bytes.NewBufferString(`{"sender":"웹헌터","message":"안녕하세요 월드!"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/dashboard/chat", body)
 	rec := httptest.NewRecorder()
-	server.DashboardChat(rec, req)
+	server.DashboardChat(rec, authorizeDashboard(req, server))
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusCreated, rec.Body.String())
@@ -98,7 +112,7 @@ func TestDashboardChatPostValidatesNameAndMessage(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			server := &APIServer{}
+			server := newOperatorChatServer()
 			called := false
 			server.SetWorldChatBroadcaster(func(_, _ string) error {
 				called = true
@@ -107,7 +121,7 @@ func TestDashboardChatPostValidatesNameAndMessage(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodPost, "/api/dashboard/chat", bytes.NewBufferString(test.body))
 			rec := httptest.NewRecorder()
-			server.DashboardChat(rec, req)
+			server.DashboardChat(rec, authorizeDashboard(req, server))
 
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
@@ -120,16 +134,68 @@ func TestDashboardChatPostValidatesNameAndMessage(t *testing.T) {
 }
 
 func TestDashboardChatPostRequiresChannelBridge(t *testing.T) {
-	server := &APIServer{}
+	server := newOperatorChatServer()
 	req := httptest.NewRequest(
 		http.MethodPost,
 		"/api/dashboard/chat",
 		bytes.NewBufferString(`{"sender":"web","message":"hello"}`),
 	)
 	rec := httptest.NewRecorder()
-	server.DashboardChat(rec, req)
+	server.DashboardChat(rec, authorizeDashboard(req, server))
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestDashboardChatRejectsWithoutOperatorKey(t *testing.T) {
+	// Without this the page's key sequence would be decoration: the endpoint
+	// broadcasts to every world and is reachable directly.
+	tests := []struct {
+		name   string
+		method string
+		body   string
+	}{
+		{name: "get history", method: http.MethodGet},
+		{name: "post broadcast", method: http.MethodPost, body: `{"sender":"web","message":"hello"}`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := newOperatorChatServer()
+			called := false
+			server.SetWorldChatBroadcaster(func(_, _ string) error {
+				called = true
+				return nil
+			})
+			server.RecordWorldChat("Hunter", "secret chatter")
+
+			req := httptest.NewRequest(test.method, "/api/dashboard/chat", bytes.NewBufferString(test.body))
+			rec := httptest.NewRecorder()
+			server.DashboardChat(rec, req) // deliberately no operator key
+
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+			}
+			if called {
+				t.Fatal("unauthorized request reached the world broadcaster")
+			}
+			if strings.Contains(rec.Body.String(), "secret chatter") {
+				t.Fatal("chat history leaked to an unauthorized request")
+			}
+		})
+	}
+}
+
+func TestDashboardChatRejectsWhenNoKeyConfigured(t *testing.T) {
+	// An unset key must close the endpoint rather than open it, or a deployment
+	// that never configured one would be broadcastable by anyone.
+	server := &APIServer{erupeConfig: &cfg.Config{}}
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/chat", nil)
+	rec := httptest.NewRecorder()
+	server.DashboardChat(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
 	}
 }

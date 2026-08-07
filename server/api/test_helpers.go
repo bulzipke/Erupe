@@ -16,6 +16,10 @@ func NewTestLogger(t *testing.T) *zap.Logger {
 	return logger
 }
 
+// TestDashboardOperatorSequence is the unlock gesture used by NewTestConfig, so
+// tests that exercise the operator-only payload can authorise themselves.
+const TestDashboardOperatorSequence = "up,down,up,up"
+
 // NewTestConfig creates a default test configuration
 func NewTestConfig() *cfg.Config {
 	return &cfg.Config{
@@ -25,6 +29,8 @@ func NewTestConfig() *cfg.Config {
 			Banners:     []cfg.APISignBanner{},
 			Messages:    []cfg.APISignMessage{},
 			Links:       []cfg.APISignLink{},
+
+			DashboardOperatorSequence: TestDashboardOperatorSequence,
 		},
 		Screenshots: cfg.ScreenshotsOptions{
 			Enabled:       true,

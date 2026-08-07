@@ -156,10 +156,13 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	s.Lock()
 	s.stage = stage
 	s.Unlock()
-	if stageKind(stageID) != "Qs" {
+	if stageKind(stageID) == "Qs" {
+		s.beginQuestRun()
+	} else {
 		// Failed or abandoned quests may not send a record log. Returning to any
 		// non-quest stage is therefore the reliable boundary for stale run state.
 		s.clearQuestRunMode(0)
+		s.endQuestRun()
 	}
 	s.lifecycleMu.Unlock()
 	lifecycleHeld = false

@@ -324,6 +324,16 @@ type API struct {
 	Messages    []APISignMessage
 	Links       []APISignLink
 	LandingPage LandingPage
+	// DashboardOperatorSequence is the scroll gesture that unlocks the dashboard
+	// panels exposing who is online and the world chat broadcast. It is a comma
+	// separated list of "up" and "down", performed as the first gestures on the
+	// page. Empty (the default) keeps those endpoints closed to everyone; the
+	// public ranking panels stay visible either way.
+	//
+	// The sequence is verified server side and never appears in the page source,
+	// but it is still a short secret: four gestures are only sixteen
+	// combinations. Use a longer sequence if the dashboard is public.
+	DashboardOperatorSequence string
 }
 
 // LandingPage holds config for the browser-facing landing page at /.
