@@ -353,10 +353,10 @@ func TestDashboardMonsterNormalIconsCoverAllRankedLargeMonsters(t *testing.T) {
 }
 
 func TestDashboardMonsterDisplayNameSeparatesForms(t *testing.T) {
-	if got := dashboardMonsterDisplayName(15, "zenith"); got != "천이종 푸르푸르" {
+	if got := dashboardMonsterDisplayName(15, "zenith"); got != "천이종 푸루푸루" {
 		t.Fatalf("Zenith display name = %q", got)
 	}
-	if got := dashboardMonsterDisplayName(27, "hardcore"); got != "특이개체 도스란포스" {
+	if got := dashboardMonsterDisplayName(27, "hardcore"); got != "특이개체 도스람포스" {
 		t.Fatalf("Hardcore display name = %q", got)
 	}
 	if got := dashboardMonsterDisplayName(95, "phantom_doragyurosu"); got != "환상의 드라규로스" {
@@ -381,14 +381,14 @@ func TestDashboardMonsterDisplayNameSeparatesForms(t *testing.T) {
 		variantKind string
 		want        string
 	}{
-		{name: "Senyu", monsterID: 7, rankKind: "hr", variantKind: "senyu", want: "천유종 라오샨롱"},
-		{name: "Zenith", monsterID: 15, rankKind: "g", variantKind: "zenith", want: "천이종 푸르푸르"},
-		{name: "Conquest", monsterID: 107, rankKind: "hr", variantKind: "conquest", want: "극정(레벨 미확정) 디스필로아"},
+		{name: "Senyu", monsterID: 7, rankKind: "hr", variantKind: "senyu", want: "천유종 라오샨룽"},
+		{name: "Zenith", monsterID: 15, rankKind: "g", variantKind: "zenith", want: "천이종 푸루푸루"},
+		{name: "Conquest", monsterID: 107, rankKind: "hr", variantKind: "conquest", want: "극정(레벨 미확정) 디스피로아"},
 		{name: "Shiten", monsterID: 100, rankKind: "hr", variantKind: "shiten", want: "지천 안노운"},
 		{name: "Upper Shiten", monsterID: 100, rankKind: "hr", variantKind: "upper_shiten", want: "상급 지천 안노운"},
 		{name: "Challenge", monsterID: 53, rankKind: "hr", variantKind: "challenge", want: "초난관 라잔"},
-		{name: "G normal", monsterID: 6, rankKind: "g", variantKind: "normal", want: "G급 얀쿡"},
-		{name: "G hardcore", monsterID: 6, rankKind: "g", variantKind: "hardcore", want: "G급 특이개체 얀쿡"},
+		{name: "G normal", monsterID: 6, rankKind: "g", variantKind: "normal", want: "G급 얀쿡크"},
+		{name: "G hardcore", monsterID: 6, rankKind: "g", variantKind: "hardcore", want: "G급 특이개체 얀쿡크"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := dashboardMonsterDisplayName(tt.monsterID, tt.variantKind, tt.rankKind); got != tt.want {
