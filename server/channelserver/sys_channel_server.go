@@ -46,6 +46,13 @@ type Config struct {
 // Note: Server.stages is a StageMap (sync.Map-backed), so it requires no
 // external lock for reads or writes.
 //
+// Raviente lifecycle transitions use their own strict order:
+//
+//	Server.ravienteLifecycleMu -> Server.semaphoreLock -> Raviente.Mutex
+//
+// Repository calls retain only ravienteLifecycleMu; gameplay locks are always
+// released before waiting for PostgreSQL.
+//
 // Self-contained stores (userBinary, minidata, questCache) manage their
 // own locks internally and may be acquired at any point.
 type Server struct {
@@ -121,6 +128,10 @@ type Server struct {
 
 	name string
 
+	// Serializes Raviente generation start/completion/reset transitions across
+	// register handlers, commands, auto-start, and semaphore teardown.  Gameplay
+	// locks are acquired only after this mutex and released before repository I/O.
+	ravienteLifecycleMu sync.Mutex
 	raviente *Raviente
 
 	questCache *QuestCache
@@ -132,6 +143,8 @@ type Server struct {
 	guildMissionRepo    GuildMissionRepo
 	guildMissionService *GuildMissionService
 	huntRecordRepo      HuntRecordRepo
+	ravienteRunRepo     RavienteRunRepo
+	ravienteRunTracker  *RavienteRunTracker
 	questStatsRepo      QuestStatsRepo
 }
 
@@ -172,6 +185,10 @@ func NewServer(config *Config) *Server {
 	s.guildRepo = NewGuildRepository(config.DB)
 	s.guildMissionRepo = NewGuildMissionRepository(config.DB)
 	s.huntRecordRepo = NewHuntRecordRepository(config.DB)
+	if config.DB != nil {
+		s.ravienteRunRepo = NewRavienteRunRepository(config.DB)
+		s.ravienteRunTracker = NewRavienteRunTracker(s.ravienteRunRepo, config.Logger)
+	}
 	s.questStatsRepo = NewQuestStatsRepository(config.DB)
 	s.userRepo = NewUserRepository(config.DB)
 	s.gachaRepo = NewGachaRepository(config.DB, s.logger)
@@ -238,6 +255,15 @@ func (s *Server) Start() error {
 		return err
 	}
 	s.listener = l
+
+	// Claim the TCP endpoint before recovering DB lifecycle state.  Otherwise a
+	// duplicate process that cannot bind this channel could abort the live
+	// process's active Raviente run before Start returns its bind error.
+	if s.ravienteRunTracker != nil {
+		if err := s.ravienteRunTracker.Initialize(s.ravienteRunChannelKey(), time.Now()); err != nil {
+			s.logger.Error("Failed to abort stale Raviente run records", zap.Error(err))
+		}
+	}
 
 	initCommands(s.erupeConfig.Commands, s.logger)
 

@@ -661,14 +661,6 @@ const (
 	maxRankedQuestDurationFrames = 4 * 60 * 60 * questTimerFramesPerSecond
 )
 
-// monsterHuntRecordAllowsParty keeps the default solo-only ranking policy while
-// allowing the multiplayer siege monster whose hunts are inherently communal.
-// Gate this per monster rather than per quest so another large monster in the
-// same record packet does not accidentally receive a party time.
-func monsterHuntRecordAllowsParty(monsterID int) bool {
-	return monsterID == mhfmon.BerserkRaviente
-}
-
 // RP accrual rate constants (seconds per RP point)
 const (
 	rpAccrualNormal = 1800 // 30 min per RP without cafe
@@ -707,6 +699,11 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 		_, _ = bf.Seek(killLogHeaderSize, 0)
 		questID := binary.LittleEndian.Uint16(pkt.Data[questIDOffset : questIDOffset+2])
 		elapsedFrames := binary.LittleEndian.Uint32(pkt.Data[questElapsedFramesOffset : questElapsedFramesOffset+4])
+		// Stage-binary layouts can differ for unusual support quests.  A record
+		// log is an additional authoritative signal that this authenticated
+		// hunter actually entered the quest; the repository allowlist admits
+		// only Raviente quest_type 40/50/51.
+		s.server.recordRavienteQuestParticipant(questID, s)
 		stageRunMode := s.peekQuestRunMode(questID)
 		recordRunMode := decodeQuestRunModeFromRecordLog(pkt.Data)
 		validRecordTime := elapsedFrames > 0 && elapsedFrames <= maxRankedQuestDurationFrames
@@ -723,7 +720,10 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 				if err := s.server.guildRepo.InsertKillLog(s.charID, i, val, recordedAt); err != nil {
 					s.logger.Error("Failed to insert kill log", zap.Error(err))
 				}
-				recordMonsterTime := validRecordTime && (!hadParty || monsterHuntRecordAllowsParty(i))
+				// Berserk Raviente is ranked as one whole communal siege by the
+				// dedicated run tracker.  Its individual phase quest times must never
+				// leak into the personal hunt leaderboard.
+				recordMonsterTime := validRecordTime && !hadParty && i != mhfmon.BerserkRaviente
 				if recordMonsterTime && s.server.huntRecordRepo != nil {
 					if !metadataLoaded {
 						questName = questTitleForRecord(s, questID)

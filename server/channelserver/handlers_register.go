@@ -84,10 +84,15 @@ func handleMsgSysOperateRegister(s *Session, p mhfpacket.MHFPacket) {
 
 	var _old, _new uint32
 	invalidIndex := -1
+	startedRun := false
+	completedRun := false
+	var ravienteGeneration uint16
+	s.server.ravienteLifecycleMu.Lock()
 	raviPlayers, raviActive := s.server.raviPlayerCount()
 	func() {
 		s.server.raviente.Lock()
 		defer s.server.raviente.Unlock()
+		ravienteGeneration = s.server.raviente.id
 		for _, update := range raviUpdates {
 			if int(update.Dest) >= len(s.server.raviente.state) {
 				invalidIndex = int(update.Dest)
@@ -95,11 +100,40 @@ func handleMsgSysOperateRegister(s *Session, p mhfpacket.MHFPacket) {
 			}
 		}
 		for _, update := range raviUpdates {
-			switch update.Op {
-			case 2:
-				_old, _new = s.server.updateRaviLocked(pkt.SemaphoreID, update.Dest, update.Data, true, raviPlayers, raviActive)
-			case 13, 14:
-				_old, _new = s.server.updateRaviLocked(pkt.SemaphoreID, update.Dest, update.Data, false, raviPlayers, raviActive)
+			applied := false
+			missingCanonicalSemaphore := !raviActive && pkt.SemaphoreID == raviRegisterGeneral &&
+				(update.Dest == 1 || update.Dest == 2) && update.Data != 0
+			// register[2] is killedTime.  A delayed packet from a previous
+			// generation must not seed it before the current generation starts,
+			// otherwise teardown would misclassify the new run as completed.
+			preStartKilledTime := pkt.SemaphoreID == raviRegisterGeneral &&
+				update.Dest == 2 && s.server.raviente.register[1] == 0
+			if missingCanonicalSemaphore {
+				_old = s.server.raviente.register[update.Dest]
+				_new = _old
+			} else if preStartKilledTime {
+				_old = s.server.raviente.register[2]
+				_new = _old
+			} else {
+				switch update.Op {
+				case 2:
+					_old, _new = s.server.updateRaviLocked(pkt.SemaphoreID, update.Dest, update.Data, true, raviPlayers, raviActive)
+					applied = true
+				case 13, 14:
+					_old, _new = s.server.updateRaviLocked(pkt.SemaphoreID, update.Dest, update.Data, false, raviPlayers, raviActive)
+					applied = true
+				}
+			}
+			if applied && pkt.SemaphoreID == raviRegisterGeneral && _old == 0 && _new != 0 {
+				switch update.Dest {
+				case 1:
+					startedRun = true
+				case 2:
+					// A killed-time update is meaningful only for a run that
+					// actually crossed the start register in this generation.
+					// This rejects delayed terminal packets after a reset.
+					completedRun = s.server.raviente.register[1] != 0
+				}
 			}
 			bf.WriteUint8(1)
 			bf.WriteUint8(update.Dest)
@@ -108,10 +142,21 @@ func handleMsgSysOperateRegister(s *Session, p mhfpacket.MHFPacket) {
 		}
 	}()
 	if invalidIndex >= 0 {
+		s.server.ravienteLifecycleMu.Unlock()
 		s.logger.Warn("Rejected Raviente register index", zap.Int("index", invalidIndex))
 		doAckBufFail(s, pkt.AckHandle, nil)
 		return
 	}
+	// Repository operations are intentionally after the Raviente mutex is
+	// released but before the lifecycle mutex is released.  A batch may contain
+	// both transitions, in which case preserve their lifecycle order.
+	if startedRun {
+		s.server.recordRavienteRunStart(ravienteGeneration)
+	}
+	if completedRun {
+		s.server.recordRavienteRunCompletion(ravienteGeneration)
+	}
+	s.server.ravienteLifecycleMu.Unlock()
 	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
 
 	if s.server.erupeConfig.GameplayOptions.LowLatencyRaviente {

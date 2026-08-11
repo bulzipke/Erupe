@@ -72,7 +72,8 @@ func TestDashboardStatsJSON_NoDB(t *testing.T) {
 		t.Errorf("Expected empty OnlineCharacters without DB, got %v", stats.OnlineCharacters)
 	}
 	if stats.Rankings.MonsterHunts == nil || stats.Rankings.Guilds == nil ||
-		stats.Rankings.Playtime == nil || stats.Rankings.MonsterTimes == nil {
+		stats.Rankings.Playtime == nil || stats.Rankings.MonsterTimes == nil ||
+		stats.Rankings.RavienteRuns == nil {
 		t.Error("Expected ranking arrays to be initialized without DB")
 	}
 }
@@ -151,6 +152,9 @@ func TestDashboardStatsJSON_JSONShape(t *testing.T) {
 	if _, ok := rankings["monsterTimes"]; !ok {
 		t.Error("Missing rankings.monsterTimes JSON key")
 	}
+	if _, ok := rankings["ravienteRuns"]; !ok {
+		t.Error("Missing rankings.ravienteRuns JSON key")
+	}
 }
 
 func TestDashboardConfiguredChannelsExcludesDisabledAndStaleChannels(t *testing.T) {
@@ -206,8 +210,8 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 		"월드 채팅",
 		"대형 몬스터 토벌",
 		"대형 몬스터별 최단 토벌",
-		"토벌 시간은 개인 기록을 원칙으로 하며, 라비엔테 맹광기는 파티 기록도 집계합니다.",
-		"초난관·무쌍·극한 · 상급 지천 · 천이종은 기본 표시",
+		"라비엔테 맹광기는 완료된 대토벌 전체 소요 시간과 참가 인원을 별도로 표시합니다.",
+		"초난관·무쌍·극한 · 상급 지천 · 천이종 · 라비엔테 맹광기는 기본 표시",
 		"기타 기록은 접어서 표시합니다.",
 		"기타 (펼침)",
 		"기타 (접기)",
@@ -215,12 +219,19 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 		"id=\"monster-time-zenith\"",
 		"id=\"monster-time-challenge\"",
 		"id=\"monster-time-upper-shiten\"",
+		"id=\"raviente-run-section\"",
+		"id=\"raviente-runs-berserk\"",
+		"id=\"raviente-runs-extreme\"",
+		"id=\"raviente-runs-small\"",
 		"id=\"monster-time-other-details\"",
 		"id=\"monster-time-other\"",
 		"detailsOpen",
 		"scrollState",
 		"캐릭터이름",
 		"퀘스트명",
+		"참가 인원",
+		"전체 시간",
+		"완료 일시",
 		"플레이 타임",
 		"/api/dashboard/stats",
 		"/api/dashboard/chat",
@@ -251,7 +262,19 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 		".monster-time-table-scroll{width:100%;overflow-x:auto;",
 		".monster-time-table thead tr,.monster-time-table tbody tr{display:grid;",
 		".monster-time-table tbody{display:block;max-height:102px;overflow-x:hidden;overflow-y:auto;",
+		".raviente-run-stack{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch;gap:12px}",
+		".raviente-run-stack{grid-template-columns:repeat(2,minmax(0,1fr))}",
+		".raviente-run-stack{grid-template-columns:minmax(0,1fr)}",
+		".raviente-run-table tbody{display:block;max-height:102px;overflow-x:hidden;overflow-y:auto;",
+		".raviente-participants-popover{",
 		`var groupNames = ["challenge", "upper_shiten", "zenith", "other"];`,
+		`var ravienteRunsSignature = "";`,
+		`var participantNameCollator = new Intl.Collator("en", {numeric: true, sensitivity: "base"});`,
+		`names.sort(participantNameCollator.compare);`,
+		`trigger.setAttribute("aria-haspopup", "dialog");`,
+		`horizontal.scrollLeft = scrollState[eventKind].left;`,
+		`vertical.scrollTop = scrollState[eventKind].top;`,
+		`renderRavienteRuns(rankings.ravienteRuns || []);`,
 	} {
 		if !strings.Contains(body, marker) {
 			t.Errorf("Monster time table scrolling CSS missing %q", marker)
@@ -263,10 +286,11 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 	zenithIndex := strings.Index(body, "id=\"monster-time-zenith\"")
 	challengeIndex := strings.Index(body, "id=\"monster-time-challenge\"")
 	upperShitenIndex := strings.Index(body, "id=\"monster-time-upper-shiten\"")
+	ravienteIndex := strings.Index(body, "id=\"raviente-run-section\"")
 	otherIndex := strings.Index(body, "id=\"monster-time-other-details\"")
-	if zenithIndex == -1 || challengeIndex == -1 || upperShitenIndex == -1 || otherIndex == -1 ||
-		!(challengeIndex < upperShitenIndex && upperShitenIndex < zenithIndex && zenithIndex < otherIndex) {
-		t.Error("Monster time groups are not ordered challenge, upper Shiten, Zenith, other")
+	if zenithIndex == -1 || challengeIndex == -1 || upperShitenIndex == -1 || ravienteIndex == -1 || otherIndex == -1 ||
+		!(challengeIndex < upperShitenIndex && upperShitenIndex < zenithIndex && zenithIndex < ravienteIndex && ravienteIndex < otherIndex) {
+		t.Error("Monster time groups are not ordered challenge, upper Shiten, Zenith, Raviente, other")
 	}
 	if strings.Contains(body, "monsterIconById") {
 		t.Error("Dashboard still contains the removed legacy icon mapping")
@@ -448,12 +472,34 @@ func TestDashboardMonsterTimeRankingQuerySelectsPersonalBestBeforeTopTen(t *test
 		`WHEN variant_kind = 'challenge' OR variant_kind LIKE 'extreme\_%' ESCAPE '\' THEN 0`,
 		"WHEN variant_kind = 'upper_shiten' THEN 1",
 		"WHEN variant_kind = 'zenith' THEN 2",
-		"r.monster_id <> 93",
-		"(r.monster_id <> 149 OR COALESCE(r.rank_kind, '') = 'g')",
+		"r.monster_id NOT IN (93, 149)",
 		"r.monster_id IN (7, 50, 55, 58, 60, 119, 120)",
 	} {
 		if !strings.Contains(query, marker) {
 			t.Errorf("monster time ranking query missing %q", marker)
+		}
+	}
+}
+
+func TestDashboardRavienteRunRankingQuerySelectsCompletedTopTenPerKind(t *testing.T) {
+	query := strings.Join(strings.Fields(dashboardRavienteRunsQuery), " ")
+	for _, marker := range []string{
+		"FROM raviente_runs",
+		"FROM raviente_run_participants",
+		"WHERE status = 'completed'",
+		"event_kind IN ('berserk', 'extreme', 'small')",
+		"PARTITION BY event_kind",
+		"ORDER BY duration_ms ASC, ended_at ASC, id ASC",
+		"WHERE r.position <= 10",
+		"DISTINCT ON (run_id, character_id_snapshot)",
+		"COUNT(p.character_id_snapshot)::integer AS participant_count",
+		"ARRAY_AGG(p.character_name_snapshot",
+		"WHEN 'berserk' THEN 0",
+		"WHEN 'extreme' THEN 1",
+		"WHEN 'small' THEN 2",
+	} {
+		if !strings.Contains(query, marker) {
+			t.Errorf("Raviente run ranking query missing %q", marker)
 		}
 	}
 }
@@ -488,6 +534,32 @@ func TestMonsterTimeRankEntryJSONIncludesClassification(t *testing.T) {
 	}
 }
 
+func TestRavienteRunRankEntryJSONIncludesParticipants(t *testing.T) {
+	endedAt := time.Date(2026, time.August, 11, 20, 30, 0, 0, time.UTC)
+	data, err := json.Marshal(RavienteRunRankEntry{
+		ID:               7,
+		EventKind:        "extreme",
+		DurationMS:       5_400_000,
+		EndedAt:          endedAt,
+		ParticipantCount: 2,
+		Participants:     []string{"Alpha", "Beta"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["eventKind"] != "extreme" || raw["durationMs"] != float64(5_400_000) || raw["participantCount"] != float64(2) {
+		t.Fatalf("Raviente run fields missing from JSON: %s", data)
+	}
+	participants, ok := raw["participants"].([]interface{})
+	if !ok || len(participants) != 2 || participants[0] != "Alpha" || participants[1] != "Beta" {
+		t.Fatalf("Raviente participants missing from JSON: %s", data)
+	}
+}
+
 func TestEmptyDashboardRankingsIncludesOptionalRankings(t *testing.T) {
 	rankings := emptyDashboardRankings()
 	if rankings.Playtime == nil {
@@ -495,6 +567,9 @@ func TestEmptyDashboardRankingsIncludesOptionalRankings(t *testing.T) {
 	}
 	if rankings.MonsterTimes == nil {
 		t.Fatal("monster time ranking must encode as an empty array, not null")
+	}
+	if rankings.RavienteRuns == nil {
+		t.Fatal("Raviente run ranking must encode as an empty array, not null")
 	}
 }
 
@@ -529,12 +604,12 @@ func TestDashboardLocationForStage(t *testing.T) {
 
 func TestDashboardStageSnapshot(t *testing.T) {
 	server := &APIServer{}
-	server.SetDashboardStageProvider(func() map[uint32]string {
-		return map[uint32]string{42: "sl2Qs999p0a0u42"}
+	server.SetDashboardStageProvider(func() map[uint32]DashboardSessionInfo {
+		return map[uint32]DashboardSessionInfo{42: {StageID: "sl2Qs999p0a0u42"}}
 	})
 
 	got := server.dashboardStageSnapshot()
-	if got[42] != "sl2Qs999p0a0u42" {
+	if got[42].StageID != "sl2Qs999p0a0u42" {
 		t.Fatalf("dashboard stage snapshot = %v", got)
 	}
 }

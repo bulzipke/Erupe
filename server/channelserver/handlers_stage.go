@@ -156,7 +156,19 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	s.Lock()
 	s.stage = stage
 	s.Unlock()
+	var ravienteQuestID uint16
 	if stageKind(stageID) == "Qs" {
+		// Guests do not necessarily send SET_STAGE_BINARY themselves.  Decode
+		// the host's stored quest setup when they actually enter the quest so
+		// Raviente participation reflects real combat/support-stage entry.
+		stage.RLock()
+		questSetup := append([]byte(nil), stage.rawBinaryData[stageBinaryKey{1, 3}]...)
+		stage.RUnlock()
+		questID, runMode, decoded := decodeQuestRunModeFromStageBinary(stageID, 1, 3, questSetup)
+		if s.server.erupeConfig.RealClientMode == cfg.ZZ && decoded {
+			s.storeQuestRunMode(questID, runMode)
+			ravienteQuestID = questID
+		}
 		s.beginQuestRun()
 	} else {
 		// Failed or abandoned quests may not send a record log. Returning to any
@@ -166,6 +178,9 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	}
 	s.lifecycleMu.Unlock()
 	lifecycleHeld = false
+	if ravienteQuestID != 0 {
+		s.server.recordRavienteQuestParticipant(ravienteQuestID, s)
+	}
 
 	// Tell the client to cleanup its current stage objects.
 	// Use blocking send to ensure this critical cleanup packet is not dropped.
@@ -645,13 +660,23 @@ func handleMsgSysSetStageBinary(s *Session, p mhfpacket.MHFPacket) {
 		}
 		const maxStageBinaryEntries = 256
 		key := stageBinaryKey{pkt.BinaryType0, pkt.BinaryType1}
+		var questClients []*Session
 		stage.Lock()
 		_, replacing := stage.rawBinaryData[key]
 		stored := replacing || len(stage.rawBinaryData) < maxStageBinaryEntries
 		if stored {
 			stage.rawBinaryData[key] = append([]byte(nil), pkt.RawDataPayload...)
+			if runModeDecoded && stageKind(pkt.StageID) == "Qs" {
+				questClients = make([]*Session, 0, len(stage.clients))
+				for session := range stage.clients {
+					questClients = append(questClients, session)
+				}
+			}
 		}
 		stage.Unlock()
+		for _, session := range questClients {
+			s.server.recordRavienteQuestParticipant(questID, session)
+		}
 		if !stored {
 			s.logger.Warn("Stage binary entry limit reached", zap.String("StageID", pkt.StageID))
 		}

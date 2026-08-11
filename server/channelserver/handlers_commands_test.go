@@ -748,6 +748,29 @@ func TestParseChatCommand_Raviente_StartAlreadyStarted(t *testing.T) {
 	}
 }
 
+func TestParseChatCommand_Raviente_StartRejectsZeroTarget(t *testing.T) {
+	setupCommandsMap(true)
+	repo := &mockUserRepoCommands{}
+	s := createCommandSession(repo)
+	addRaviSemaphore(s.server)
+	runRepo := &mockRavienteRunRepo{questKinds: make(map[uint16]RavienteRunKind)}
+	s.server.ravienteRunTracker = newTestRavienteTracker(runRepo)
+	s.server.raviente.register[1] = 0
+	s.server.raviente.register[3] = 0
+
+	parseChatCommand(s, "!ravi start")
+
+	if s.server.raviente.register[1] != 0 {
+		t.Fatalf("register[1] = %d, want 0", s.server.raviente.register[1])
+	}
+	if len(runRepo.starts) != 0 {
+		t.Fatalf("zero target created Raviente starts %v", runRepo.starts)
+	}
+	if n := drainChatResponses(s); n != 1 {
+		t.Errorf("chat responses = %d, want one error response", n)
+	}
+}
+
 func TestParseChatCommand_Raviente_CheckMultiplier(t *testing.T) {
 	for _, alias := range []string{"cm", "check", "checkmultiplier", "multiplier"} {
 		t.Run(alias, func(t *testing.T) {

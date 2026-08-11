@@ -21,6 +21,10 @@ func validSemaphoreID(id string) bool {
 
 func removeSessionFromSemaphore(s *Session) {
 	resetRavi := false
+	ravienteReset := false
+	ravienteCompleted := false
+	var resetGeneration uint16
+	s.server.ravienteLifecycleMu.Lock()
 	s.server.semaphoreLock.Lock()
 	for id, semaphore := range s.server.semaphore {
 		semaphore.Lock()
@@ -33,9 +37,13 @@ func removeSessionFromSemaphore(s *Session) {
 		}
 	}
 	if resetRavi {
-		s.server.resetRavienteLocked()
+		resetGeneration, ravienteCompleted, ravienteReset = s.server.resetRavienteLocked()
 	}
 	s.server.semaphoreLock.Unlock()
+	if ravienteReset {
+		s.server.recordRavienteRunTeardown(resetGeneration, ravienteCompleted)
+	}
+	s.server.ravienteLifecycleMu.Unlock()
 	s.Lock()
 	s.semaphore = nil
 	s.Unlock()
@@ -48,6 +56,10 @@ func handleMsgSysCreateSemaphore(s *Session, p mhfpacket.MHFPacket) {
 
 func destructEmptySemaphores(s *Session) {
 	resetRavi := false
+	ravienteReset := false
+	ravienteCompleted := false
+	var resetGeneration uint16
+	s.server.ravienteLifecycleMu.Lock()
 	s.server.semaphoreLock.Lock()
 	for id, sema := range s.server.semaphore {
 		sema.RLock()
@@ -60,15 +72,23 @@ func destructEmptySemaphores(s *Session) {
 		}
 	}
 	if resetRavi {
-		s.server.resetRavienteLocked()
+		resetGeneration, ravienteCompleted, ravienteReset = s.server.resetRavienteLocked()
 	}
 	s.server.semaphoreLock.Unlock()
+	if ravienteReset {
+		s.server.recordRavienteRunTeardown(resetGeneration, ravienteCompleted)
+	}
+	s.server.ravienteLifecycleMu.Unlock()
 }
 
 func handleMsgSysDeleteSemaphore(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgSysDeleteSemaphore)
 	destructEmptySemaphores(s)
 	resetRavi := false
+	ravienteReset := false
+	ravienteCompleted := false
+	var resetGeneration uint16
+	s.server.ravienteLifecycleMu.Lock()
 	s.server.semaphoreLock.Lock()
 	for id, sema := range s.server.semaphore {
 		if sema.id == pkt.SemaphoreID {
@@ -85,9 +105,13 @@ func handleMsgSysDeleteSemaphore(s *Session, p mhfpacket.MHFPacket) {
 		}
 	}
 	if resetRavi {
-		s.server.resetRavienteLocked()
+		resetGeneration, ravienteCompleted, ravienteReset = s.server.resetRavienteLocked()
 	}
 	s.server.semaphoreLock.Unlock()
+	if ravienteReset {
+		s.server.recordRavienteRunTeardown(resetGeneration, ravienteCompleted)
+	}
+	s.server.ravienteLifecycleMu.Unlock()
 }
 
 func handleMsgSysCreateAcquireSemaphore(s *Session, p mhfpacket.MHFPacket) {

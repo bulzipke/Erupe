@@ -357,13 +357,22 @@ func parseChatCommand(s *Session, command string) {
 				if s.server.getRaviSemaphore() != nil {
 					switch args[1] {
 					case "start":
+						s.server.ravienteLifecycleMu.Lock()
+						hasCanonicalSemaphore := s.server.getRaviSemaphore() != nil
 						s.server.raviente.Lock()
-						canStart := s.server.raviente.register[1] == 0
+						canStart := hasCanonicalSemaphore && s.server.raviente.register[1] == 0 && s.server.raviente.register[3] != 0
+						ravienteGeneration := s.server.raviente.id
 						if canStart {
 							s.server.raviente.register[1] = s.server.raviente.register[3]
 						}
 						s.server.raviente.Unlock()
 						if canStart {
+							s.server.recordRavienteRunStart(ravienteGeneration)
+						}
+						s.server.ravienteLifecycleMu.Unlock()
+						if !hasCanonicalSemaphore {
+							sendServerChatMessage(s, s.I18n().commands.ravi.noPlayers)
+						} else if canStart {
 							sendServerChatMessage(s, s.I18n().commands.ravi.start.success)
 							s.notifyRavi()
 						} else {

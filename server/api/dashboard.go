@@ -12,12 +12,14 @@ import (
 	"html/template"
 	"net/http"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
 	"erupe-ce/common/mhfmon"
 	"erupe-ce/common/mhfquest"
 
+	"github.com/lib/pq"
 	"go.uber.org/zap"
 )
 
@@ -352,6 +354,18 @@ type MonsterTimeRankEntry struct {
 	Frames        int64  `db:"best_time_frames" json:"frames"`
 }
 
+// RavienteRunRankEntry is one completed Raviente great-hunt run. Unlike the
+// per-quest monster records above, one row represents the full event from its
+// start through its final completion and can include many hunters and quests.
+type RavienteRunRankEntry struct {
+	ID               int64          `db:"id" json:"id"`
+	EventKind        string         `db:"event_kind" json:"eventKind"`
+	DurationMS       int64          `db:"duration_ms" json:"durationMs"`
+	EndedAt          time.Time      `db:"ended_at" json:"endedAt"`
+	ParticipantCount int            `db:"participant_count" json:"participantCount"`
+	Participants     pq.StringArray `db:"participant_names" json:"participants"`
+}
+
 // QuestResultRankEntry describes how often a quest was cleared or left
 // uncleared. Quests whose title was never resolved fall back to their ID.
 type QuestResultRankEntry struct {
@@ -366,6 +380,7 @@ type DashboardRankings struct {
 	Guilds       []GuildRankEntry       `json:"guilds"`
 	Playtime     []PlaytimeRankEntry    `json:"playtime"`
 	MonsterTimes []MonsterTimeRankEntry `json:"monsterTimes"`
+	RavienteRuns []RavienteRunRankEntry `json:"ravienteRuns"`
 	QuestClears  []QuestResultRankEntry `json:"questClears"`
 	QuestFails   []QuestResultRankEntry `json:"questFails"`
 }
@@ -420,8 +435,7 @@ const dashboardMonsterTimesQuery = `
 		  AND COALESCE(c.is_new_character, false) = false
 		  AND c.name IS NOT NULL
 		  AND c.name <> ''
-		  AND r.monster_id <> 93
-		  AND (r.monster_id <> 149 OR COALESCE(r.rank_kind, '') = 'g')
+		  AND r.monster_id NOT IN (93, 149)
 		  AND (
 			COALESCE(r.variant_kind, '') = 'zenith'
 			OR COALESCE(r.variant_kind, '') = 'challenge'
@@ -463,6 +477,55 @@ const dashboardMonsterTimesQuery = `
 		rank_kind ASC,
 		variant_kind ASC,
 		position ASC
+`
+
+const dashboardRavienteRunsQuery = `
+	WITH ranked_runs AS (
+		SELECT
+			id,
+			event_kind,
+			ended_at,
+			duration_ms,
+			ROW_NUMBER() OVER (
+				PARTITION BY event_kind
+				ORDER BY duration_ms ASC, ended_at ASC, id ASC
+			) AS position
+		FROM raviente_runs
+		WHERE status = 'completed'
+		  AND event_kind IN ('berserk', 'extreme', 'small')
+		  AND ended_at IS NOT NULL
+		  AND duration_ms > 0
+	), unique_participants AS (
+		SELECT DISTINCT ON (run_id, character_id_snapshot)
+			run_id,
+			character_id_snapshot,
+			character_name_snapshot
+		FROM raviente_run_participants
+		ORDER BY run_id, character_id_snapshot, character_name_snapshot
+	)
+	SELECT
+		r.id,
+		r.event_kind,
+		r.duration_ms,
+		r.ended_at,
+		COUNT(p.character_id_snapshot)::integer AS participant_count,
+		COALESCE(
+			ARRAY_AGG(p.character_name_snapshot ORDER BY LOWER(p.character_name_snapshot), p.character_name_snapshot, p.character_id_snapshot)
+				FILTER (WHERE p.character_name_snapshot IS NOT NULL AND BTRIM(p.character_name_snapshot) <> ''),
+			ARRAY[]::text[]
+		) AS participant_names
+	FROM ranked_runs r
+	LEFT JOIN unique_participants p ON p.run_id = r.id
+	WHERE r.position <= 10
+	GROUP BY r.id, r.event_kind, r.duration_ms, r.ended_at, r.position
+	ORDER BY
+		CASE r.event_kind
+			WHEN 'berserk' THEN 0
+			WHEN 'extreme' THEN 1
+			WHEN 'small' THEN 2
+			ELSE 3
+		END,
+		r.position ASC
 `
 
 // Dashboard serves the embedded HTML dashboard page at /dashboard.
@@ -667,6 +730,7 @@ func emptyDashboardRankings() DashboardRankings {
 		Guilds:       make([]GuildRankEntry, 0),
 		Playtime:     make([]PlaytimeRankEntry, 0),
 		MonsterTimes: make([]MonsterTimeRankEntry, 0),
+		RavienteRuns: make([]RavienteRunRankEntry, 0),
 		QuestClears:  make([]QuestResultRankEntry, 0),
 		QuestFails:   make([]QuestResultRankEntry, 0),
 	}
@@ -743,6 +807,21 @@ func (s *APIServer) getDashboardRankings(ctx context.Context) DashboardRankings 
 	if err := s.db.SelectContext(ctx, &rankings.MonsterTimes, dashboardMonsterTimesQuery); err != nil {
 		s.logger.Warn("Dashboard: failed to query monster time rankings", zap.Error(err))
 		return s.dashboardRankings
+	}
+	if err := s.db.SelectContext(ctx, &rankings.RavienteRuns, dashboardRavienteRunsQuery); err != nil {
+		s.logger.Warn("Dashboard: failed to query Raviente run rankings", zap.Error(err))
+		return s.dashboardRankings
+	}
+	for i := range rankings.RavienteRuns {
+		entry := &rankings.RavienteRuns[i]
+		sort.SliceStable(entry.Participants, func(i, j int) bool {
+			left := strings.ToLower(entry.Participants[i])
+			right := strings.ToLower(entry.Participants[j])
+			if left == right {
+				return entry.Participants[i] < entry.Participants[j]
+			}
+			return left < right
+		})
 	}
 	questTitles := make(map[int]string)
 	for i := range rankings.MonsterTimes {

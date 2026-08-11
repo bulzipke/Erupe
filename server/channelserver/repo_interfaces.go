@@ -147,6 +147,17 @@ type HuntRecordRepo interface {
 	UpsertPersonalBest(record HuntRecordUpsert) error
 }
 
+// RavienteRunRepo persists whole-siege team records.  Completion writes the
+// final participant snapshot and status in one transaction.
+type RavienteRunRepo interface {
+	AbortActive(channelKey string, endedAt time.Time, reason string) error
+	Start(channelKey string, generation uint16, startedAt time.Time) (int64, error)
+	AddParticipant(runID int64, kind RavienteRunKind, participant RavienteRunParticipant) error
+	Complete(runID int64, kind RavienteRunKind, endedAt time.Time, duration time.Duration, participants []RavienteRunParticipant) error
+	Abort(runID int64, endedAt time.Time, reason string) error
+	ResolveQuestKind(questID uint16) (RavienteRunKind, bool, error)
+}
+
 // QuestStatsRepo defines the contract for server-wide quest clear/failure counts.
 type QuestStatsRepo interface {
 	// RecordResult adds one clear or one failure for a quest.

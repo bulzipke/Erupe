@@ -22,27 +22,35 @@ type Raviente struct {
 }
 
 func (s *Server) resetRaviente() {
+	s.ravienteLifecycleMu.Lock()
 	s.semaphoreLock.Lock()
-	defer s.semaphoreLock.Unlock()
-	s.resetRavienteLocked()
+	generation, completed, reset := s.resetRavienteLocked()
+	s.semaphoreLock.Unlock()
+	if reset {
+		s.recordRavienteRunTeardown(generation, completed)
+	}
+	s.ravienteLifecycleMu.Unlock()
 }
 
 // resetRavienteLocked resets the event before another goroutine can publish a
 // replacement Raviente semaphore. The caller must hold semaphoreLock for write.
-func (s *Server) resetRavienteLocked() {
+func (s *Server) resetRavienteLocked() (generation uint16, completed bool, reset bool) {
 	for _, semaphore := range s.semaphore {
 		if strings.HasPrefix(semaphore.name, "hs_l0") {
-			return
+			return 0, false, false
 		}
 	}
 
 	s.raviente.Lock()
 	defer s.raviente.Unlock()
 	s.logger.Debug("All Raviente Semaphores empty, resetting")
+	oldGeneration := s.raviente.id
+	wasCompleted := s.raviente.register[1] != 0 && s.raviente.register[2] != 0
 	s.raviente.id = s.raviente.id + 1
 	s.raviente.register = make([]uint32, 30)
 	s.raviente.state = make([]uint32, 30)
 	s.raviente.support = make([]uint32, 30)
+	return oldGeneration, wasCompleted, true
 }
 
 func (s *Server) GetRaviMultiplier() float64 {
@@ -77,6 +85,8 @@ func (s *Server) getRaviMultiplierLocked(players int, active bool) float64 {
 }
 
 func (s *Server) UpdateRavi(semaID uint32, index uint8, value uint32, update bool) (uint32, uint32) {
+	s.ravienteLifecycleMu.Lock()
+	defer s.ravienteLifecycleMu.Unlock()
 	players, active := s.raviPlayerCount()
 	s.raviente.Lock()
 	defer s.raviente.Unlock()
@@ -248,16 +258,31 @@ func (s *Server) raviAutoStart() {
 		// Fire: replicate the command exactly, under the lock, re-verifying the
 		// preconditions so we never race a natural or manual start, and never
 		// touch a session that reset() has since torn down (id changed).
+		s.ravienteLifecycleMu.Lock()
+		currentSemaphore := s.getRaviSemaphore()
+		currentPlayers := 0
+		if currentSemaphore != nil {
+			currentSemaphore.RLock()
+			currentPlayers = len(currentSemaphore.clients)
+			currentSemaphore.RUnlock()
+		}
 		s.raviente.Lock()
-		if s.raviente.id == id && s.raviente.register[1] == 0 && s.raviente.register[3] != 0 {
+		fired := currentSemaphore != nil && currentPlayers > 0 &&
+			s.raviente.id == id && s.raviente.register[1] == 0 && s.raviente.register[3] != 0
+		var startVal uint32
+		if fired {
 			s.raviente.register[1] = s.raviente.register[3]
-			startVal := s.raviente.register[1]
-			s.raviente.Unlock()
+			startVal = s.raviente.register[1]
+		}
+		s.raviente.Unlock()
+		if fired {
+			s.recordRavienteRunStart(id)
+		}
+		s.ravienteLifecycleMu.Unlock()
+		if fired {
 			s.logger.Info("Raviente auto-start fired",
-				zap.Int("players", players), zap.Uint32("startValue", startVal))
+				zap.Int("players", currentPlayers), zap.Uint32("startValue", startVal))
 			s.broadcastRaviAutoStart()
-		} else {
-			s.raviente.Unlock()
 		}
 		armed = false
 	}

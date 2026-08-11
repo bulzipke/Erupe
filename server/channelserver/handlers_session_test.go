@@ -302,7 +302,7 @@ func TestHandleMsgSysRecordLog_PartyHuntExcludedFromTimeRanking(t *testing.T) {
 	}
 }
 
-func TestHandleMsgSysRecordLog_PartyHuntRecordsOnlyBerserkRaviente(t *testing.T) {
+func TestHandleMsgSysRecordLog_PartyBerserkRavientePhaseIsNotPersonallyRanked(t *testing.T) {
 	server := createMockServer()
 	server.erupeConfig.RealClientMode = cfg.ZZ
 	server.guildRepo = &mockGuildRepo{}
@@ -321,11 +321,29 @@ func TestHandleMsgSysRecordLog_PartyHuntRecordsOnlyBerserkRaviente(t *testing.T)
 	data[killLogHeaderSize+mhfmon.BerserkRaviente] = 1
 
 	handleMsgSysRecordLog(session, &mhfpacket.MsgSysRecordLog{AckHandle: 100, Data: data})
-	if len(huntRecordRepo.records) != 1 {
-		t.Fatalf("party hunt created %d time-ranking records, want only Berserk Raviente", len(huntRecordRepo.records))
+	if len(huntRecordRepo.records) != 0 {
+		t.Fatalf("party Raviente phase created %d personal time-ranking records, want 0", len(huntRecordRepo.records))
 	}
-	if got := huntRecordRepo.records[0]; got.MonsterID != mhfmon.BerserkRaviente {
-		t.Errorf("party record = %+v, want Berserk Raviente", got)
+}
+
+func TestHandleMsgSysRecordLog_SoloBerserkRavientePhaseIsNotPersonallyRanked(t *testing.T) {
+	server := createMockServer()
+	server.erupeConfig.RealClientMode = cfg.ZZ
+	server.guildRepo = &mockGuildRepo{}
+	huntRecordRepo := &mockHuntRecordRepo{}
+	server.huntRecordRepo = huntRecordRepo
+
+	session := createMockSession(1, server)
+	session.stage = NewStage("sl1Ns200p0a0u1")
+
+	data := make([]byte, killLogHeaderSize+killLogMonsterCount)
+	binary.LittleEndian.PutUint16(data[questIDOffset:questIDOffset+2], 54751)
+	binary.LittleEndian.PutUint32(data[questElapsedFramesOffset:questElapsedFramesOffset+4], 3_750)
+	data[killLogHeaderSize+mhfmon.BerserkRaviente] = 1
+
+	handleMsgSysRecordLog(session, &mhfpacket.MsgSysRecordLog{AckHandle: 100, Data: data})
+	if len(huntRecordRepo.records) != 0 {
+		t.Fatalf("solo Raviente phase created %d personal time-ranking records, want 0", len(huntRecordRepo.records))
 	}
 }
 

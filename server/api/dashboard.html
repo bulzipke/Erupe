@@ -203,6 +203,40 @@ tbody tr:last-child td{border-bottom:0}
 .monster-time-quest{color:var(--muted)}
 .monster-time-empty{width:100%;padding:28px;color:var(--muted);font-size:.78rem;text-align:center}
 .monster-time-grid>.monster-time-empty{grid-column:1/-1}
+.raviente-run-stack{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch;gap:12px}
+.raviente-run-card{min-width:0;border:1px solid var(--line);background:#101513}
+.raviente-run-heading{margin:0;padding:10px 12px;border-bottom:1px solid var(--line);color:var(--accent-soft);font-size:.76rem;font-weight:800}
+.raviente-run-table-scroll{width:100%;overflow-x:auto;scrollbar-color:#53605a #101513}
+.raviente-run-table{width:100%;min-width:560px;table-layout:fixed}
+.raviente-run-table thead{display:block}
+.raviente-run-table thead tr,.raviente-run-table tbody tr{display:grid;width:100%;grid-template-columns:42px 118px 126px minmax(180px,1fr)}
+.raviente-run-table tbody{display:block;max-height:102px;overflow-x:hidden;overflow-y:auto;scrollbar-color:#53605a #101513}
+.raviente-run-table th,.raviente-run-table td{padding:8px 9px;font-size:.69rem}
+.raviente-run-table th:first-child,.raviente-run-table td:first-child{text-align:center}
+.raviente-run-rank{color:#66716c;font-family:Georgia,"Times New Roman",serif;font-variant-numeric:tabular-nums}
+.raviente-run-duration{color:var(--accent-soft);font-variant-numeric:tabular-nums;white-space:nowrap}
+.raviente-run-ended{overflow:hidden;color:var(--muted);font-variant-numeric:tabular-nums;text-overflow:ellipsis;white-space:nowrap}
+.raviente-participant-trigger{border:0;border-bottom:1px dotted #7f8e87;background:transparent;color:var(--text);cursor:pointer;font-size:inherit;font-weight:750;padding:0 1px;white-space:nowrap}
+.raviente-participant-trigger:hover{color:var(--accent-soft);border-bottom-color:var(--accent-soft)}
+.raviente-participant-trigger:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.raviente-participants-popover{
+    position:fixed;
+    inset:auto;
+    width:min(360px,calc(100vw - 24px));
+    max-height:min(280px,calc(100vh - 24px));
+    margin:0;
+    padding:0;
+    overflow:hidden;
+    border:1px solid #59635e;
+    background:#171e1b;
+    color:var(--text);
+    box-shadow:0 12px 32px rgba(0,0,0,.52)
+}
+.raviente-participants-popover::backdrop{background:transparent}
+.raviente-participants-title{margin:0;padding:10px 12px;border-bottom:1px solid var(--line);color:var(--accent-soft);font-size:.73rem;font-weight:800}
+.raviente-participant-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));max-height:220px;margin:0;padding:8px 12px;overflow-y:auto;list-style:none;scrollbar-color:#53605a #171e1b}
+.raviente-participant-list li{min-width:0;padding:4px 5px;overflow-wrap:anywhere;color:#d9dfda;font-size:.71rem}
+.raviente-participant-empty{padding:16px 12px;color:var(--muted);font-size:.71rem;text-align:center}
 .ranking-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr))}
 .ranking-block{min-width:0;padding:18px;border-right:1px solid var(--line)}
 .ranking-block:last-child{border-right:0}
@@ -242,6 +276,7 @@ tbody tr:last-child td{border-bottom:0}
 @media (max-width:900px){
     .shell{width:min(calc(100% - 24px),var(--max-width));padding-top:14px}
     .layout{grid-template-columns:1fr}
+    .raviente-run-stack{grid-template-columns:repeat(2,minmax(0,1fr))}
     .ranking-grid{grid-template-columns:1fr}
     .ranking-block{border-right:0;border-bottom:1px solid var(--line)}
     .ranking-block:last-child{border-bottom:0}
@@ -251,6 +286,7 @@ tbody tr:last-child td{border-bottom:0}
 }
 @media (max-width:640px){
     .monster-time-grid{grid-template-columns:minmax(0,1fr)}
+    .raviente-run-stack{grid-template-columns:minmax(0,1fr)}
 }
 @media (max-width:520px){
     th,td{padding-left:13px;padding-right:13px}
@@ -258,6 +294,7 @@ tbody tr:last-child td{border-bottom:0}
     .chat-line{grid-template-columns:48px 38px 82px minmax(0,1fr);gap:7px}
     .chat-form{grid-template-columns:1fr}
     .chat-submit{grid-column:auto}
+    .raviente-participant-list{grid-template-columns:minmax(0,1fr)}
 }
     .operator-unlock {
         display: flex;
@@ -367,7 +404,7 @@ tbody tr:last-child td{border-bottom:0}
     <section class="rankings">
         <div class="rankings-header">
             <h2>대형 몬스터별 최단 토벌</h2>
-            <p>토벌 시간은 개인 기록을 원칙으로 하며, 라비엔테 맹광기는 파티 기록도 집계합니다. 초난관·무쌍·극한 · 상급 지천 · 천이종은 기본 표시하며, 기타 기록은 접어서 표시합니다. 몬스터별 상위 10명 중 3위 이후는 카드 안에서 세로로 스크롤할 수 있습니다.</p>
+            <p>토벌 시간은 개인 기록을 원칙으로 합니다. 라비엔테 맹광기는 완료된 대토벌 전체 소요 시간과 참가 인원을 별도로 표시합니다. 초난관·무쌍·극한 · 상급 지천 · 천이종 · 라비엔테 맹광기는 기본 표시하며, 기타 기록은 접어서 표시합니다. 각 랭킹의 상위 10개 중 3위 이후는 내부에서 세로로 스크롤할 수 있습니다.</p>
         </div>
         <div class="monster-time-scroll" id="monster-time-ranking" aria-label="대형 몬스터별 최단 토벌 기록">
             <section class="monster-time-group" aria-labelledby="monster-time-challenge-heading">
@@ -382,6 +419,23 @@ tbody tr:last-child td{border-bottom:0}
                 <h3 class="monster-time-group-heading" id="monster-time-zenith-heading">천이종</h3>
                 <div class="monster-time-grid" id="monster-time-zenith"></div>
             </section>
+            <section class="monster-time-group" id="raviente-run-section" aria-labelledby="raviente-run-heading">
+                <h3 class="monster-time-group-heading" id="raviente-run-heading">라비엔테 맹광기</h3>
+                <div class="raviente-run-stack" aria-label="라비엔테 맹광기 전체 대토벌 기록">
+                    <article class="raviente-run-card" aria-labelledby="raviente-run-berserk-heading">
+                        <h4 class="raviente-run-heading" id="raviente-run-berserk-heading">통상</h4>
+                        <div id="raviente-runs-berserk"></div>
+                    </article>
+                    <article class="raviente-run-card" aria-labelledby="raviente-run-extreme-heading">
+                        <h4 class="raviente-run-heading" id="raviente-run-extreme-heading">극</h4>
+                        <div id="raviente-runs-extreme"></div>
+                    </article>
+                    <article class="raviente-run-card" aria-labelledby="raviente-run-small-heading">
+                        <h4 class="raviente-run-heading" id="raviente-run-small-heading">소인원</h4>
+                        <div id="raviente-runs-small"></div>
+                    </article>
+                </div>
+            </section>
             <details class="monster-time-details" id="monster-time-other-details">
                 <summary>
                     <span class="monster-time-details-label-closed">기타 (펼침)</span>
@@ -394,7 +448,7 @@ tbody tr:last-child td{border-bottom:0}
 
     <footer class="footer">
         <span>마지막 갱신: <time id="last-updated">아직 없음</time></span>
-        <span>토벌 수와 플레이 타임은 누적 기록이며, 토벌 시간은 퀘스트 종료 로그 기준입니다.</span>
+        <span>개인 토벌 시간은 퀘스트 종료 로그, 라비엔테 전체 시간은 완료된 대토벌 회차 기준입니다.</span>
     </footer>
 </main>
 
@@ -405,6 +459,16 @@ tbody tr:last-child td{border-bottom:0}
     var lastUpdated = null;
     var numberFormatter = new Intl.NumberFormat("ko-KR");
     var monsterTimesSignature = "";
+	var ravienteRunsSignature = "";
+	var participantNameCollator = new Intl.Collator("en", {numeric: true, sensitivity: "base"});
+	var ravienteCompletedFormatter = new Intl.DateTimeFormat("ko-KR", {
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+		hour12: false
+	});
 
     var operatorMode = false;
 
@@ -469,6 +533,28 @@ tbody tr:last-child td{border-bottom:0}
         var seconds = (totalSeconds % 60).toFixed(2).padStart(5, "0");
         return String(minutes).padStart(2, "0") + ":" + seconds;
     }
+
+	function ravienteDurationLabel(durationMs) {
+		var totalSeconds = Math.max(0, Math.floor((Number(durationMs) || 0) / 1000));
+		var hours = Math.floor(totalSeconds / 3600);
+		var minutes = Math.floor((totalSeconds % 3600) / 60);
+		var seconds = totalSeconds % 60;
+		return String(hours).padStart(2, "0") + ":" +
+			String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
+	}
+
+	function ravienteDurationDescription(durationMs) {
+		var totalSeconds = Math.max(0, Math.floor((Number(durationMs) || 0) / 1000));
+		var hours = Math.floor(totalSeconds / 3600);
+		var minutes = Math.floor((totalSeconds % 3600) / 60);
+		var seconds = totalSeconds % 60;
+		return hours + "시간 " + minutes + "분 " + seconds + "초";
+	}
+
+	function ravienteCompletedLabel(value) {
+		var date = new Date(value);
+		return Number.isNaN(date.getTime()) ? "완료 시각 없음" : ravienteCompletedFormatter.format(date);
+	}
 
     function channelLabel(name, land) {
         return land > 1 ? name + " · " + land + "채널" : name;
@@ -802,6 +888,208 @@ tbody tr:last-child td{border-bottom:0}
         });
     }
 
+	function positionRavienteParticipants(popover, trigger) {
+		requestAnimationFrame(function () {
+			if (!popover.isConnected) return;
+			var triggerRect = trigger.getBoundingClientRect();
+			var popoverRect = popover.getBoundingClientRect();
+			var gutter = 12;
+			var left = Math.max(gutter, Math.min(triggerRect.left, window.innerWidth - popoverRect.width - gutter));
+			var below = triggerRect.bottom + 8;
+			var above = triggerRect.top - popoverRect.height - 8;
+			var top = below + popoverRect.height <= window.innerHeight - gutter ? below : Math.max(gutter, above);
+			popover.style.left = Math.round(left) + "px";
+			popover.style.top = Math.round(top) + "px";
+		});
+	}
+
+	function buildRavienteParticipantControl(entry) {
+		var cell = document.createElement("td");
+		var names = Array.isArray(entry.participants) ? entry.participants.slice() : [];
+		names = names.filter(function (name) { return String(name || "").trim() !== ""; });
+		names.sort(participantNameCollator.compare);
+		var participantCount = Math.max(0, Number(entry.participantCount) || names.length);
+		var runID = String(entry.id || "unknown");
+		var popoverID = "raviente-participants-" + runID.replace(/[^a-zA-Z0-9_-]/g, "-");
+
+		var trigger = text("button", "raviente-participant-trigger", numberFormatter.format(participantCount) + "명 ⓘ");
+		trigger.type = "button";
+		trigger.dataset.runId = runID;
+		trigger.setAttribute("aria-label", "참가 인원 " + participantCount + "명, 참가자 목록 열기");
+		trigger.setAttribute("aria-haspopup", "dialog");
+		trigger.setAttribute("aria-controls", popoverID);
+		trigger.setAttribute("aria-expanded", "false");
+		cell.appendChild(trigger);
+
+		var popover = document.createElement("div");
+		popover.className = "raviente-participants-popover";
+		popover.id = popoverID;
+		popover.setAttribute("popover", "auto");
+		popover.setAttribute("role", "dialog");
+		popover.setAttribute("aria-label", "참가 헌터 " + participantCount + "명");
+		popover.tabIndex = 0;
+		popover.appendChild(text("p", "raviente-participants-title", "참가 헌터 " + numberFormatter.format(participantCount) + "명"));
+		if (names.length) {
+			var list = document.createElement("ul");
+			list.className = "raviente-participant-list";
+			names.forEach(function (name) { list.appendChild(text("li", "", name)); });
+			popover.appendChild(list);
+		} else {
+			popover.appendChild(text("p", "raviente-participant-empty", "기록된 참가자 이름이 없습니다."));
+		}
+		cell.appendChild(popover);
+
+		var nativePopover = typeof popover.showPopover === "function";
+		if (!nativePopover) {
+			popover.removeAttribute("popover");
+			popover.hidden = true;
+		}
+		var closeTimer = null;
+		var pinned = false;
+		function isOpen() {
+			return nativePopover ? popover.matches(":popover-open") : !popover.hidden;
+		}
+		function show() {
+			clearTimeout(closeTimer);
+			if (!isOpen()) {
+				if (nativePopover) popover.showPopover();
+				else popover.hidden = false;
+			}
+			trigger.setAttribute("aria-expanded", "true");
+			positionRavienteParticipants(popover, trigger);
+		}
+		function hide() {
+			clearTimeout(closeTimer);
+			if (isOpen()) {
+				if (nativePopover) popover.hidePopover();
+				else popover.hidden = true;
+			}
+			trigger.setAttribute("aria-expanded", "false");
+		}
+		function scheduleHide() {
+			clearTimeout(closeTimer);
+			closeTimer = setTimeout(function () {
+				if (!pinned) hide();
+			}, 160);
+		}
+		trigger.addEventListener("mouseenter", show);
+		trigger.addEventListener("mouseleave", scheduleHide);
+		trigger.addEventListener("focus", show);
+		trigger.addEventListener("blur", scheduleHide);
+		trigger.addEventListener("click", function () {
+			pinned = !pinned;
+			if (pinned) show();
+			else hide();
+		});
+		popover.addEventListener("mouseenter", function () { clearTimeout(closeTimer); });
+		popover.addEventListener("mouseleave", scheduleHide);
+		popover.addEventListener("focusin", function () { clearTimeout(closeTimer); });
+		popover.addEventListener("focusout", scheduleHide);
+		if (nativePopover) {
+			popover.addEventListener("toggle", function (event) {
+				var open = event.newState === "open";
+				trigger.setAttribute("aria-expanded", open ? "true" : "false");
+				if (!open) pinned = false;
+			});
+		}
+		return cell;
+	}
+
+	function buildRavienteRunTable(eventKind, entries) {
+		var labels = {berserk: "통상", extreme: "극", small: "소인원"};
+		var table = document.createElement("table");
+		table.className = "raviente-run-table";
+		table.setAttribute("aria-label", "라비엔테 " + labels[eventKind] + " 전체 대토벌 기록");
+		var thead = document.createElement("thead");
+		var head = document.createElement("tr");
+		["#", "참가 인원", "전체 시간", "완료 일시"].forEach(function (label) {
+			var column = text("th", "", label);
+			column.scope = "col";
+			head.appendChild(column);
+		});
+		thead.appendChild(head);
+		var tbody = document.createElement("tbody");
+		entries.slice(0, 10).forEach(function (entry, index) {
+			var row = document.createElement("tr");
+			row.dataset.runId = String(entry.id || "");
+			row.appendChild(text("td", "raviente-run-rank", String(index + 1)));
+			row.appendChild(buildRavienteParticipantControl(entry));
+			var duration = text("time", "raviente-run-duration", ravienteDurationLabel(entry.durationMs));
+			var totalSeconds = Math.max(0, Math.floor((Number(entry.durationMs) || 0) / 1000));
+			duration.dateTime = "PT" + totalSeconds + "S";
+			duration.setAttribute("aria-label", ravienteDurationDescription(entry.durationMs));
+			var durationCell = document.createElement("td");
+			durationCell.appendChild(duration);
+			row.appendChild(durationCell);
+			var ended = text("time", "raviente-run-ended", ravienteCompletedLabel(entry.endedAt));
+			ended.dateTime = entry.endedAt || "";
+			var endedCell = document.createElement("td");
+			endedCell.appendChild(ended);
+			row.appendChild(endedCell);
+			tbody.appendChild(row);
+		});
+		table.appendChild(thead);
+		table.appendChild(tbody);
+		var scroll = document.createElement("div");
+		scroll.className = "raviente-run-table-scroll";
+		scroll.dataset.eventKind = eventKind;
+		scroll.tabIndex = 0;
+		scroll.setAttribute("aria-label", "라비엔테 " + labels[eventKind] + " 기록 가로 스크롤");
+		scroll.appendChild(table);
+		return scroll;
+	}
+
+	function renderRavienteRuns(entries) {
+		var signature = JSON.stringify(entries);
+		if (signature === ravienteRunsSignature) return;
+		var eventKinds = ["berserk", "extreme", "small"];
+		var groups = {berserk: [], extreme: [], small: []};
+		var scrollState = Object.create(null);
+		var focused = null;
+
+		eventKinds.forEach(function (eventKind) {
+			var target = byId("raviente-runs-" + eventKind);
+			var horizontal = target.querySelector(".raviente-run-table-scroll");
+			var vertical = target.querySelector(".raviente-run-table tbody");
+			scrollState[eventKind] = {
+				left: horizontal ? horizontal.scrollLeft : 0,
+				top: vertical ? vertical.scrollTop : 0
+			};
+			if (target.contains(document.activeElement)) {
+				focused = {
+					eventKind: eventKind,
+					runID: document.activeElement.dataset ? document.activeElement.dataset.runId || "" : "",
+					participant: document.activeElement.classList.contains("raviente-participant-trigger")
+				};
+			}
+		});
+		entries.forEach(function (entry) {
+			var eventKind = String(entry.eventKind || "").toLowerCase();
+			if (groups[eventKind]) groups[eventKind].push(entry);
+		});
+
+		eventKinds.forEach(function (eventKind) {
+			var target = byId("raviente-runs-" + eventKind);
+			if (!groups[eventKind].length) {
+				target.replaceChildren(text("div", "monster-time-empty", "아직 완료된 대토벌 기록이 없습니다."));
+				return;
+			}
+			target.replaceChildren(buildRavienteRunTable(eventKind, groups[eventKind]));
+			var horizontal = target.querySelector(".raviente-run-table-scroll");
+			var vertical = target.querySelector(".raviente-run-table tbody");
+			horizontal.scrollLeft = scrollState[eventKind].left;
+			vertical.scrollTop = scrollState[eventKind].top;
+			if (focused && focused.eventKind === eventKind) {
+				var focusTarget = horizontal;
+				if (focused.participant && focused.runID) {
+					focusTarget = target.querySelector('.raviente-participant-trigger[data-run-id="' + focused.runID + '"]') || horizontal;
+				}
+				focusTarget.focus({preventScroll: true});
+			}
+		});
+		ravienteRunsSignature = signature;
+	}
+
     function render(data) {
         renderOnline(data.onlineCharacters || []);
 
@@ -818,6 +1106,7 @@ tbody tr:last-child td{border-bottom:0}
             return playtimeLabel(entry.seconds);
         });
         renderMonsterTimes(rankings.monsterTimes || []);
+		renderRavienteRuns(rankings.ravienteRuns || []);
 
         lastUpdated = new Date();
     }
