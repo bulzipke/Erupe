@@ -661,6 +661,14 @@ const (
 	maxRankedQuestDurationFrames = 4 * 60 * 60 * questTimerFramesPerSecond
 )
 
+// monsterHuntRecordAllowsParty keeps the default solo-only ranking policy while
+// allowing the multiplayer siege monster whose hunts are inherently communal.
+// Gate this per monster rather than per quest so another large monster in the
+// same record packet does not accidentally receive a party time.
+func monsterHuntRecordAllowsParty(monsterID int) bool {
+	return monsterID == mhfmon.BerserkRaviente
+}
+
 // RP accrual rate constants (seconds per RP point)
 const (
 	rpAccrualNormal = 1800 // 30 min per RP without cafe
@@ -701,14 +709,12 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 		elapsedFrames := binary.LittleEndian.Uint32(pkt.Data[questElapsedFramesOffset : questElapsedFramesOffset+4])
 		stageRunMode := s.peekQuestRunMode(questID)
 		recordRunMode := decodeQuestRunModeFromRecordLog(pkt.Data)
-		recordTime := elapsedFrames > 0 && elapsedFrames <= maxRankedQuestDurationFrames && !s.questHadParty.Load()
+		validRecordTime := elapsedFrames > 0 && elapsedFrames <= maxRankedQuestDurationFrames
+		hadParty := s.questHadParty.Load()
 		recordedAt := TimeAdjusted()
 		questName := ""
 		questMetadata := mhfquest.HuntQuestMetadata{RankKind: mhfquest.HuntRankUnknown}
-		if recordTime && s.server.huntRecordRepo != nil {
-			questName = questTitleForRecord(s, questID)
-			questMetadata = mhfquest.ResolveHuntQuestMetadata(s.server.erupeConfig.BinPath, questID)
-		}
+		metadataLoaded := false
 		var val uint8
 		runModeSkipLogged := false
 		for i := 0; i < killLogMonsterCount; i++ {
@@ -717,7 +723,13 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 				if err := s.server.guildRepo.InsertKillLog(s.charID, i, val, recordedAt); err != nil {
 					s.logger.Error("Failed to insert kill log", zap.Error(err))
 				}
-				if recordTime && s.server.huntRecordRepo != nil {
+				recordMonsterTime := validRecordTime && (!hadParty || monsterHuntRecordAllowsParty(i))
+				if recordMonsterTime && s.server.huntRecordRepo != nil {
+					if !metadataLoaded {
+						questName = questTitleForRecord(s, questID)
+						questMetadata = mhfquest.ResolveHuntQuestMetadata(s.server.erupeConfig.BinPath, questID)
+						metadataLoaded = true
+					}
 					baseVariant := mhfquest.MonsterHuntVariantForMetadata(questID, i, questMetadata)
 					monsterVariant, resolved := resolveQuestRunVariant(baseVariant, stageRunMode, recordRunMode)
 					if !resolved {

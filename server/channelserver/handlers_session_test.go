@@ -11,6 +11,7 @@ import (
 	"erupe-ce/common/byteframe"
 	"erupe-ce/common/gametime"
 	"erupe-ce/common/mhfcourse"
+	"erupe-ce/common/mhfmon"
 	"erupe-ce/common/mhfquest"
 	cfg "erupe-ce/config"
 	"erupe-ce/network/clientctx"
@@ -298,6 +299,33 @@ func TestHandleMsgSysRecordLog_PartyHuntExcludedFromTimeRanking(t *testing.T) {
 	handleMsgSysRecordLog(session, &mhfpacket.MsgSysRecordLog{AckHandle: 100, Data: data})
 	if len(huntRecordRepo.records) != 0 {
 		t.Fatalf("party hunt created %d time-ranking records, want 0", len(huntRecordRepo.records))
+	}
+}
+
+func TestHandleMsgSysRecordLog_PartyHuntRecordsOnlyBerserkRaviente(t *testing.T) {
+	server := createMockServer()
+	server.erupeConfig.RealClientMode = cfg.ZZ
+	server.guildRepo = &mockGuildRepo{}
+	huntRecordRepo := &mockHuntRecordRepo{}
+	server.huntRecordRepo = huntRecordRepo
+
+	session := createMockSession(1, server)
+	session.stage = NewStage("sl1Ns200p0a0u1")
+	session.questHadParty.Store(true)
+
+	data := make([]byte, killLogHeaderSize+killLogMonsterCount)
+	binary.LittleEndian.PutUint16(data[questIDOffset:questIDOffset+2], 62101)
+	binary.LittleEndian.PutUint32(data[questElapsedFramesOffset:questElapsedFramesOffset+4], 3_750)
+	data[killLogHeaderSize+6] = 1
+	data[killLogHeaderSize+mhfmon.Raviente] = 1
+	data[killLogHeaderSize+mhfmon.BerserkRaviente] = 1
+
+	handleMsgSysRecordLog(session, &mhfpacket.MsgSysRecordLog{AckHandle: 100, Data: data})
+	if len(huntRecordRepo.records) != 1 {
+		t.Fatalf("party hunt created %d time-ranking records, want only Berserk Raviente", len(huntRecordRepo.records))
+	}
+	if got := huntRecordRepo.records[0]; got.MonsterID != mhfmon.BerserkRaviente {
+		t.Errorf("party record = %+v, want Berserk Raviente", got)
 	}
 }
 

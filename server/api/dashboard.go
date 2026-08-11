@@ -420,6 +420,8 @@ const dashboardMonsterTimesQuery = `
 		  AND COALESCE(c.is_new_character, false) = false
 		  AND c.name IS NOT NULL
 		  AND c.name <> ''
+		  AND r.monster_id <> 93
+		  AND (r.monster_id <> 149 OR COALESCE(r.rank_kind, '') = 'g')
 		  AND (
 			COALESCE(r.variant_kind, '') = 'zenith'
 			OR COALESCE(r.variant_kind, '') = 'challenge'
@@ -452,9 +454,9 @@ const dashboardMonsterTimesQuery = `
 	WHERE position <= 10
 	ORDER BY
 		CASE
-			WHEN variant_kind = 'zenith' THEN 0
-			WHEN variant_kind = 'challenge' OR variant_kind LIKE 'extreme\_%' ESCAPE '\' THEN 1
-			WHEN variant_kind = 'upper_shiten' THEN 2
+			WHEN variant_kind = 'challenge' OR variant_kind LIKE 'extreme\_%' ESCAPE '\' THEN 0
+			WHEN variant_kind = 'upper_shiten' THEN 1
+			WHEN variant_kind = 'zenith' THEN 2
 			ELSE 3
 		END,
 		monster_id ASC,
@@ -774,6 +776,9 @@ func (s *APIServer) getDashboardRankings(ctx context.Context) DashboardRankings 
 func dashboardMonsterFeaturedGroup(monsterID int, rankKind, variantKind string) string {
 	rankKind = strings.ToLower(strings.TrimSpace(rankKind))
 	variantKind = strings.ToLower(strings.TrimSpace(variantKind))
+	if monsterID == mhfmon.BerserkRaviente {
+		return "other"
+	}
 	switch {
 	case variantKind == "zenith":
 		return "zenith"

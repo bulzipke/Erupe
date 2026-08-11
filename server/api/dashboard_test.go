@@ -206,8 +206,8 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 		"월드 채팅",
 		"대형 몬스터 토벌",
 		"대형 몬스터별 최단 토벌",
-		"개인 토벌 기록만 집계합니다.",
-		"천이종 · 초난관·무쌍·극한 · 상급 지천은 기본 표시",
+		"토벌 시간은 개인 기록을 원칙으로 하며, 라비엔테 맹광기는 파티 기록도 집계합니다.",
+		"초난관·무쌍·극한 · 상급 지천 · 천이종은 기본 표시",
 		"기타 기록은 접어서 표시합니다.",
 		"기타 (펼침)",
 		"기타 (접기)",
@@ -247,6 +247,16 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 	if strings.Contains(body, "monster-time-select") {
 		t.Error("Monster time ranking should render every monster without a selector")
 	}
+	for _, marker := range []string{
+		".monster-time-table-scroll{width:100%;overflow-x:auto;",
+		".monster-time-table thead tr,.monster-time-table tbody tr{display:grid;",
+		".monster-time-table tbody{display:block;max-height:102px;overflow-x:hidden;overflow-y:auto;",
+		`var groupNames = ["challenge", "upper_shiten", "zenith", "other"];`,
+	} {
+		if !strings.Contains(body, marker) {
+			t.Errorf("Monster time table scrolling CSS missing %q", marker)
+		}
+	}
 	if strings.Contains(body, "<details class=\"monster-time-details\" id=\"monster-time-other-details\" open") {
 		t.Error("Other G-rank records should be collapsed by default")
 	}
@@ -255,8 +265,8 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 	upperShitenIndex := strings.Index(body, "id=\"monster-time-upper-shiten\"")
 	otherIndex := strings.Index(body, "id=\"monster-time-other-details\"")
 	if zenithIndex == -1 || challengeIndex == -1 || upperShitenIndex == -1 || otherIndex == -1 ||
-		!(zenithIndex < challengeIndex && challengeIndex < upperShitenIndex && upperShitenIndex < otherIndex) {
-		t.Error("Monster time groups are not ordered Zenith, challenge, upper Shiten, other")
+		!(challengeIndex < upperShitenIndex && upperShitenIndex < zenithIndex && zenithIndex < otherIndex) {
+		t.Error("Monster time groups are not ordered challenge, upper Shiten, Zenith, other")
 	}
 	if strings.Contains(body, "monsterIconById") {
 		t.Error("Dashboard still contains the removed legacy icon mapping")
@@ -389,6 +399,7 @@ func TestDashboardMonsterDisplayNameSeparatesForms(t *testing.T) {
 		{name: "Challenge", monsterID: 53, rankKind: "hr", variantKind: "challenge", want: "초난관 라잔"},
 		{name: "G normal", monsterID: 6, rankKind: "g", variantKind: "normal", want: "G급 얀쿡크"},
 		{name: "G hardcore", monsterID: 6, rankKind: "g", variantKind: "hardcore", want: "G급 특이개체 얀쿡크"},
+		{name: "G Berserk Raviente", monsterID: mhfmon.BerserkRaviente, rankKind: "g", variantKind: "normal", want: "G급 라비엔테 맹광기"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := dashboardMonsterDisplayName(tt.monsterID, tt.variantKind, tt.rankKind); got != tt.want {
@@ -434,10 +445,31 @@ func TestDashboardMonsterTimeRankingQuerySelectsPersonalBestBeforeTopTen(t *test
 		`COALESCE(r.variant_kind, '') LIKE 'extreme\_%' ESCAPE '\'`,
 		"COALESCE(r.variant_kind, '') = 'upper_shiten'",
 		"COALESCE(r.rank_kind, '') = 'g'",
+		`WHEN variant_kind = 'challenge' OR variant_kind LIKE 'extreme\_%' ESCAPE '\' THEN 0`,
+		"WHEN variant_kind = 'upper_shiten' THEN 1",
+		"WHEN variant_kind = 'zenith' THEN 2",
+		"r.monster_id <> 93",
+		"(r.monster_id <> 149 OR COALESCE(r.rank_kind, '') = 'g')",
 		"r.monster_id IN (7, 50, 55, 58, 60, 119, 120)",
 	} {
 		if !strings.Contains(query, marker) {
 			t.Errorf("monster time ranking query missing %q", marker)
+		}
+	}
+}
+
+func TestDashboardMonsterExceptionRecordsExcludeRaviente(t *testing.T) {
+	for _, monsterID := range []int{mhfmon.Raviente, mhfmon.BerserkRaviente} {
+		if dashboardMonsterExceptionRecord(monsterID) {
+			t.Errorf("Raviente monster %d must rely on the G-rank filter", monsterID)
+		}
+	}
+}
+
+func TestDashboardBerserkRavienteAlwaysUsesOtherGroup(t *testing.T) {
+	for _, variantKind := range []string{"normal", "challenge", "extreme_raviente", "upper_shiten"} {
+		if got := dashboardMonsterFeaturedGroup(mhfmon.BerserkRaviente, "g", variantKind); got != "other" {
+			t.Errorf("Berserk Raviente variant %q group = %q, want other", variantKind, got)
 		}
 	}
 }

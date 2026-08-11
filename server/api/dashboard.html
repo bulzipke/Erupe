@@ -189,15 +189,13 @@ tbody tr:last-child td{border-bottom:0}
 .monster-time-heading-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .monster-time-table-scroll{width:100%;overflow-x:auto;scrollbar-color:#53605a #101513}
 .monster-time-table{width:100%;min-width:594px;table-layout:fixed}
-.monster-time-table thead,.monster-time-table tbody tr{display:table;width:100%;table-layout:fixed}
-.monster-time-table tbody{display:block;max-height:102px;overflow-y:auto;scrollbar-color:#53605a #101513}
+.monster-time-table thead{display:block}
+.monster-time-table thead tr,.monster-time-table tbody tr{display:grid;width:100%;grid-template-columns:38px 96px 68px minmax(0,1fr)}
+.monster-time-table tbody{display:block;max-height:102px;overflow-x:hidden;overflow-y:auto;scrollbar-color:#53605a #101513}
 .monster-time-table th,.monster-time-table td{padding:8px 7px;font-size:.67rem}
-.monster-time-table th:nth-child(1),.monster-time-table td:nth-child(1){width:38px;text-align:center}
-.monster-time-table th:nth-child(2),.monster-time-table td:nth-child(2){width:96px}
+.monster-time-table th:nth-child(1),.monster-time-table td:nth-child(1){text-align:center}
 /* Times are always MM:SS.ss and capped at 45 minutes, so this only has to fit
    eight tabular digits plus the cell padding. */
-.monster-time-table th:nth-child(3),.monster-time-table td:nth-child(3){width:68px}
-.monster-time-table th:nth-child(4),.monster-time-table td:nth-child(4){width:392px}
 .monster-time-rank{color:#66716c;font-family:Georgia,"Times New Roman",serif;font-variant-numeric:tabular-nums}
 .monster-time-name,.monster-time-quest{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .monster-time-name{color:var(--text);font-weight:750}
@@ -369,13 +367,9 @@ tbody tr:last-child td{border-bottom:0}
     <section class="rankings">
         <div class="rankings-header">
             <h2>대형 몬스터별 최단 토벌</h2>
-            <p>개인 토벌 기록만 집계합니다. 천이종 · 초난관·무쌍·극한 · 상급 지천은 기본 표시하며, 기타 기록은 접어서 표시합니다. 몬스터별 상위 10명 중 3위 이후는 카드 안에서 세로로 스크롤할 수 있습니다.</p>
+            <p>토벌 시간은 개인 기록을 원칙으로 하며, 라비엔테 맹광기는 파티 기록도 집계합니다. 초난관·무쌍·극한 · 상급 지천 · 천이종은 기본 표시하며, 기타 기록은 접어서 표시합니다. 몬스터별 상위 10명 중 3위 이후는 카드 안에서 세로로 스크롤할 수 있습니다.</p>
         </div>
         <div class="monster-time-scroll" id="monster-time-ranking" aria-label="대형 몬스터별 최단 토벌 기록">
-            <section class="monster-time-group" aria-labelledby="monster-time-zenith-heading">
-                <h3 class="monster-time-group-heading" id="monster-time-zenith-heading">천이종</h3>
-                <div class="monster-time-grid" id="monster-time-zenith"></div>
-            </section>
             <section class="monster-time-group" aria-labelledby="monster-time-challenge-heading">
                 <h3 class="monster-time-group-heading" id="monster-time-challenge-heading">초난관·무쌍·극한</h3>
                 <div class="monster-time-grid" id="monster-time-challenge"></div>
@@ -383,6 +377,10 @@ tbody tr:last-child td{border-bottom:0}
             <section class="monster-time-group" aria-labelledby="monster-time-upper-shiten-heading">
                 <h3 class="monster-time-group-heading" id="monster-time-upper-shiten-heading">상급 지천</h3>
                 <div class="monster-time-grid" id="monster-time-upper-shiten"></div>
+            </section>
+            <section class="monster-time-group" aria-labelledby="monster-time-zenith-heading">
+                <h3 class="monster-time-group-heading" id="monster-time-zenith-heading">천이종</h3>
+                <div class="monster-time-grid" id="monster-time-zenith"></div>
             </section>
             <details class="monster-time-details" id="monster-time-other-details">
                 <summary>
@@ -735,7 +733,7 @@ tbody tr:last-child td{border-bottom:0}
             return;
         }
 
-        var groupNames = ["zenith", "challenge", "upper_shiten", "other"];
+        var groupNames = ["challenge", "upper_shiten", "zenith", "other"];
         var groups = Object.create(null);
         var scrollState = Object.create(null);
         var focusedMonster = "";
