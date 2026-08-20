@@ -375,6 +375,15 @@ func TestExtraRewardSlotTuneValuesDefaultToZero(t *testing.T) {
 	}
 }
 
+func TestPremiumRaviOrbMultiplierTuneValue(t *testing.T) {
+	if got := multiplierToTuneValue(3.0); got != 300 {
+		t.Errorf("PremiumRaviOrbMultiplier 3.0 = %d, want 300", got)
+	}
+	if got := multiplierToTuneValue(2.5); got != 250 {
+		t.Errorf("PremiumRaviOrbMultiplier 2.5 = %d, want 250", got)
+	}
+}
+
 // TestEventQuestCycleCalculation tests event quest cycle calculations
 func TestEventQuestCycleCalculation(t *testing.T) {
 	tests := []struct {

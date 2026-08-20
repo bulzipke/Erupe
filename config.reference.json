@@ -88,6 +88,7 @@
     "BerserkRavienteMaxPlayers": 32,
     "ExtremeRavienteMaxPlayers": 32,
     "SmallBerserkRavienteMaxPlayers": 8,
+    "PremiumRaviOrbMultiplier": 3.00,
     "GUrgentRate": 0.10,
     "GCPMultiplier": 1.00,
     "HRPMultiplier": 1.00,

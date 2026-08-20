@@ -509,6 +509,7 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 		}
 	}
 
+	premiumRaviOrbRate := multiplierToTuneValue(s.server.erupeConfig.GameplayOptions.PremiumRaviOrbMultiplier)
 	tuneValues := []tuneValue{
 		{ID: 20, Value: 1},
 		{ID: 26, Value: 1},
@@ -553,9 +554,9 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 		{ID: 1067, Value: 90},    // get_lobby_member_upper_for_making_room Lv1?
 		{ID: 1068, Value: 80},    // get_lobby_member_upper_for_making_room Lv2?
 		{ID: 1069, Value: 70},    // get_lobby_member_upper_for_making_room Lv3?
-		{ID: 1072, Value: 300},   // get_rate_premium_ravi_tama
-		{ID: 1073, Value: 300},   // get_rate_premium_ravi_ax_tama
-		{ID: 1074, Value: 300},   // get_rate_premium_ravi_g_tama
+		{ID: 1072, Value: premiumRaviOrbRate}, // get_rate_premium_ravi_tama
+		{ID: 1073, Value: premiumRaviOrbRate}, // get_rate_premium_ravi_ax_tama
+		{ID: 1074, Value: premiumRaviOrbRate}, // get_rate_premium_ravi_g_tama
 		{ID: 1078, Value: 0},     // isCapped_tenrou_irai
 		{ID: 1079, Value: 1},     // get_add_tower_level_assist
 		{ID: 1080, Value: 1},     // get_tune_add_tower_level_w_assist_nboost
@@ -593,7 +594,7 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 		{ID: 1152, Value: 1130}, // unused?
 		{ID: 1154, Value: 0},    // isDisabled_object_season
 		{ID: 1158, Value: 1},    // isDelivery_venom_ult_quest
-		{ID: 1160, Value: 300},  // get_rate_premium_ravi_g_enhance_tama
+		{ID: 1160, Value: premiumRaviOrbRate}, // get_rate_premium_ravi_g_enhance_tama
 
 		// unknown
 		{ID: 1162, Value: 1},

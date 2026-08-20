@@ -547,6 +547,9 @@ func TestMinimalConfigDefaults(t *testing.T) {
 			t.Errorf("%s = %v, want 1.0", name, val)
 		}
 	}
+	if cfg.GameplayOptions.PremiumRaviOrbMultiplier != 3.0 {
+		t.Errorf("PremiumRaviOrbMultiplier = %v, want 3.0", cfg.GameplayOptions.PremiumRaviOrbMultiplier)
+	}
 
 	if cfg.GameplayOptions.ExtraRewardSlots != 0 ||
 		cfg.GameplayOptions.ExtraRewardSlotsNC != 0 ||
@@ -902,5 +905,28 @@ func TestExtraRewardSlotsConfigLoad(t *testing.T) {
 	}
 	if cfg.GameplayOptions.GExtraRewardSlotsNC != 4 {
 		t.Errorf("GExtraRewardSlotsNC = %d, want 4", cfg.GameplayOptions.GExtraRewardSlotsNC)
+	}
+}
+
+func TestPremiumRaviOrbMultiplierConfigLoad(t *testing.T) {
+	viper.Reset()
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	defer func() { _ = os.Chdir(origDir) }()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	writeMinimalConfig(t, dir, `{
+		"Database": { "Password": "test" },
+		"GameplayOptions": { "PremiumRaviOrbMultiplier": 2.5 }
+	}`)
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error: %v", err)
+	}
+	if cfg.GameplayOptions.PremiumRaviOrbMultiplier != 2.5 {
+		t.Errorf("PremiumRaviOrbMultiplier = %v, want 2.5", cfg.GameplayOptions.PremiumRaviOrbMultiplier)
 	}
 }

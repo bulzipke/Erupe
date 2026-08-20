@@ -214,6 +214,7 @@ type GameplayOptions struct {
 	BerserkRavienteMaxPlayers      uint8
 	ExtremeRavienteMaxPlayers      uint8
 	SmallBerserkRavienteMaxPlayers uint8
+	PremiumRaviOrbMultiplier       float32 // Adjusts the Premium course multiplier for all Raviente orb rewards
 	GUrgentRate                    float32 // Adjusts the rate of G Urgent quests spawning
 	GCPMultiplier                  float32 // Adjusts the multiplier of GCP rewarded for quest completion
 	HRPMultiplier                  float32 // Adjusts the multiplier of Hunter Rank Points rewarded for quest completion
@@ -516,6 +517,7 @@ func registerDefaults() {
 	viper.SetDefault("GameplayOptions.BerserkRavienteMaxPlayers", uint8(32))
 	viper.SetDefault("GameplayOptions.ExtremeRavienteMaxPlayers", uint8(32))
 	viper.SetDefault("GameplayOptions.SmallBerserkRavienteMaxPlayers", uint8(8))
+	viper.SetDefault("GameplayOptions.PremiumRaviOrbMultiplier", float64(3.0))
 	viper.SetDefault("GameplayOptions.GUrgentRate", float64(0.10))
 	// All reward multipliers default to 1.0 — without this, Go's zero value
 	// (0.0) would zero out all quest rewards for minimal configs.
