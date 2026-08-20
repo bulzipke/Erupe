@@ -655,12 +655,7 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 	// get_reward_rate_from_grank
 	tuneValues = append(tuneValues, getTuneValueRange(3130, multiplierToTuneValue(s.server.erupeConfig.GameplayOptions.GMaterialMultiplier))...)
 	tuneValues = append(tuneValues, getTuneValueRange(3468, multiplierToTuneValue(s.server.erupeConfig.GameplayOptions.GMaterialMultiplierNC))...)
-	// get_lottery_rate_from_hrank
-	tuneValues = append(tuneValues, getTuneValueRange(3156, 0)...)
-	tuneValues = append(tuneValues, getTuneValueRange(3494, 0)...)
-	// get_lottery_rate_from_grank
-	tuneValues = append(tuneValues, getTuneValueRange(3182, 0)...)
-	tuneValues = append(tuneValues, getTuneValueRange(3520, 0)...)
+	tuneValues = append(tuneValues, extraRewardSlotTuneValues(s.server.erupeConfig.GameplayOptions)...)
 	// get_hagi_rate_from_hrank
 	tuneValues = append(tuneValues, getTuneValueRange(3208, s.server.erupeConfig.GameplayOptions.ExtraCarves)...)
 	tuneValues = append(tuneValues, getTuneValueRange(3546, s.server.erupeConfig.GameplayOptions.ExtraCarvesNC)...)
@@ -747,6 +742,17 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 // rounding to avoid float32 truncation artifacts such as 0.20*100 → 19.
 func multiplierToTuneValue(m float32) uint16 {
 	return uint16(math.Round(float64(m) * 100))
+}
+
+func extraRewardSlotTuneValues(options cfg.GameplayOptions) []tuneValue {
+	var values []tuneValue
+	// get_lottery_rate_from_hrank
+	values = append(values, getTuneValueRange(3156, options.ExtraRewardSlots)...)
+	values = append(values, getTuneValueRange(3494, options.ExtraRewardSlotsNC)...)
+	// get_lottery_rate_from_grank
+	values = append(values, getTuneValueRange(3182, options.GExtraRewardSlots)...)
+	values = append(values, getTuneValueRange(3520, options.GExtraRewardSlotsNC)...)
+	return values
 }
 
 func getTuneValueRange(start uint16, value uint16) []tuneValue {

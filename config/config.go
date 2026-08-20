@@ -232,6 +232,10 @@ type GameplayOptions struct {
 	MaterialMultiplierNC           float32 // Adjusts the multiplier of Monster Materials rewarded for quest completion in a NetCafe
 	GMaterialMultiplier            float32 // Adjusts the multiplier of G Rank Monster Materials rewarded for quest completion
 	GMaterialMultiplierNC          float32 // Adjusts the multiplier of G Rank Monster Materials rewarded for quest completion in a NetCafe
+	ExtraRewardSlots               uint16  // Grant n extra quest reward lottery slots
+	ExtraRewardSlotsNC             uint16  // Grant n extra quest reward lottery slots in a NetCafe
+	GExtraRewardSlots              uint16  // Grant n extra G Rank quest reward lottery slots
+	GExtraRewardSlotsNC            uint16  // Grant n extra G Rank quest reward lottery slots in a NetCafe
 	ExtraCarves                    uint16  // Grant n extra chances to carve ALL carcasses
 	ExtraCarvesNC                  uint16  // Grant n extra chances to carve ALL carcasses in a NetCafe
 	GExtraCarves                   uint16  // Grant n extra chances to carve ALL G Rank carcasses

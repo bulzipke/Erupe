@@ -329,6 +329,52 @@ func TestEnumerateQuestTuneValuesEncoding(t *testing.T) {
 	}
 }
 
+func TestExtraRewardSlotTuneValues(t *testing.T) {
+	options := cfg.GameplayOptions{
+		ExtraRewardSlots:    1,
+		ExtraRewardSlotsNC:  2,
+		GExtraRewardSlots:   3,
+		GExtraRewardSlotsNC: 4,
+	}
+
+	values := extraRewardSlotTuneValues(options)
+	if len(values) != 52 {
+		t.Fatalf("extra reward slot tune count = %d, want 52", len(values))
+	}
+
+	wantRanges := []struct {
+		start uint16
+		value uint16
+	}{
+		{start: 3156, value: 1},
+		{start: 3494, value: 2},
+		{start: 3182, value: 3},
+		{start: 3520, value: 4},
+	}
+
+	for rangeIndex, want := range wantRanges {
+		for offset := uint16(0); offset < 13; offset++ {
+			got := values[rangeIndex*13+int(offset)]
+			if got.ID != want.start+offset || got.Value != want.value {
+				t.Errorf("range %d offset %d = {%d, %d}, want {%d, %d}",
+					rangeIndex, offset, got.ID, got.Value, want.start+offset, want.value)
+			}
+		}
+	}
+}
+
+func TestExtraRewardSlotTuneValuesDefaultToZero(t *testing.T) {
+	values := extraRewardSlotTuneValues(cfg.GameplayOptions{})
+	if len(values) != 52 {
+		t.Fatalf("extra reward slot tune count = %d, want 52", len(values))
+	}
+	for _, value := range values {
+		if value.Value != 0 {
+			t.Errorf("default tune %d = %d, want 0", value.ID, value.Value)
+		}
+	}
+}
+
 // TestEventQuestCycleCalculation tests event quest cycle calculations
 func TestEventQuestCycleCalculation(t *testing.T) {
 	tests := []struct {

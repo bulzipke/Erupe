@@ -548,6 +548,13 @@ func TestMinimalConfigDefaults(t *testing.T) {
 		}
 	}
 
+	if cfg.GameplayOptions.ExtraRewardSlots != 0 ||
+		cfg.GameplayOptions.ExtraRewardSlotsNC != 0 ||
+		cfg.GameplayOptions.GExtraRewardSlots != 0 ||
+		cfg.GameplayOptions.GExtraRewardSlotsNC != 0 {
+		t.Errorf("extra reward slots must default to zero: %+v", cfg.GameplayOptions)
+	}
+
 	// Entrance entries should be present
 	if len(cfg.Entrance.Entries) != 6 {
 		t.Errorf("Entrance.Entries = %d, want 6", len(cfg.Entrance.Entries))
@@ -857,5 +864,43 @@ func TestSingleFieldOverride(t *testing.T) {
 	}
 	if cfg.GameplayOptions.GCPMultiplier != 1.0 {
 		t.Errorf("GCPMultiplier = %v, want 1.0 (should retain default)", cfg.GameplayOptions.GCPMultiplier)
+	}
+}
+
+func TestExtraRewardSlotsConfigLoad(t *testing.T) {
+	viper.Reset()
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	defer func() { _ = os.Chdir(origDir) }()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	writeMinimalConfig(t, dir, `{
+		"Database": { "Password": "test" },
+		"GameplayOptions": {
+			"ExtraRewardSlots": 1,
+			"ExtraRewardSlotsNC": 2,
+			"GExtraRewardSlots": 3,
+			"GExtraRewardSlotsNC": 4
+		}
+	}`)
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error: %v", err)
+	}
+
+	if cfg.GameplayOptions.ExtraRewardSlots != 1 {
+		t.Errorf("ExtraRewardSlots = %d, want 1", cfg.GameplayOptions.ExtraRewardSlots)
+	}
+	if cfg.GameplayOptions.ExtraRewardSlotsNC != 2 {
+		t.Errorf("ExtraRewardSlotsNC = %d, want 2", cfg.GameplayOptions.ExtraRewardSlotsNC)
+	}
+	if cfg.GameplayOptions.GExtraRewardSlots != 3 {
+		t.Errorf("GExtraRewardSlots = %d, want 3", cfg.GameplayOptions.GExtraRewardSlots)
+	}
+	if cfg.GameplayOptions.GExtraRewardSlotsNC != 4 {
+		t.Errorf("GExtraRewardSlotsNC = %d, want 4", cfg.GameplayOptions.GExtraRewardSlotsNC)
 	}
 }
