@@ -550,6 +550,10 @@ func TestMinimalConfigDefaults(t *testing.T) {
 	if cfg.GameplayOptions.PremiumRaviOrbMultiplier != 3.0 {
 		t.Errorf("PremiumRaviOrbMultiplier = %v, want 3.0", cfg.GameplayOptions.PremiumRaviOrbMultiplier)
 	}
+	if cfg.GameplayOptions.RaviAutoResurrectionSeconds != 0 ||
+		cfg.GameplayOptions.RaviAutoSedationSeconds != 0 {
+		t.Errorf("Raviente auto-support intervals must default to zero: %+v", cfg.GameplayOptions)
+	}
 
 	if cfg.GameplayOptions.ExtraRewardSlots != 0 ||
 		cfg.GameplayOptions.ExtraRewardSlotsNC != 0 ||
@@ -928,5 +932,34 @@ func TestPremiumRaviOrbMultiplierConfigLoad(t *testing.T) {
 	}
 	if cfg.GameplayOptions.PremiumRaviOrbMultiplier != 2.5 {
 		t.Errorf("PremiumRaviOrbMultiplier = %v, want 2.5", cfg.GameplayOptions.PremiumRaviOrbMultiplier)
+	}
+}
+
+func TestRaviAutoSupportConfigLoad(t *testing.T) {
+	viper.Reset()
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	defer func() { _ = os.Chdir(origDir) }()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	writeMinimalConfig(t, dir, `{
+		"Database": { "Password": "test" },
+		"GameplayOptions": {
+			"RaviAutoResurrectionSeconds": 30,
+			"RaviAutoSedationSeconds": 45
+		}
+	}`)
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error: %v", err)
+	}
+	if cfg.GameplayOptions.RaviAutoResurrectionSeconds != 30 {
+		t.Errorf("RaviAutoResurrectionSeconds = %d, want 30", cfg.GameplayOptions.RaviAutoResurrectionSeconds)
+	}
+	if cfg.GameplayOptions.RaviAutoSedationSeconds != 45 {
+		t.Errorf("RaviAutoSedationSeconds = %d, want 45", cfg.GameplayOptions.RaviAutoSedationSeconds)
 	}
 }

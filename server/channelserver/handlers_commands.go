@@ -384,30 +384,16 @@ func parseChatCommand(s *Session, command string) {
 						if s.server.erupeConfig.RealClientMode == cfg.ZZ {
 							switch args[1] {
 							case "sr", "sendres", "resurrection":
-								s.server.raviente.Lock()
-								hasResurrection := s.server.raviente.state[28] > 0
-								if hasResurrection {
-									s.server.raviente.state[28] = 0
-								}
-								s.server.raviente.Unlock()
-								if hasResurrection {
+								if s.server.executeRaviResurrectionSupport() {
 									sendServerChatMessage(s, s.I18n().commands.ravi.res.success)
 								} else {
 									sendServerChatMessage(s, s.I18n().commands.ravi.res.error)
 								}
 							case "ss", "sendsed":
-								// Total BerRavi HP
-								s.server.raviente.Lock()
-								hp := s.server.raviente.state[0] + s.server.raviente.state[1] + s.server.raviente.state[2] + s.server.raviente.state[3] + s.server.raviente.state[4]
-								s.server.raviente.support[1] = hp
-								s.server.raviente.Unlock()
+								s.server.executeRaviSedationSupport()
 								sendServerChatMessage(s, s.I18n().commands.ravi.sed.success)
 							case "rs", "reqsed":
-								// Total BerRavi HP
-								s.server.raviente.Lock()
-								hp := s.server.raviente.state[0] + s.server.raviente.state[1] + s.server.raviente.state[2] + s.server.raviente.state[3] + s.server.raviente.state[4]
-								s.server.raviente.support[1] = hp + 1
-								s.server.raviente.Unlock()
+								s.server.requestRaviSedationSupport()
 								sendServerChatMessage(s, s.I18n().commands.ravi.request)
 							}
 						} else {

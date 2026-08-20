@@ -7,6 +7,7 @@ import (
 
 	"erupe-ce/common/byteframe"
 	ps "erupe-ce/common/pascalstring"
+	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
 
 	"go.uber.org/zap"
@@ -178,6 +179,115 @@ func (s *Server) raviPlayerCount() (int, bool) {
 	return players, true
 }
 
+// executeRaviResurrectionSupport performs the same state transition as
+// "!ravi sendres". It returns true only when a live Raviente room had a
+// pending resurrection request to consume.
+func (s *Server) executeRaviResurrectionSupport() bool {
+	s.ravienteLifecycleMu.Lock()
+	defer s.ravienteLifecycleMu.Unlock()
+
+	if s.getRaviSemaphore() == nil {
+		return false
+	}
+
+	s.raviente.Lock()
+	defer s.raviente.Unlock()
+	if s.raviente.state[28] == 0 {
+		return false
+	}
+	s.raviente.state[28] = 0
+	return true
+}
+
+// executeRaviSedationSupport performs the same state transition as
+// "!ravi sendsed". The support value follows the current aggregate Raviente
+// HP, which is the protocol's fulfilled-sedation marker.
+func (s *Server) executeRaviSedationSupport() bool {
+	s.ravienteLifecycleMu.Lock()
+	defer s.ravienteLifecycleMu.Unlock()
+
+	if s.getRaviSemaphore() == nil {
+		return false
+	}
+
+	s.raviente.Lock()
+	defer s.raviente.Unlock()
+	hp := s.raviente.state[0] + s.raviente.state[1] + s.raviente.state[2] + s.raviente.state[3] + s.raviente.state[4]
+	changed := s.raviente.support[1] != hp
+	s.raviente.support[1] = hp
+	return changed
+}
+
+// requestRaviSedationSupport performs the same state transition as
+// "!ravi reqsed".
+func (s *Server) requestRaviSedationSupport() {
+	s.ravienteLifecycleMu.Lock()
+	defer s.ravienteLifecycleMu.Unlock()
+
+	if s.getRaviSemaphore() == nil {
+		return
+	}
+
+	s.raviente.Lock()
+	defer s.raviente.Unlock()
+	hp := s.raviente.state[0] + s.raviente.state[1] + s.raviente.state[2] + s.raviente.state[3] + s.raviente.state[4]
+	s.raviente.support[1] = hp + 1
+}
+
+func raviSupportInterval(seconds int) time.Duration {
+	const maxDurationSeconds = int64((1<<63 - 1) / int64(time.Second))
+	if seconds <= 0 || int64(seconds) > maxDurationSeconds {
+		return 0
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+// raviAutoSupport periodically executes the same support operations exposed by
+// the ZZ-only Raviente chat commands. Disabled intervals use nil select
+// channels, so one goroutine can service either or both options without busy
+// polling.
+func (s *Server) raviAutoSupport() {
+	if s.erupeConfig.RealClientMode != cfg.ZZ {
+		return
+	}
+
+	resurrectionInterval := raviSupportInterval(s.erupeConfig.GameplayOptions.RaviAutoResurrectionSeconds)
+	sedationInterval := raviSupportInterval(s.erupeConfig.GameplayOptions.RaviAutoSedationSeconds)
+	if resurrectionInterval == 0 && sedationInterval == 0 {
+		return
+	}
+
+	var resurrectionTicker, sedationTicker *time.Ticker
+	var resurrectionTicks, sedationTicks <-chan time.Time
+	if resurrectionInterval > 0 {
+		resurrectionTicker = time.NewTicker(resurrectionInterval)
+		resurrectionTicks = resurrectionTicker.C
+		defer resurrectionTicker.Stop()
+	}
+	if sedationInterval > 0 {
+		sedationTicker = time.NewTicker(sedationInterval)
+		sedationTicks = sedationTicker.C
+		defer sedationTicker.Stop()
+	}
+
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-resurrectionTicks:
+			if s.executeRaviResurrectionSupport() {
+				s.logger.Debug("Automatically executed Raviente resurrection support")
+				s.broadcastRaviUpdate()
+			}
+		case <-sedationTicks:
+			if s.executeRaviSedationSupport() {
+				s.logger.Debug("Automatically executed Raviente sedation support")
+				s.broadcastRaviUpdate()
+			}
+		}
+	}
+}
+
 // raviAutoStart optionally auto-starts a Raviente siege when its gathering room
 // would otherwise fail to gather (モジ集失敗) with too few players. It performs
 // the exact same flip as "!ravi start" — general register[1] = register[3] —
@@ -282,19 +392,19 @@ func (s *Server) raviAutoStart() {
 		if fired {
 			s.logger.Info("Raviente auto-start fired",
 				zap.Int("players", currentPlayers), zap.Uint32("startValue", startVal))
-			s.broadcastRaviAutoStart()
+			s.broadcastRaviUpdate()
 		}
 		armed = false
 	}
 }
 
-// broadcastRaviAutoStart pushes the register change to all gathered clients,
-// working regardless of LowLatencyRaviente. notifyRavi is a *Session method
-// whose non-low-latency path only self-notifies the calling session, so we
-// snapshot the sessions and call notifyRavi per session (each self-push reaches
-// its own client). Even with no push at all the clients pick up register[1] on
-// their next LOAD_REGISTER poll, so this is a promptness belt-and-suspenders.
-func (s *Server) broadcastRaviAutoStart() {
+// broadcastRaviUpdate pushes an automatic register/support change to all
+// gathered clients, working regardless of LowLatencyRaviente. notifyRavi is a
+// *Session method whose non-low-latency path only self-notifies the calling
+// session, so we snapshot the sessions and call notifyRavi per session. Even
+// without this push clients eventually observe the change through their next
+// LOAD_REGISTER poll.
+func (s *Server) broadcastRaviUpdate() {
 	sema := s.getRaviSemaphore()
 	var clients []*Session
 	if sema != nil {

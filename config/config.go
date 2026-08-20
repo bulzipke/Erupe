@@ -209,6 +209,8 @@ type GameplayOptions struct {
 	DailyQuestAllowance            uint32    // Number of Daily Quests to allow daily
 	LowLatencyRaviente             bool      // Toggles low latency mode for Raviente, can be network intensive
 	RaviAutoStartSeconds           int       // Seconds after a Raviente gathering room opens before it auto-starts even with too few players (replicates !ravi start). 0 = off.
+	RaviAutoResurrectionSeconds    int       // Interval in seconds for automatically executing requested Raviente resurrection support. 0 = off.
+	RaviAutoSedationSeconds        int       // Interval in seconds for automatically executing Raviente sedation support. 0 = off.
 	RegularRavienteMaxPlayers      uint8
 	ViolentRavienteMaxPlayers      uint8
 	BerserkRavienteMaxPlayers      uint8
@@ -512,6 +514,8 @@ func registerDefaults() {
 	viper.SetDefault("GameplayOptions.BonusQuestAllowance", uint32(3))
 	viper.SetDefault("GameplayOptions.DailyQuestAllowance", uint32(1))
 	viper.SetDefault("GameplayOptions.RaviAutoStartSeconds", 0)
+	viper.SetDefault("GameplayOptions.RaviAutoResurrectionSeconds", 0)
+	viper.SetDefault("GameplayOptions.RaviAutoSedationSeconds", 0)
 	viper.SetDefault("GameplayOptions.RegularRavienteMaxPlayers", uint8(8))
 	viper.SetDefault("GameplayOptions.ViolentRavienteMaxPlayers", uint8(8))
 	viper.SetDefault("GameplayOptions.BerserkRavienteMaxPlayers", uint8(32))
