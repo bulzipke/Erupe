@@ -4,7 +4,10 @@ import (
 	"erupe-ce/common/stringsupport"
 )
 
-const maxNGWordFilterBytes = int(^uint16(0))
+// The PC clients reserve exactly 0x3000 bytes for the complete smc/nam/msg
+// filter block. A larger uint16 payload is accepted by the wire framing but
+// is truncated by the client, which then falls back to its built-in tables.
+const maxNGWordFilterBytes = 0x3000
 
 // nameSyntaxNGWords are name-only blockers. They are intentionally not sent
 // in the chat table, where spaces and standalone Hangul jamo are legitimate.
@@ -27,7 +30,7 @@ func ngWordEntrySize(parts []uint16) int {
 }
 
 // selectNGWordParts reserves the exact fixed/filter-header size and chooses
-// the largest source-order prefix that fits in the protocol's uint16 payload.
+// the largest source-order prefix that fits in the client's fixed filter block.
 // Structural name blockers are kept first; each configured word is then added
 // to both the name and message tables without ever wrapping the payload length.
 func selectNGWordParts(baseFilterLen int, words []string) (nameParts, messageParts [][]uint16, selected int) {

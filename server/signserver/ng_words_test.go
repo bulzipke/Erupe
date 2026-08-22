@@ -1,6 +1,7 @@
 package signserver
 
 import (
+	"erupe-ce/common/stringsupport"
 	"os"
 	"path/filepath"
 	"testing"
@@ -38,5 +39,23 @@ func TestSelectNGWordPartsFitsProtocolLimit(t *testing.T) {
 	}
 	if selected == len(words) {
 		t.Fatal("oversized list was not truncated")
+	}
+}
+
+func TestSelectNGWordPartsKeepsNameSyntaxBlockers(t *testing.T) {
+	name, _, _ := selectNGWordParts(3000, []string{"시발"})
+	if len(name) < len(nameSyntaxNGWords) {
+		t.Fatalf("name table contains %d entries, want at least %d syntax blockers", len(name), len(nameSyntaxNGWords))
+	}
+	for i, word := range nameSyntaxNGWords {
+		want := stringsupport.ToNGWordCP949(word)
+		if len(want) == 0 || len(name[i]) != len(want) {
+			t.Fatalf("syntax blocker %q was not preserved at index %d", word, i)
+		}
+		for j := range want {
+			if name[i][j] != want[j] {
+				t.Fatalf("syntax blocker %q differs at part %d: got %04x want %04x", word, j, name[i][j], want[j])
+			}
+		}
 	}
 }

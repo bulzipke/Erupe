@@ -15,7 +15,7 @@ import (
 	cfg "erupe-ce/config"
 )
 
-func TestMakeSignResponseNGWordPayloadDoesNotWrap(t *testing.T) {
+func TestMakeSignResponseNGWordPayloadFitsClientBuffer(t *testing.T) {
 	config := &cfg.Config{
 		DebugOptions: cfg.DebugOptions{CapLink: cfg.CapLinkOptions{Values: []uint16{0, 0, 0, 0, 0}}},
 		GameplayOptions: cfg.GameplayOptions{
@@ -43,7 +43,7 @@ func TestMakeSignResponseNGWordPayloadDoesNotWrap(t *testing.T) {
 	}
 }
 
-func TestGeneratedAggressiveNGWordListFitsWithoutTruncation(t *testing.T) {
+func TestGeneratedConservativeNGWordListFitsWithoutTruncation(t *testing.T) {
 	words, err := loadNGWordsCSV(filepath.Join("..", "..", "bin", "ng_words.csv"))
 	if err != nil {
 		t.Fatal(err)
@@ -88,6 +88,30 @@ func TestGeneratedAggressiveNGWordListFitsWithoutTruncation(t *testing.T) {
 		t.Fatalf("message table contains %d of %d configured words", messageCount, len(words))
 	}
 	t.Logf("all %d configured words fit; filter payload is %d/%d bytes", len(words), filterLen, maxNGWordFilterBytes)
+}
+
+func TestConservativeNGWordListProfile(t *testing.T) {
+	words, err := loadNGWordsCSV(filepath.Join("..", "..", "bin", "ng_words.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(words) > 100 {
+		t.Fatalf("conservative list grew to %d entries; review false-positive risk before expanding it", len(words))
+	}
+	set := make(map[string]struct{}, len(words))
+	for _, word := range words {
+		set[word] = struct{}{}
+	}
+	for _, required := range []string{"시발", "씨발", "병신", "개새끼", "좆", "fuck"} {
+		if _, ok := set[required]; !ok {
+			t.Errorf("required high-confidence NG word %q is missing", required)
+		}
+	}
+	for _, excluded := range []string{"보지", "자지", "새끼", "개년", "졸라", "생리", "성교", "초딩", "고딩", "호구", "sex", "ass"} {
+		if _, ok := set[excluded]; ok {
+			t.Errorf("ambiguous substring %q must not be in the conservative list", excluded)
+		}
+	}
 }
 
 // newMakeSignResponseServer creates a Server with mock repos for makeSignResponse tests.
