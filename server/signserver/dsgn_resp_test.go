@@ -43,6 +43,73 @@ func TestMakeSignResponseNGWordPayloadFitsClientBuffer(t *testing.T) {
 	}
 }
 
+func TestMakeSignResponseAppliesSMCNormalizationToCP949NGWord(t *testing.T) {
+	config := &cfg.Config{
+		DebugOptions: cfg.DebugOptions{CapLink: cfg.CapLinkOptions{Values: []uint16{0, 0, 0, 0, 0}}},
+		GameplayOptions: cfg.GameplayOptions{
+			MezFesSoloTickets: 1, MezFesGroupTickets: 1,
+			ClanMemberLimits: [][]uint8{{0, 30}},
+		},
+	}
+	server := newMakeSignResponseServer(config)
+	server.ngWords = []string{"시발"}
+	result := (&Session{logger: zap.NewNop(), server: server, client: PC100, rawConn: newMockConn()}).makeSignResponse(0)
+
+	filterStart := bytes.Index(result, []byte("smc\x00"))
+	if filterStart < 2 {
+		t.Fatal("NG-word filter start not found")
+	}
+	filterLen := int(binary.BigEndian.Uint16(result[filterStart-2 : filterStart]))
+	filter := result[filterStart : filterStart+filterLen]
+	offset := 4
+	smcLen := int(binary.LittleEndian.Uint32(filter[offset : offset+4]))
+	offset += 4 + smcLen
+	if string(filter[offset:offset+4]) != "nam\x00" {
+		t.Fatal("nam table not found")
+	}
+	offset += 4
+	namLen := int(binary.LittleEndian.Uint32(filter[offset : offset+4]))
+	offset += 4
+	nam := filter[offset : offset+namLen]
+
+	entry := nthNGWordEntry(t, nam, len(nameSyntaxNGWords))
+	partCount := int(binary.LittleEndian.Uint32(entry[:4]))
+	if partCount != 4 {
+		t.Fatalf("시발 nam part count = %d, want 4", partCount)
+	}
+	wantMapped := []bool{true, true, true, false}
+	for i, mapped := range wantMapped {
+		smcIndex := int16(binary.LittleEndian.Uint16(entry[4+i*4+2 : 4+i*4+4]))
+		if mapped && smcIndex == -1 {
+			t.Errorf("시발 part %d was not mapped through SMC", i)
+		}
+		if !mapped && smcIndex != -1 {
+			t.Errorf("시발 part %d SMC index = %d, want -1", i, smcIndex)
+		}
+	}
+}
+
+func nthNGWordEntry(t *testing.T, table []byte, index int) []byte {
+	t.Helper()
+	offset := 0
+	for i := 0; i <= index; i++ {
+		if offset+4 > len(table) {
+			t.Fatalf("NG-word entry %d header is outside table", i)
+		}
+		partCount := int(binary.LittleEndian.Uint32(table[offset : offset+4]))
+		size := ngWordEntrySize(make([]uint16, partCount))
+		if offset+size > len(table) {
+			t.Fatalf("NG-word entry %d runs outside table", i)
+		}
+		if i == index {
+			return table[offset : offset+size]
+		}
+		offset += size
+	}
+	t.Fatal("unreachable")
+	return nil
+}
+
 func TestGeneratedConservativeNGWordListFitsWithoutTruncation(t *testing.T) {
 	words, err := loadNGWordsCSV(filepath.Join("..", "..", "bin", "ng_words.csv"))
 	if err != nil {

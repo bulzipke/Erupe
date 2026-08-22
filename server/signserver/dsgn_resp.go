@@ -141,9 +141,7 @@ func (s *Session) makeSignResponse(uid uint32) []byte {
 	filters.WriteNullTerminatedBytes([]byte("smc"))
 	smc := byteframe.NewByteFrame()
 	smc.SetLE()
-	smcData := []struct {
-		charGroup [][]rune
-	}{
+	smcData := []smcGroup{
 		{[][]rune{{'='}, {'＝'}}},
 		{[][]rune{{')'}, {'）'}}},
 		{[][]rune{{'('}, {'（'}}},
@@ -287,20 +285,12 @@ func (s *Session) makeSignResponse(uid uint32) []byte {
 	filters.WriteNullTerminatedBytes([]byte("nam"))
 	nam := byteframe.NewByteFrame()
 	nam.SetLE()
-	for _, parts := range nameParts {
+	for _, rawParts := range nameParts {
+		parts := normalizeClientNGWordParts(rawParts, smcData)
 		nam.WriteUint32(uint32(len(parts)))
 		for _, part := range parts {
-			nam.WriteUint16(part)
-			var i int16
-			j := int16(-1)
-			for _, smcGroup := range smcData {
-				if part == firstNGWord(stringsupport.ToNGWord(string(smcGroup.charGroup[0][0]))) {
-					j = i
-					break
-				}
-				i += int16(len(smcGroup.charGroup) + 1)
-			}
-			nam.WriteInt16(j)
+			nam.WriteUint16(part.value)
+			nam.WriteInt16(part.smcIndex)
 		}
 		nam.WriteUint16(0)
 		nam.WriteInt16(-1)
@@ -311,20 +301,12 @@ func (s *Session) makeSignResponse(uid uint32) []byte {
 	filters.WriteNullTerminatedBytes([]byte("msg"))
 	msg := byteframe.NewByteFrame()
 	msg.SetLE()
-	for _, parts := range messageParts {
+	for _, rawParts := range messageParts {
+		parts := normalizeClientNGWordParts(rawParts, smcData)
 		msg.WriteUint32(uint32(len(parts)))
 		for _, part := range parts {
-			msg.WriteUint16(part)
-			var i int16
-			j := int16(-1)
-			for _, smcGroup := range smcData {
-				if part == firstNGWord(stringsupport.ToNGWord(string(smcGroup.charGroup[0][0]))) {
-					j = i
-					break
-				}
-				i += int16(len(smcGroup.charGroup) + 1)
-			}
-			msg.WriteInt16(j)
+			msg.WriteUint16(part.value)
+			msg.WriteInt16(part.smcIndex)
 		}
 		msg.WriteUint16(0)
 		msg.WriteInt16(-1)

@@ -99,28 +99,31 @@ func ToNGWord(x string) []uint16 {
 }
 
 // ToNGWordCP949 converts Korean-client text into the uint16 representation
-// used by the NG-word tables. The original SMC normalization table remains
-// Shift-JIS, while user-entered name/chat words must use the patched client's
-// CP949 encoding or Hangul would be silently omitted.
+// used by the NG-word tables. The text is encoded as CP949 first, then split
+// with the client's original Shift-JIS byte-width rules. This intentionally
+// does not keep each Hangul rune as one uint16: common CP949 Hangul bytes in
+// the 0xA0-0xDF range are treated as separate one-byte characters by the
+// client's matcher.
 func ToNGWordCP949(x string) []uint16 {
-	var w []uint16
-	for _, r := range x {
-		if r <= 0x7F {
-			w = append(w, uint16(r))
+	return tokenizeClientNGWordBytes(UTF8ToSJIS(x))
+}
+
+// tokenizeClientNGWordBytes mirrors FUN_1156e890/FUN_1156dc80 in the PC
+// client. Bytes 0x81-0x9F and 0xE0-0xFF begin a two-byte token when another
+// byte follows; every other byte becomes its own token.
+func tokenizeClientNGWordBytes(encoded []byte) []uint16 {
+	parts := make([]uint16, 0, len(encoded))
+	for i := 0; i < len(encoded); {
+		first := encoded[i]
+		if ((first >= 0x81 && first <= 0x9F) || first >= 0xE0) && i+1 < len(encoded) {
+			parts = append(parts, uint16(encoded[i+1])<<8|uint16(first))
+			i += 2
 			continue
 		}
-		encoded, _, err := transform.String(korean.EUCKR.NewEncoder(), string(r))
-		if err != nil {
-			continue
-		}
-		t := []byte(encoded)
-		if len(t) > 1 {
-			w = append(w, uint16(t[1])<<8|uint16(t[0]))
-		} else if len(t) == 1 {
-			w = append(w, uint16(t[0]))
-		}
+		parts = append(parts, uint16(first))
+		i++
 	}
-	return w
+	return parts
 }
 
 // IsValidPlayerName applies server-side structural checks to user-created
