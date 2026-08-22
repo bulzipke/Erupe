@@ -29,6 +29,8 @@ type Server struct {
 	userRepo       SignUserRepo
 	charRepo       SignCharacterRepo
 	sessionRepo    SignSessionRepo
+	ngWords        []string
+	ngWordWarnOnce sync.Once
 	listener       net.Listener
 	isShuttingDown bool
 }
@@ -49,6 +51,16 @@ func NewServer(config *Config) *Server {
 
 // Start starts the server in a new goroutine.
 func (s *Server) Start() error {
+	if s.erupeConfig.NGWordsFile != "" {
+		words, err := loadNGWordsCSV(s.erupeConfig.NGWordsFile)
+		if err != nil {
+			s.logger.Warn("NG-word CSV could not be loaded; continuing without custom words",
+				zap.String("path", s.erupeConfig.NGWordsFile), zap.Error(err))
+		} else {
+			s.ngWords = words
+			s.logger.Info("Loaded NG-word CSV", zap.String("path", s.erupeConfig.NGWordsFile), zap.Int("words", len(words)))
+		}
+	}
 	l, err := net.Listen("tcp", fmt.Sprintf(":%d", s.erupeConfig.Sign.Port))
 	if err != nil {
 		return err

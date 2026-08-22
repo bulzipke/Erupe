@@ -1,8 +1,11 @@
 package signserver
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"net"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +14,81 @@ import (
 
 	cfg "erupe-ce/config"
 )
+
+func TestMakeSignResponseNGWordPayloadDoesNotWrap(t *testing.T) {
+	config := &cfg.Config{
+		DebugOptions: cfg.DebugOptions{CapLink: cfg.CapLinkOptions{Values: []uint16{0, 0, 0, 0, 0}}},
+		GameplayOptions: cfg.GameplayOptions{
+			MezFesSoloTickets: 1, MezFesGroupTickets: 1,
+			ClanMemberLimits: [][]uint8{{0, 30}},
+		},
+	}
+	server := newMakeSignResponseServer(config)
+	server.ngWords = make([]string, 5000)
+	for i := range server.ngWords {
+		server.ngWords[i] = fmt.Sprintf("금칙어테스트%04d", i)
+	}
+	session := &Session{logger: zap.NewNop(), server: server, client: PC100, rawConn: newMockConn()}
+	result := session.makeSignResponse(0)
+	filterStart := bytes.Index(result, []byte("smc\x00"))
+	if filterStart < 2 {
+		t.Fatal("NG-word filter start not found")
+	}
+	filterLen := int(binary.BigEndian.Uint16(result[filterStart-2 : filterStart]))
+	if filterLen <= 0 || filterLen > maxNGWordFilterBytes {
+		t.Fatalf("filter length = %d", filterLen)
+	}
+	if filterStart+filterLen > len(result) {
+		t.Fatalf("filter runs past response: start=%d len=%d response=%d", filterStart, filterLen, len(result))
+	}
+}
+
+func TestGeneratedAggressiveNGWordListFitsWithoutTruncation(t *testing.T) {
+	words, err := loadNGWordsCSV(filepath.Join("..", "..", "bin", "ng_words.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := &cfg.Config{
+		DebugOptions: cfg.DebugOptions{CapLink: cfg.CapLinkOptions{Values: []uint16{0, 0, 0, 0, 0}}},
+		GameplayOptions: cfg.GameplayOptions{
+			MezFesSoloTickets: 1, MezFesGroupTickets: 1,
+			ClanMemberLimits: [][]uint8{{0, 30}},
+		},
+	}
+	server := newMakeSignResponseServer(config)
+	server.ngWords = words
+	result := (&Session{logger: zap.NewNop(), server: server, client: PC100, rawConn: newMockConn()}).makeSignResponse(0)
+	filterStart := bytes.Index(result, []byte("smc\x00"))
+	if filterStart < 2 {
+		t.Fatal("NG-word filter start not found")
+	}
+	filterLen := int(binary.BigEndian.Uint16(result[filterStart-2 : filterStart]))
+	filter := result[filterStart : filterStart+filterLen]
+	offset := 4
+	smcLen := int(binary.LittleEndian.Uint32(filter[offset : offset+4]))
+	offset += 4 + smcLen
+	if string(filter[offset:offset+4]) != "nam\x00" {
+		t.Fatal("nam table not found")
+	}
+	offset += 4
+	namLen := int(binary.LittleEndian.Uint32(filter[offset : offset+4]))
+	offset += 4 + namLen
+	if string(filter[offset:offset+4]) != "msg\x00" {
+		t.Fatal("msg table not found")
+	}
+	offset += 4
+	msgLen := int(binary.LittleEndian.Uint32(filter[offset : offset+4]))
+	offset += 4
+	messageCount := 0
+	for consumed := 0; consumed < msgLen; messageCount++ {
+		parts := int(binary.LittleEndian.Uint32(filter[offset+consumed : offset+consumed+4]))
+		consumed += ngWordEntrySize(make([]uint16, parts))
+	}
+	if messageCount != len(words) {
+		t.Fatalf("message table contains %d of %d configured words", messageCount, len(words))
+	}
+	t.Logf("all %d configured words fit; filter payload is %d/%d bytes", len(words), filterLen, maxNGWordFilterBytes)
+}
 
 // newMakeSignResponseServer creates a Server with mock repos for makeSignResponse tests.
 func newMakeSignResponseServer(config *cfg.Config) *Server {

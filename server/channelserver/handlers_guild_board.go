@@ -61,6 +61,12 @@ func handleMsgMhfEnumerateGuildMessageBoard(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfUpdateGuildMessageBoard(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfUpdateGuildMessageBoard)
+	if (pkt.MessageOp == 0 || pkt.MessageOp == 2) &&
+		(!s.validateMessageInput("guild_board_title", pkt.Title) ||
+			!s.validateMessageInput("guild_board_body", pkt.Body)) {
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
 	guild, err := s.server.guildRepo.GetByCharID(s.charID)
 	applicant := false
 	if guild != nil {

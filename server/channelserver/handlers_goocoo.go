@@ -1,7 +1,9 @@
 package channelserver
 
 import (
+	"erupe-ce/common/bfutil"
 	"erupe-ce/common/byteframe"
+	"erupe-ce/common/stringsupport"
 	"erupe-ce/network/mhfpacket"
 	"fmt"
 
@@ -39,6 +41,18 @@ func handleMsgMhfEnumerateGuacot(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfUpdateGuacot(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfUpdateGuacot)
+	// Validate the complete request before writing any slot so rejection cannot
+	// leave a partially updated set of companions.
+	for _, goocoo := range pkt.Goocoos {
+		if goocoo.Index > 4 || len(goocoo.Data1) == 0 || goocoo.Data1[0] == 0 {
+			continue
+		}
+		name := stringsupport.SJISToUTF8Lossy(bfutil.UpToNull(goocoo.Name))
+		if !s.validateNameInput("goocoo", name) {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+	}
 	for _, goocoo := range pkt.Goocoos {
 		if goocoo.Index > 4 {
 			continue

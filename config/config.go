@@ -75,6 +75,7 @@ type Config struct {
 	ShutdownDrainSeconds      int      // Additional seconds to wait for sessions to disconnect naturally before force-closing (default 30)
 	HideLoginNotice           bool     // Hide the Erupe notice on login
 	LoginNotices              []string // MHFML string of the login notices displayed
+	NGWordsFile               string   // UTF-8 CSV used for both name and chat NG-word tables
 	PatchServerManifest       string   // Manifest patch server override
 	PatchServerFile           string   // File patch server override
 	DeleteOnSaveCorruption    bool     // Attempts to save corrupted data will flag the save for deletion
@@ -452,6 +453,7 @@ func registerDefaults() {
 	viper.SetDefault("LoginNotices", []string{
 		"<BODY><CENTER><SIZE_3><C_4>Welcome to Erupe!",
 	})
+	viper.SetDefault("NGWordsFile", "bin/ng_words.csv")
 	viper.SetDefault("ClientMode", "ZZ")
 	viper.SetDefault("QuestCacheExpiry", 300)
 	viper.SetDefault("CommandPrefix", "!")

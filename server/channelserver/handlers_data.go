@@ -143,6 +143,10 @@ func handleMsgMhfSavedata(s *Session, p mhfpacket.MHFPacket) {
 		traceSaveBlob(s, "full-blob", pkt.RawDataPayload, characterSaveData.decompSave)
 	}
 	characterSaveData.updateStructWithSaveData()
+	if characterSaveData.IsNewCharacter && !s.validateNameInput("character", characterSaveData.Name) {
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
 
 	// Mitigate house theme corruption (issue #92): the game client
 	// sometimes sends house_tier as -1 (all 0xFF bytes), which causes
@@ -161,7 +165,8 @@ func handleMsgMhfSavedata(s *Session, p mhfpacket.MHFPacket) {
 	s.playtime = characterSaveData.Playtime
 	s.playtimeTime = time.Now()
 
-	// Bypass name-checker if new
+	// The structural checks above and the client's configurable NG-word table
+	// have both passed, so the first save may establish the session name.
 	if characterSaveData.IsNewCharacter {
 		s.Name = characterSaveData.Name
 	}

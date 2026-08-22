@@ -136,9 +136,6 @@ func (s *Session) makeSignResponse(uid uint32) []byte {
 	bf.WriteUint32(s.server.getLastCID(uid))
 	bf.WriteUint32(s.server.getUserRights(uid))
 
-	namNGWords := []string{}
-	msgNGWords := []string{}
-
 	filters := byteframe.NewByteFrame()
 	filters.SetLE()
 	filters.WriteNullTerminatedBytes([]byte("smc"))
@@ -279,11 +276,18 @@ func (s *Session) makeSignResponse(uid uint32) []byte {
 	filters.WriteUint32(uint32(len(smc.Data())))
 	filters.WriteBytes(smc.Data())
 
+	nameParts, messageParts, selectedWords := selectNGWordParts(len(filters.Data()), s.server.ngWords)
+	if selectedWords < len(s.server.ngWords) {
+		s.server.ngWordWarnOnce.Do(func() {
+			s.logger.Warn("NG-word CSV exceeded the client protocol limit; source-order tail was omitted",
+				zap.Int("loaded", len(s.server.ngWords)), zap.Int("selected", selectedWords))
+		})
+	}
+
 	filters.WriteNullTerminatedBytes([]byte("nam"))
 	nam := byteframe.NewByteFrame()
 	nam.SetLE()
-	for _, word := range namNGWords {
-		parts := stringsupport.ToNGWord(word)
+	for _, parts := range nameParts {
 		nam.WriteUint32(uint32(len(parts)))
 		for _, part := range parts {
 			nam.WriteUint16(part)
@@ -307,8 +311,7 @@ func (s *Session) makeSignResponse(uid uint32) []byte {
 	filters.WriteNullTerminatedBytes([]byte("msg"))
 	msg := byteframe.NewByteFrame()
 	msg.SetLE()
-	for _, word := range msgNGWords {
-		parts := stringsupport.ToNGWord(word)
+	for _, parts := range messageParts {
 		msg.WriteUint32(uint32(len(parts)))
 		for _, part := range parts {
 			msg.WriteUint16(part)
@@ -329,8 +332,16 @@ func (s *Session) makeSignResponse(uid uint32) []byte {
 	filters.WriteUint32(uint32(len(msg.Data())))
 	filters.WriteBytes(msg.Data())
 
-	bf.WriteUint16(uint16(len(filters.Data())))
-	bf.WriteBytes(filters.Data())
+	if len(filters.Data()) > maxNGWordFilterBytes {
+		// selectNGWordParts accounts for every variable and fixed table byte;
+		// retain this guard so a future protocol-layout edit cannot wrap uint16.
+		s.logger.Error("NG-word filter payload exceeded protocol limit",
+			zap.Int("bytes", len(filters.Data())), zap.Int("max", maxNGWordFilterBytes))
+		bf.WriteUint16(0)
+	} else {
+		bf.WriteUint16(uint16(len(filters.Data())))
+		bf.WriteBytes(filters.Data())
+	}
 
 	if s.client == VITA || s.client == PS3 || s.client == PS4 {
 		psnUser, err := s.server.userRepo.GetPSNIDForUser(uid)

@@ -28,8 +28,14 @@ type GuildAlliance struct {
 
 func handleMsgMhfCreateJoint(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfCreateJoint)
+	if !s.validateNameInput("guild_alliance", pkt.Name) {
+		doAckSimpleFail(s, pkt.AckHandle, []byte{0x01, 0x01, 0x01, 0x01})
+		return
+	}
 	if err := s.server.guildRepo.CreateAlliance(pkt.Name, pkt.GuildID); err != nil {
 		s.logger.Error("Failed to create guild alliance in db", zap.Error(err))
+		doAckSimpleFail(s, pkt.AckHandle, []byte{0x01, 0x01, 0x01, 0x01})
+		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, []byte{0x01, 0x01, 0x01, 0x01})
 }

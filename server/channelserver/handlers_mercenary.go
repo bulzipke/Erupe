@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"erupe-ce/common/bfutil"
 	"erupe-ce/common/byteframe"
 	"erupe-ce/common/stringsupport"
 	cfg "erupe-ce/config"
@@ -341,7 +342,22 @@ func handleMsgMhfSaveOtomoAirou(s *Session, p mhfpacket.MHFPacket) {
 			return
 		}
 		catID := bf.ReadUint32()
-		if catID == 0 {
+		isNewCat := catID == 0
+		exists := bf.ReadBool()
+		data := bf.ReadBytes(uint(dataLen) - 5)
+		if exists {
+			if len(data) < 18 {
+				s.logger.Warn("Airou entry is too short for a name", zap.Int("data_len", len(data)))
+				doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+				return
+			}
+			name := stringsupport.SJISToUTF8Lossy(bfutil.UpToNull(data[:18]))
+			if !s.validateNameInput("partnya", name) {
+				doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+				return
+			}
+		}
+		if isNewCat {
 			catID, err = s.server.mercenaryRepo.NextAirouID()
 			if err != nil {
 				s.logger.Error("Failed to get next airou ID", zap.Error(err))
@@ -349,8 +365,6 @@ func handleMsgMhfSaveOtomoAirou(s *Session, p mhfpacket.MHFPacket) {
 				return
 			}
 		}
-		exists := bf.ReadBool()
-		data := bf.ReadBytes(uint(dataLen) - 5)
 		if exists {
 			catsExist++
 			save.WriteUint32(dataLen)

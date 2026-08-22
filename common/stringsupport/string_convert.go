@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"golang.org/x/text/encoding/japanese"
 	"golang.org/x/text/encoding/korean"
@@ -95,6 +96,57 @@ func ToNGWord(x string) []uint16 {
 		}
 	}
 	return w
+}
+
+// ToNGWordCP949 converts Korean-client text into the uint16 representation
+// used by the NG-word tables. The original SMC normalization table remains
+// Shift-JIS, while user-entered name/chat words must use the patched client's
+// CP949 encoding or Hangul would be silently omitted.
+func ToNGWordCP949(x string) []uint16 {
+	var w []uint16
+	for _, r := range x {
+		if r <= 0x7F {
+			w = append(w, uint16(r))
+			continue
+		}
+		encoded, _, err := transform.String(korean.EUCKR.NewEncoder(), string(r))
+		if err != nil {
+			continue
+		}
+		t := []byte(encoded)
+		if len(t) > 1 {
+			w = append(w, uint16(t[1])<<8|uint16(t[0]))
+		} else if len(t) == 1 {
+			w = append(w, uint16(t[0]))
+		}
+	}
+	return w
+}
+
+// IsValidPlayerName applies server-side structural checks to user-created
+// names. The configurable profanity list is applied separately by the channel
+// server so this helper stays independent of runtime configuration.
+func IsValidPlayerName(name string) bool {
+	if name == "" {
+		return false
+	}
+	hasLetterOrNumber := false
+	for _, r := range name {
+		if unicode.IsSpace(r) || unicode.IsControl(r) || r == unicode.ReplacementChar || isHangulJamo(r) {
+			return false
+		}
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			hasLetterOrNumber = true
+		}
+	}
+	return hasLetterOrNumber
+}
+
+func isHangulJamo(r rune) bool {
+	return r >= 0x1100 && r <= 0x11FF ||
+		r >= 0x3130 && r <= 0x318F ||
+		r >= 0xA960 && r <= 0xA97F ||
+		r >= 0xD7B0 && r <= 0xD7FF
 }
 
 // PaddedString returns a fixed-width null-terminated byte slice of the given

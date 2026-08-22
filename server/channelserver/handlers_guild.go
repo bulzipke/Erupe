@@ -15,6 +15,12 @@ import (
 
 func handleMsgMhfCreateGuild(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfCreateGuild)
+	if !s.validateNameInput("guild", pkt.Name) {
+		bf := byteframe.NewByteFrame()
+		bf.WriteUint32(0x01010101)
+		doAckSimpleFail(s, pkt.AckHandle, bf.Data())
+		return
+	}
 
 	guildId, err := s.server.guildRepo.Create(s.charID, pkt.Name)
 

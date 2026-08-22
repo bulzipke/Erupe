@@ -78,7 +78,12 @@ func handleMsgMhfOperateGuild(s *Session, p mhfpacket.MHFPacket) {
 			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 			return
 		}
-		guild.Comment = stringsupport.SJISToUTF8Lossy(pkt.Data2.ReadNullTerminatedBytes())
+		comment := stringsupport.SJISToUTF8Lossy(pkt.Data2.ReadNullTerminatedBytes())
+		if !s.validateMessageInput("guild_comment", comment) {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+		guild.Comment = comment
 		if err := s.server.guildRepo.Save(guild); err != nil {
 			s.logger.Error("Failed to save guild comment", zap.Error(err))
 		}
@@ -94,11 +99,20 @@ func handleMsgMhfOperateGuild(s *Session, p mhfpacket.MHFPacket) {
 			s.logger.Error("Failed to save guild motto", zap.Error(err))
 		}
 	case mhfpacket.OperateGuildRenamePugi1:
-		handleRenamePugi(s, pkt.Data2, guild, 1)
+		if !handleRenamePugi(s, pkt.Data2, guild, 1) {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
 	case mhfpacket.OperateGuildRenamePugi2:
-		handleRenamePugi(s, pkt.Data2, guild, 2)
+		if !handleRenamePugi(s, pkt.Data2, guild, 2) {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
 	case mhfpacket.OperateGuildRenamePugi3:
-		handleRenamePugi(s, pkt.Data2, guild, 3)
+		if !handleRenamePugi(s, pkt.Data2, guild, 3) {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
 	case mhfpacket.OperateGuildChangePugi1:
 		handleChangePugi(s, uint8(pkt.Data1.ReadUint32()), guild, 1)
 	case mhfpacket.OperateGuildChangePugi2:
@@ -143,8 +157,11 @@ func handleMsgMhfOperateGuild(s *Session, p mhfpacket.MHFPacket) {
 	}
 }
 
-func handleRenamePugi(s *Session, bf *byteframe.ByteFrame, guild *Guild, num int) {
+func handleRenamePugi(s *Session, bf *byteframe.ByteFrame, guild *Guild, num int) bool {
 	name := stringsupport.SJISToUTF8Lossy(bf.ReadNullTerminatedBytes())
+	if !s.validateNameInput("guild_pugi", name) {
+		return false
+	}
 	switch num {
 	case 1:
 		guild.PugiName1 = name
@@ -156,6 +173,7 @@ func handleRenamePugi(s *Session, bf *byteframe.ByteFrame, guild *Guild, num int
 	if err := s.server.guildRepo.Save(guild); err != nil {
 		s.logger.Error("Failed to save guild pugi name", zap.Error(err))
 	}
+	return true
 }
 
 func handleChangePugi(s *Session, outfit uint8, guild *Guild, num int) {

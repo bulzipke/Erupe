@@ -13,6 +13,7 @@ import (
 
 	"erupe-ce/common/byteframe"
 	"erupe-ce/common/decryption"
+	"erupe-ce/common/stringsupport"
 	cfg "erupe-ce/config"
 	"erupe-ce/network"
 	"erupe-ce/network/binpacket"
@@ -132,7 +133,7 @@ type Server struct {
 	// register handlers, commands, auto-start, and semaphore teardown.  Gameplay
 	// locks are acquired only after this mutex and released before repository I/O.
 	ravienteLifecycleMu sync.Mutex
-	raviente *Raviente
+	raviente            *Raviente
 
 	questCache *QuestCache
 
@@ -146,6 +147,10 @@ type Server struct {
 	ravienteRunRepo     RavienteRunRepo
 	ravienteRunTracker  *RavienteRunTracker
 	questStatsRepo      QuestStatsRepo
+
+	// Immutable server-authoritative filter loaded from Config.NGWordsFile.
+	ngWordFilter  *stringsupport.NGWordFilter
+	ngWordLoadErr error
 }
 
 // NewServer creates a new Server type.
@@ -179,6 +184,18 @@ func NewServer(config *Config) *Server {
 		},
 		questCache:   NewQuestCache(config.ErupeConfig.QuestCacheExpiry),
 		handlerTable: buildHandlerTable(),
+	}
+	if config.ErupeConfig.NGWordsFile != "" {
+		words, err := stringsupport.LoadNGWordsCSV(config.ErupeConfig.NGWordsFile)
+		if err != nil {
+			s.ngWordLoadErr = err
+			config.Logger.Error("NG-word CSV could not be loaded",
+				zap.String("path", config.ErupeConfig.NGWordsFile), zap.Error(err))
+		} else {
+			s.ngWordFilter = stringsupport.NewNGWordFilter(words)
+			config.Logger.Info("Loaded server-side NG-word filter",
+				zap.String("path", config.ErupeConfig.NGWordsFile), zap.Int("words", s.ngWordFilter.WordCount()))
+		}
 	}
 
 	s.charRepo = NewCharacterRepository(config.DB)
@@ -250,6 +267,9 @@ func NewServer(config *Config) *Server {
 
 // Start starts the server in a new goroutine.
 func (s *Server) Start() error {
+	if s.ngWordLoadErr != nil {
+		return fmt.Errorf("load NG-word CSV %q: %w", s.erupeConfig.NGWordsFile, s.ngWordLoadErr)
+	}
 	l, err := net.Listen("tcp", fmt.Sprintf(":%d", s.Port))
 	if err != nil {
 		return err
@@ -270,7 +290,7 @@ func (s *Server) Start() error {
 	go s.acceptClients()
 	go s.manageSessions()
 	go s.invalidateSessions()
-	go s.raviAutoStart() // no-op unless GameplayOptions.RaviAutoStartSeconds > 0
+	go s.raviAutoStart()   // no-op unless GameplayOptions.RaviAutoStartSeconds > 0
 	go s.raviAutoSupport() // no-op unless a Raviente auto-support interval is enabled
 
 	// Start the discord bot for chat integration.

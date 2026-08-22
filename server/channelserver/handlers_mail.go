@@ -193,6 +193,11 @@ func handleMsgMhfOprtMail(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfSendMail(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfSendMail)
+	if !s.validateMessageInput("mail_subject", pkt.Subject) ||
+		!s.validateMessageInput("mail_body", pkt.Body) {
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
 
 	if pkt.RecipientID == 0 { // Guild mail broadcast
 		g, err := s.server.guildRepo.GetByCharID(s.charID)
