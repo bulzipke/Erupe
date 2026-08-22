@@ -125,6 +125,10 @@ func handleMsgSysCastBinary(s *Session, p mhfpacket.MHFPacket) {
 			s.logger.Warn("Failed to parse chat cast binary", zap.Error(err))
 			return
 		}
+		if !s.validateMessageInput("chat", chatMessage.Message) {
+			sendServerChatMessage(s, s.I18n().chat.ngWordRejected)
+			return
+		}
 
 		// Targeted chat previously bypassed command and dice handling. Preserve
 		// that behavior while still allowing party chat to reach the dashboard.

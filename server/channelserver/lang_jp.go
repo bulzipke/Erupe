@@ -6,6 +6,7 @@ func langJapanese() i18n {
 	i.language = "日本語"
 	i.cafe.reset = "%d/%dにリセット"
 	i.timer = "タイマー：%02d'%02d\"%02d.%03d (%df)"
+	i.chat.ngWordRejected = "このメッセージは送信できません。"
 
 	i.commands.noOp = "このコマンドを使用する権限がありません"
 	i.commands.disabled = "%sのコマンドは無効です"

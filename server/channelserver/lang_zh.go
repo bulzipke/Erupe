@@ -6,6 +6,7 @@ func langChinese() i18n {
 	i.language = "中文"
 	i.cafe.reset = "重置于 %d/%d"
 	i.timer = "时间：%02d:%02d:%02d.%03d (%df)"
+	i.chat.ngWordRejected = "无法发送此消息。"
 
 	i.commands.noOp = "您没有使用此命令的权限"
 	i.commands.disabled = "%s 命令已禁用"

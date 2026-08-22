@@ -13,7 +13,10 @@ type i18n struct {
 	cafe     struct {
 		reset string
 	}
-	timer    string
+	timer string
+	chat  struct {
+		ngWordRejected string
+	}
 	commands struct {
 		noOp     string
 		disabled string

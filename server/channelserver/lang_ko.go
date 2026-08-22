@@ -6,6 +6,7 @@ func langKorean() i18n {
 	i.language = "한국어"
 	i.cafe.reset = "%d/%d에 리셋"
 	i.timer = "타이머: %02d'%02d\"%02d.%03d (%df)"
+	i.chat.ngWordRejected = "사용할 수 없는 메시지입니다."
 
 	i.commands.noOp = "이 명령어를 사용할 권한이 없습니다"
 	i.commands.disabled = "%s 명령어는 비활성화되어 있습니다"

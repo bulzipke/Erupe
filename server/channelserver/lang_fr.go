@@ -6,6 +6,7 @@ func langFrench() i18n {
 	i.language = "Français"
 	i.cafe.reset = "Réinitialisation le %d/%d"
 	i.timer = "Temps : %02d:%02d:%02d.%03d (%df)"
+	i.chat.ngWordRejected = "Ce message ne peut pas être envoyé."
 
 	i.commands.noOp = "Vous n'avez pas la permission d'utiliser cette commande"
 	i.commands.disabled = "La commande %s est désactivée"

@@ -8,6 +8,7 @@ import (
 
 	"erupe-ce/common/byteframe"
 	"erupe-ce/common/mhfcourse"
+	"erupe-ce/common/stringsupport"
 	cfg "erupe-ce/config"
 	"erupe-ce/network/binpacket"
 	"erupe-ce/network/mhfpacket"
@@ -125,6 +126,46 @@ func TestWorldAndLandChatNotifyDashboardObserver(t *testing.T) {
 				t.Fatalf("observer = %q/%q/%q", gotScope, gotSender, gotMessage)
 			}
 		})
+	}
+}
+
+func TestChatContainingNGWordIsNotBroadcast(t *testing.T) {
+	server := createTestServer()
+	server.erupeConfig.CommandPrefix = "!"
+	server.ngWordFilter = stringsupport.NewNGWordFilter([]string{"시발"})
+	server.Registry = NewLocalChannelRegistry([]*Server{server})
+	session := createTestSessionForServer(server, &mockConn{}, 42, "Hunter")
+
+	observed := false
+	server.SetDashboardChatObserver(func(_, _, _ string) {
+		observed = true
+	})
+
+	payload := byteframe.NewByteFrame()
+	payload.SetLE()
+	chat := &binpacket.MsgBinChat{
+		Type:       binpacket.ChatTypeWorld,
+		Message:    "시발",
+		SenderName: "Hunter",
+	}
+	if err := chat.Build(payload); err != nil {
+		t.Fatalf("build chat: %v", err)
+	}
+
+	handleMsgSysCastBinary(session, &mhfpacket.MsgSysCastBinary{
+		BroadcastType:  BroadcastTypeWorld,
+		MessageType:    BinaryMessageTypeChat,
+		RawDataPayload: payload.Data(),
+	})
+
+	if observed {
+		t.Fatal("NG-word chat reached the dashboard observer")
+	}
+	select {
+	case <-session.sendPackets:
+		// The sender receives a server-chat rejection notice.
+	default:
+		t.Fatal("sender did not receive an NG-word rejection notice")
 	}
 }
 
