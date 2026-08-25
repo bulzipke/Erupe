@@ -26,6 +26,9 @@ type GuildMember struct {
 }
 
 func (gm *GuildMember) CanRecruit() bool {
+	if gm.IsApplicant {
+		return false
+	}
 	if gm.Recruiter {
 		return true
 	}
@@ -39,5 +42,5 @@ func (gm *GuildMember) CanRecruit() bool {
 }
 
 func (gm *GuildMember) IsSubLeader() bool {
-	return gm.OrderIndex <= 3
+	return !gm.IsApplicant && gm.OrderIndex <= 3
 }

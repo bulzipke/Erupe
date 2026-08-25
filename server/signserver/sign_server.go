@@ -44,7 +44,7 @@ func NewServer(config *Config) *Server {
 	if config.DB != nil {
 		s.userRepo = NewSignUserRepository(config.DB)
 		s.charRepo = NewSignCharacterRepository(config.DB)
-		s.sessionRepo = NewSignSessionRepository(config.DB)
+		s.sessionRepo = NewSignSessionRepository(config.DB, config.ErupeConfig.Sign.SessionTokenExpiry())
 	}
 	return s
 }

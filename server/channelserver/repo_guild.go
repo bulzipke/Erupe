@@ -62,22 +62,22 @@ SELECT
 
 const guildMembersSelectSQL = `
 SELECT
-	COALESCE(g.id, 0) AS guild_id,
-	joined_at,
+	character.guild_id AS guild_id,
+	gc.joined_at,
 	COALESCE((SELECT SUM(souls) FROM festa_submissions fs WHERE fs.character_id=c.id), 0) AS souls,
-	COALESCE(rp_today, 0) AS rp_today,
-	COALESCE(rp_yesterday, 0) AS rp_yesterday,
+	COALESCE(gc.rp_today, 0) AS rp_today,
+	COALESCE(gc.rp_yesterday, 0) AS rp_yesterday,
 	c.name,
 	c.id AS character_id,
-	COALESCE(order_index, 0) AS order_index,
+	COALESCE(gc.order_index, 0) AS order_index,
 	c.last_login,
-	COALESCE(recruiter, false) AS recruiter,
-	COALESCE(avoid_leadership, false) AS avoid_leadership,
+	COALESCE(gc.recruiter, false) AS recruiter,
+	COALESCE(gc.avoid_leadership, false) AS avoid_leadership,
 	c.hr,
 	c.gr,
 	c.weapon_id,
 	c.weapon_type,
-	CASE WHEN g.leader_id = c.id THEN true ELSE false END AS is_leader,
+	CASE WHEN NOT character.is_applicant AND g.leader_id = c.id THEN true ELSE false END AS is_leader,
 	character.is_applicant
 	FROM (
 		SELECT character_id, true as is_applicant, guild_id
@@ -88,8 +88,11 @@ SELECT
 		FROM guild_characters gc
 	) character
 	JOIN characters c on character.character_id = c.id
-	LEFT JOIN guild_characters gc ON gc.character_id = character.character_id
-	LEFT JOIN guilds g ON g.id = gc.guild_id
+	LEFT JOIN guild_characters gc
+		ON NOT character.is_applicant
+		AND gc.character_id = character.character_id
+		AND gc.guild_id = character.guild_id
+	LEFT JOIN guilds g ON g.id = character.guild_id
 `
 
 func scanGuild(rows *sqlx.Rows) (*Guild, error) {
@@ -303,10 +306,23 @@ func (r *GuildRepository) Disband(guildID uint32) error {
 	return tx.Commit()
 }
 
-// RemoveCharacter removes a character from their guild.
-func (r *GuildRepository) RemoveCharacter(charID uint32) error {
-	_, err := r.db.Exec("DELETE FROM guild_characters WHERE character_id=$1", charID)
-	return err
+// RemoveCharacter removes a character only from the specified guild.
+func (r *GuildRepository) RemoveCharacter(guildID, charID uint32) error {
+	result, err := r.db.Exec(
+		"DELETE FROM guild_characters WHERE guild_id=$1 AND character_id=$2",
+		guildID, charID,
+	)
+	if err != nil {
+		return err
+	}
+	removed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if removed == 0 {
+		return ErrGuildMemberMissing
+	}
+	return nil
 }
 
 // AcceptApplication deletes the application and adds the character to the guild.
@@ -317,13 +333,50 @@ func (r *GuildRepository) AcceptApplication(guildID, charID uint32) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// Serialize application and acceptance decisions for this character. Without
+	// this lock, two guilds could both observe that no membership exists before
+	// either one inserts it.
+	var lockedCharID uint32
+	if err := tx.QueryRow(
+		`SELECT id FROM characters WHERE id = $1 FOR UPDATE`,
+		charID,
+	).Scan(&lockedCharID); err != nil {
+		return err
+	}
+
+	var applicationID int
+	if err := tx.QueryRow(`
+		SELECT id
+		FROM guild_applications
+		WHERE guild_id = $1 AND character_id = $2 AND application_type = 'applied'
+		FOR UPDATE
+	`, guildID, charID).Scan(&applicationID); errors.Is(err, sql.ErrNoRows) {
+		return ErrApplicationMissing
+	} else if err != nil {
+		return err
+	}
+
+	var alreadyMember bool
+	if err := tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM guild_characters WHERE character_id = $1)`,
+		charID,
+	).Scan(&alreadyMember); err != nil {
+		return err
+	}
+	if alreadyMember {
+		return ErrAlreadyGuildMember
+	}
+
+	// Acceptance historically clears every pending application for the
+	// character. Keep that behavior after first proving that the requested
+	// guild owns the application being accepted.
 	if _, err := tx.Exec(`DELETE FROM guild_applications WHERE character_id = $1`, charID); err != nil {
 		return err
 	}
 
 	if _, err := tx.Exec(`
 		INSERT INTO guild_characters (guild_id, character_id, order_index)
-		VALUES ($1, $2, (SELECT MAX(order_index) + 1 FROM guild_characters WHERE guild_id = $1))
+		VALUES ($1, $2, (SELECT COALESCE(MAX(order_index), 0) + 1 FROM guild_characters WHERE guild_id = $1))
 	`, guildID, charID); err != nil {
 		return err
 	}
@@ -375,10 +428,23 @@ func (r *GuildRepository) HasInvite(guildID, charID uint32) (bool, error) {
 	return true, nil
 }
 
-// CancelInvite removes a scout invitation by its primary key.
-func (r *GuildRepository) CancelInvite(inviteID uint32) error {
-	_, err := r.db.Exec(`DELETE FROM guild_invites WHERE id = $1`, inviteID)
-	return err
+// CancelInvite removes a scout invitation only when it belongs to the specified guild.
+func (r *GuildRepository) CancelInvite(guildID, inviteID uint32) error {
+	result, err := r.db.Exec(
+		`DELETE FROM guild_invites WHERE id = $1 AND guild_id = $2`,
+		inviteID, guildID,
+	)
+	if err != nil {
+		return err
+	}
+	removed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if removed == 0 {
+		return ErrGuildInviteMissing
+	}
+	return nil
 }
 
 // AcceptInvite removes the scout invitation and adds the character to the guild atomically.
@@ -414,15 +480,26 @@ func (r *GuildRepository) DeclineInvite(guildID, charID uint32) error {
 
 // RejectApplication removes an applied application for a character.
 func (r *GuildRepository) RejectApplication(guildID, charID uint32) error {
-	_, err := r.db.Exec(
+	result, err := r.db.Exec(
 		`DELETE FROM guild_applications WHERE character_id = $1 AND guild_id = $2 AND application_type = 'applied'`,
 		charID, guildID,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	removed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if removed == 0 {
+		return ErrApplicationMissing
+	}
+	return nil
 }
 
-// ArrangeCharacters reorders guild members by updating their order_index values.
-func (r *GuildRepository) ArrangeCharacters(charIDs []uint32) error {
+// ArrangeCharacters atomically reorders members of the specified guild. If any
+// character is not a member of that guild, none of the order changes are kept.
+func (r *GuildRepository) ArrangeCharacters(guildID uint32, charIDs []uint32) error {
 	tx, err := r.db.BeginTxx(context.Background(), nil)
 	if err != nil {
 		return err
@@ -430,8 +507,19 @@ func (r *GuildRepository) ArrangeCharacters(charIDs []uint32) error {
 	defer func() { _ = tx.Rollback() }()
 
 	for i, id := range charIDs {
-		if _, err := tx.Exec("UPDATE guild_characters SET order_index = $1 WHERE character_id = $2", 2+i, id); err != nil {
+		result, err := tx.Exec(
+			"UPDATE guild_characters SET order_index = $1 WHERE guild_id = $2 AND character_id = $3",
+			2+i, guildID, id,
+		)
+		if err != nil {
 			return err
+		}
+		updated, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if updated != 1 {
+			return ErrGuildMemberMissing
 		}
 	}
 
@@ -533,7 +621,12 @@ func (r *GuildRepository) GetMembers(guildID uint32, applicants bool) ([]*GuildM
 // GetCharacterMembership loads a character's guild membership data.
 // Returns nil, nil if the character is not in any guild.
 func (r *GuildRepository) GetCharacterMembership(charID uint32) (*GuildMember, error) {
-	rows, err := r.db.Queryx(fmt.Sprintf("%s	WHERE character.character_id=$1", guildMembersSelectSQL), charID)
+	rows, err := r.db.Queryx(fmt.Sprintf(`
+		%s
+		WHERE character.character_id = $1
+		ORDER BY character.is_applicant ASC, character.guild_id ASC
+		LIMIT 1
+	`, guildMembersSelectSQL), charID)
 	if err != nil {
 		return nil, err
 	}
@@ -566,10 +659,31 @@ func (r *GuildRepository) SetPugiOutfits(guildID uint32, outfits uint32) error {
 	return err
 }
 
-// SetRecruiter updates whether a character has recruiter rights.
-func (r *GuildRepository) SetRecruiter(charID uint32, allowed bool) error {
-	_, err := r.db.Exec("UPDATE guild_characters SET recruiter=$1 WHERE character_id=$2", allowed, charID)
-	return err
+// SetRecruiter updates a target member only while both actor and target still
+// belong to the specified guild. Role policy remains client/original behavior.
+func (r *GuildRepository) SetRecruiter(guildID, actorCharID, targetCharID uint32, allowed bool) error {
+	result, err := r.db.Exec(
+		`UPDATE guild_characters AS target
+		 SET recruiter=$1
+		 WHERE target.guild_id=$2
+		   AND target.character_id=$4
+		   AND EXISTS (
+		       SELECT 1 FROM guild_characters AS actor
+		       WHERE actor.guild_id=$2 AND actor.character_id=$3
+		   )`,
+		allowed, guildID, actorCharID, targetCharID,
+	)
+	if err != nil {
+		return err
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if updated != 1 {
+		return ErrGuildMemberMissing
+	}
+	return nil
 }
 
 // GuildInvite represents a pending scout invitation with the target character's info.

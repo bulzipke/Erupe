@@ -48,35 +48,46 @@ func (r *GuildRepository) CreatePost(guildID, authorID, stampID uint32, postType
 	return tx.Commit()
 }
 
-// DeletePost soft-deletes a guild post by ID.
-func (r *GuildRepository) DeletePost(postID uint32) error {
-	_, err := r.db.Exec("UPDATE guild_posts SET deleted = true WHERE id = $1", postID)
-	return err
+// DeletePost soft-deletes a post only when it belongs to the given guild.
+func (r *GuildRepository) DeletePost(guildID, postID uint32) error {
+	return requireGuildScopedMutation(r.db.Exec(
+		"UPDATE guild_posts SET deleted = true WHERE guild_id = $1 AND id = $2",
+		guildID, postID,
+	))
 }
 
-// UpdatePost updates the title and body of a guild post.
-func (r *GuildRepository) UpdatePost(postID uint32, title, body string) error {
-	_, err := r.db.Exec("UPDATE guild_posts SET title = $1, body = $2 WHERE id = $3", title, body, postID)
-	return err
+// UpdatePost updates the title and body only when the post belongs to the given guild.
+func (r *GuildRepository) UpdatePost(guildID, postID uint32, title, body string) error {
+	return requireGuildScopedMutation(r.db.Exec(
+		"UPDATE guild_posts SET title = $1, body = $2 WHERE guild_id = $3 AND id = $4",
+		title, body, guildID, postID,
+	))
 }
 
-// UpdatePostStamp updates the stamp of a guild post.
-func (r *GuildRepository) UpdatePostStamp(postID, stampID uint32) error {
-	_, err := r.db.Exec("UPDATE guild_posts SET stamp_id = $1 WHERE id = $2", stampID, postID)
-	return err
+// UpdatePostStamp updates the stamp only when the post belongs to the given guild.
+func (r *GuildRepository) UpdatePostStamp(guildID, postID, stampID uint32) error {
+	return requireGuildScopedMutation(r.db.Exec(
+		"UPDATE guild_posts SET stamp_id = $1 WHERE guild_id = $2 AND id = $3",
+		stampID, guildID, postID,
+	))
 }
 
-// GetPostLikedBy returns the liked_by CSV string for a guild post.
-func (r *GuildRepository) GetPostLikedBy(postID uint32) (string, error) {
+// GetPostLikedBy returns the liked_by CSV string for a post in the given guild.
+func (r *GuildRepository) GetPostLikedBy(guildID, postID uint32) (string, error) {
 	var likedBy string
-	err := r.db.QueryRow("SELECT liked_by FROM guild_posts WHERE id = $1", postID).Scan(&likedBy)
+	err := r.db.QueryRow(
+		"SELECT liked_by FROM guild_posts WHERE guild_id = $1 AND id = $2",
+		guildID, postID,
+	).Scan(&likedBy)
 	return likedBy, err
 }
 
-// SetPostLikedBy updates the liked_by CSV string for a guild post.
-func (r *GuildRepository) SetPostLikedBy(postID uint32, likedBy string) error {
-	_, err := r.db.Exec("UPDATE guild_posts SET liked_by = $1 WHERE id = $2", likedBy, postID)
-	return err
+// SetPostLikedBy updates likes only when the post belongs to the given guild.
+func (r *GuildRepository) SetPostLikedBy(guildID, postID uint32, likedBy string) error {
+	return requireGuildScopedMutation(r.db.Exec(
+		"UPDATE guild_posts SET liked_by = $1 WHERE guild_id = $2 AND id = $3",
+		likedBy, guildID, postID,
+	))
 }
 
 // CountNewPosts returns the count of non-deleted posts created after the given time.

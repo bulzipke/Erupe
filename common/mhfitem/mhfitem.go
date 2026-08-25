@@ -90,6 +90,10 @@ func DiffItemStacks(o []MHFItemStack, u []MHFItemStack) []MHFItemStack {
 	for i := range o {
 		existing[o[i].WarehouseID] = struct{}{}
 	}
+	usedIDs := make(map[uint32]struct{}, len(existing)+len(u))
+	for id := range existing {
+		usedIDs[id] = struct{}{}
+	}
 
 	// Only the final quantity matters when a client repeats an update for an
 	// existing warehouse ID. Recording it once avoids an update-by-old nested
@@ -108,7 +112,7 @@ func DiffItemStacks(o []MHFItemStack, u []MHFItemStack) []MHFItemStack {
 		if uItem.Quantity == 0 {
 			continue
 		}
-		uItem.WarehouseID = token.RNG.Uint32()
+		uItem.WarehouseID = NewWarehouseID(usedIDs)
 		f = append(f, uItem)
 	}
 	for i := range o {
@@ -120,6 +124,24 @@ func DiffItemStacks(o []MHFItemStack, u []MHFItemStack) []MHFItemStack {
 		}
 	}
 	return f
+}
+
+// NewWarehouseID returns a non-zero ID that is not already present in used,
+// and reserves it in that set. Warehouse IDs are identifiers rather than
+// credentials, so the existing concurrency-safe PRNG is sufficient; explicit
+// collision checking is what preserves the container invariant.
+func NewWarehouseID(used map[uint32]struct{}) uint32 {
+	for {
+		id := token.RNG.Uint32()
+		if id == 0 {
+			continue
+		}
+		if _, exists := used[id]; exists {
+			continue
+		}
+		used[id] = struct{}{}
+		return id
+	}
 }
 
 // ToBytes serializes the item stack to its binary protocol representation.

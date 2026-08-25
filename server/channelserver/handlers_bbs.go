@@ -5,6 +5,8 @@ import (
 	"erupe-ce/common/stringsupport"
 	"erupe-ce/common/token"
 	"erupe-ce/network/mhfpacket"
+
+	"go.uber.org/zap"
 )
 
 // Handler BBS handles all the interactions with the for the screenshot sending to bulitin board functionality. For it to work it requires the API to be hosted somehwere. This implementation supports discord.
@@ -36,7 +38,12 @@ func handleMsgMhfGetBbsSnsStatus(s *Session, p mhfpacket.MHFPacket) {
 func handleMsgMhfApplyBbsArticle(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfApplyBbsArticle)
 	bf := byteframe.NewByteFrame()
-	articleToken := token.Generate(40)
+	articleToken, err := token.GenerateSecure(40)
+	if err != nil {
+		s.logger.Error("Failed to generate BBS upload token", zap.Error(err))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
 
 	bf.WriteUint32(200) //http status //200 success //4XX An error occured server side
 	bf.WriteUint32(s.server.erupeConfig.Screenshots.Port)

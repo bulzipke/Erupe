@@ -61,16 +61,16 @@ type GuildRepo interface {
 	Create(leaderCharID uint32, guildName string) (int32, error)
 	Save(guild *Guild) error
 	Disband(guildID uint32) error
-	RemoveCharacter(charID uint32) error
+	RemoveCharacter(guildID, charID uint32) error
 	AcceptApplication(guildID, charID uint32) error
 	CreateApplication(guildID, charID, actorID uint32, appType GuildApplicationType) error
 	CreateInviteWithMail(guildID, charID, actorID uint32, mailSenderID, mailRecipientID uint32, mailSubject, mailBody string) error
 	HasInvite(guildID, charID uint32) (bool, error)
-	CancelInvite(inviteID uint32) error
+	CancelInvite(guildID, inviteID uint32) error
 	AcceptInvite(guildID, charID uint32) error
 	DeclineInvite(guildID, charID uint32) error
 	RejectApplication(guildID, charID uint32) error
-	ArrangeCharacters(charIDs []uint32) error
+	ArrangeCharacters(guildID uint32, charIDs []uint32) error
 	GetApplication(guildID, charID uint32, appType GuildApplicationType) (*GuildApplication, error)
 	HasApplication(guildID, charID uint32) (bool, error)
 	GetItemBox(guildID uint32) ([]byte, error)
@@ -83,7 +83,7 @@ type GuildRepo interface {
 	SaveMember(member *GuildMember) error
 	SetRecruiting(guildID uint32, recruiting bool) error
 	SetPugiOutfits(guildID uint32, outfits uint32) error
-	SetRecruiter(charID uint32, allowed bool) error
+	SetRecruiter(guildID, actorCharID, targetCharID uint32, allowed bool) error
 	AddMemberDailyRP(charID uint32, amount uint16) error
 	ExchangeEventRP(guildID uint32, amount uint16) (uint32, error)
 	AddRankRP(guildID uint32, amount uint16) error
@@ -94,33 +94,47 @@ type GuildRepo interface {
 	SetRoomExpiry(guildID uint32, expiry time.Time) error
 	ListPosts(guildID uint32, postType int) ([]*MessageBoardPost, error)
 	CreatePost(guildID, authorID, stampID uint32, postType int, title, body string, maxPosts int) error
-	DeletePost(postID uint32) error
-	UpdatePost(postID uint32, title, body string) error
-	UpdatePostStamp(postID, stampID uint32) error
-	GetPostLikedBy(postID uint32) (string, error)
-	SetPostLikedBy(postID uint32, likedBy string) error
+	DeletePost(guildID, postID uint32) error
+	UpdatePost(guildID, postID uint32, title, body string) error
+	UpdatePostStamp(guildID, postID, stampID uint32) error
+	GetPostLikedBy(guildID, postID uint32) (string, error)
+	SetPostLikedBy(guildID, postID uint32, likedBy string) error
 	CountNewPosts(guildID uint32, since time.Time) (int, error)
 	GetAllianceByID(allianceID uint32) (*GuildAlliance, error)
 	ListAlliances() ([]*GuildAlliance, error)
 	CreateAlliance(name string, parentGuildID uint32) error
+	CreateAllianceForMember(name string, parentGuildID, actorCharID uint32) error
 	DeleteAlliance(allianceID uint32) error
 	RemoveGuildFromAlliance(allianceID, guildID, subGuild1ID, subGuild2ID uint32) error
+	LeaveAlliance(allianceID, guildID, actorCharID uint32) error
+	KickGuildFromAlliance(allianceID, guildID, actorCharID uint32) error
 	SetAllianceRecruiting(allianceID uint32, recruiting bool) error
 	ListAdventures(guildID uint32) ([]*GuildAdventure, error)
 	CreateAdventure(guildID, destination uint32, depart, returnTime int64) error
+	CreateAdventureForGuild(guildID, actorCharID, destination uint32, depart, returnTime int64) error
 	CreateAdventureWithCharge(guildID, destination, charge uint32, depart, returnTime int64) error
+	CreateAdventureWithChargeForGuild(guildID, actorCharID, destination, charge uint32, depart, returnTime int64) error
 	CollectAdventure(adventureID uint32, charID uint32) error
+	CollectAdventureForGuild(guildID, adventureID, charID uint32) error
 	ChargeAdventure(adventureID uint32, amount uint32) error
+	ChargeAdventureForGuild(guildID, adventureID, charID, amount uint32) error
 	GetPendingHunt(charID uint32) (*TreasureHunt, error)
 	ListGuildHunts(guildID, charID uint32) ([]*TreasureHunt, error)
 	CreateHunt(guildID, hostID, destination, level uint32, huntData []byte, catsUsed string) error
+	CreateHuntForGuild(guildID, hostID, destination, level uint32, huntData []byte, catsUsed string) error
 	AcquireHunt(huntID uint32) error
+	AcquireHuntForGuild(guildID, huntID, actorCharID uint32) error
 	RegisterHuntReport(huntID, charID uint32) error
+	RegisterHuntReportForGuild(guildID, huntID, charID uint32) error
 	CollectHunt(huntID uint32) error
+	CollectHuntForGuild(guildID, huntID, actorCharID uint32) error
 	ClaimHuntReward(huntID, charID uint32) error
+	ClaimHuntRewardForGuild(guildID, huntID, charID uint32) error
 	ListMeals(guildID uint32) ([]*GuildMeal, error)
 	CreateMeal(guildID, mealID, level uint32, createdAt time.Time) (uint32, error)
+	CreateMealForGuild(guildID, actorCharID, mealID, level uint32, createdAt time.Time) (uint32, error)
 	UpdateMeal(mealID, newMealID, level uint32, createdAt time.Time) error
+	UpdateMealForGuild(guildID, actorCharID, mealID, newMealID, level uint32, createdAt time.Time) error
 	ClaimHuntBox(charID uint32, claimedAt time.Time) error
 	ListGuildKills(guildID, charID uint32) ([]*GuildKill, error)
 	CountGuildKills(guildID, charID uint32) (int, error)
@@ -129,6 +143,7 @@ type GuildRepo interface {
 	ListInvites(guildID uint32) ([]*GuildInvite, error)
 	RolloverDailyRP(guildID uint32, noon time.Time) error
 	AddWeeklyBonusUsers(guildID uint32, numUsers uint8) error
+	AddWeeklyBonusUsersForMember(guildID, actorCharID uint32, numUsers uint8) error
 	FindOrCreateReturnGuild(returnType uint8, nameTemplate string) (uint32, error)
 	AddMember(guildID, charID uint32) error
 }

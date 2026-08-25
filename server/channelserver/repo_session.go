@@ -1,29 +1,50 @@
 package channelserver
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/jmoiron/sqlx"
 )
 
 // SessionRepository centralizes all database access for sign_sessions and servers tables.
 type SessionRepository struct {
-	db *sqlx.DB
+	db     *sqlx.DB
+	expiry time.Duration
 }
 
 // NewSessionRepository creates a new SessionRepository.
-func NewSessionRepository(db *sqlx.DB) *SessionRepository {
-	return &SessionRepository{db: db}
+func NewSessionRepository(db *sqlx.DB, expiry ...time.Duration) *SessionRepository {
+	var tokenExpiry time.Duration
+	if len(expiry) > 0 {
+		tokenExpiry = expiry[0]
+	}
+	return &SessionRepository{db: db, expiry: tokenExpiry}
 }
 
 // ValidateLoginToken validates that the given token, session ID, and character ID
 // correspond to a valid sign session. Returns an error if the token is invalid.
 func (r *SessionRepository) ValidateLoginToken(token string, sessionID uint32, charID uint32) error {
 	var t string
-	return r.db.QueryRow("SELECT token FROM sign_sessions ss INNER JOIN public.users u on ss.user_id = u.id WHERE token=$1 AND ss.id=$2 AND u.id=(SELECT c.user_id FROM characters c WHERE c.id=$3)", token, sessionID, charID).Scan(&t)
+	query := `UPDATE sign_sessions ss SET last_used_at = NOW()
+		WHERE ss.token = $1 AND ss.id = $2
+		  AND EXISTS (
+			SELECT 1 FROM public.users u
+			INNER JOIN characters c ON c.user_id = u.id
+			WHERE c.id = $3 AND u.id = ss.user_id
+		  )`
+	args := []interface{}{token, sessionID, charID}
+	if r.expiry > 0 {
+		args = append(args, r.expiry.Seconds())
+		query += fmt.Sprintf(` AND ss.last_used_at >= NOW() - ($%d * INTERVAL '1 second')`, len(args))
+	}
+	query += ` RETURNING ss.token`
+	return r.db.QueryRow(query, args...).Scan(&t)
 }
 
 // BindSession associates a sign session token with a server and character.
 func (r *SessionRepository) BindSession(token string, serverID uint16, charID uint32) error {
-	_, err := r.db.Exec("UPDATE sign_sessions SET server_id=$1, char_id=$2 WHERE token=$3", serverID, charID, token)
+	_, err := r.db.Exec("UPDATE sign_sessions SET server_id=$1, char_id=$2, last_used_at=NOW() WHERE token=$3", serverID, charID, token)
 	return err
 }
 

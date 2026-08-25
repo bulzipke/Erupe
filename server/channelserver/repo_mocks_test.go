@@ -295,8 +295,11 @@ func (m *mockGoocooRepo) SaveSlot(_ uint32, slot uint32, data []byte) error {
 
 type mockGuildRepo struct {
 	// Core data
-	guild   *Guild
-	members []*GuildMember
+	guild                *Guild
+	members              []*GuildMember
+	itemBoxData          []byte
+	updateItemBoxCalled  bool
+	updateItemBoxGuildID uint32
 
 	// Configurable errors
 	getErr          error
@@ -309,6 +312,9 @@ type mockGuildRepo struct {
 	removeErr       error
 	createAppErr    error
 	getMemberErr    error
+	cancelInviteErr error
+	arrangeErr      error
+	setRecruiterErr error
 	hasAppResult    bool
 	hasAppErr       error
 	hasInviteResult bool
@@ -318,17 +324,42 @@ type mockGuildRepo struct {
 	deletePostErr   error
 
 	// State tracking
-	disbandedID         uint32
-	removedCharID       uint32
-	acceptedCharID      uint32
-	rejectedCharID      uint32
-	acceptInviteCharID  uint32
-	declineInviteCharID uint32
-	savedGuild          *Guild
-	savedMembers        []*GuildMember
-	createdAppArgs      []interface{}
-	createdPost         []interface{}
-	deletedPostID       uint32
+	disbandedID          uint32
+	removedGuildID       uint32
+	removedCharID        uint32
+	acceptedGuildID      uint32
+	acceptedCharID       uint32
+	rejectedGuildID      uint32
+	rejectedCharID       uint32
+	acceptInviteCharID   uint32
+	declineInviteCharID  uint32
+	cancelInviteGuildID  uint32
+	cancelInviteID       uint32
+	arrangeGuildID       uint32
+	arrangedCharIDs      []uint32
+	setRecruiterCalled   bool
+	recruiterGuildID     uint32
+	recruiterActorID     uint32
+	recruiterCharID      uint32
+	recruiterAllowed     bool
+	getMembersCalls      int
+	getMembersGuildID    uint32
+	getMembersApplicants bool
+	savedGuild           *Guild
+	savedMembers         []*GuildMember
+	createdAppArgs       []interface{}
+	createdPost          []interface{}
+	deletedPostGuildID   uint32
+	deletedPostID        uint32
+	updatedPostGuildID   uint32
+	updatedPostID        uint32
+	updatedStampGuildID  uint32
+	updatedStampPostID   uint32
+	updatedStampID       uint32
+	likedPostGuildID     uint32
+	likedPostID          uint32
+	setLikedPostGuildID  uint32
+	setLikedPostID       uint32
 
 	// Alliance
 	alliance              *GuildAlliance
@@ -340,13 +371,16 @@ type mockGuildRepo struct {
 	deletedAllianceID     uint32
 	removedAllyArgs       []uint32
 	allianceRecruitingSet *bool
+	createAllianceGuildID uint32
+	createAllianceActorID uint32
 
 	// Cooking
-	meals         []*GuildMeal
-	listMealsErr  error
-	createdMealID uint32
-	createMealErr error
-	updateMealErr error
+	meals          []*GuildMeal
+	listMealsErr   error
+	createdMealID  uint32
+	createMealErr  error
+	updateMealErr  error
+	updateMealArgs []uint32
 
 	// Adventure
 	adventures      []*GuildAdventure
@@ -355,28 +389,34 @@ type mockGuildRepo struct {
 	collectAdvID    uint32
 	chargeAdvID     uint32
 	chargeAdvAmount uint32
+	collectAdvArgs  []uint32
+	chargeAdvArgs   []uint32
 
 	// Treasure hunt
-	pendingHunt   *TreasureHunt
-	guildHunts    []*TreasureHunt
-	listHuntsErr  error
-	acquireHuntID uint32
-	reportHuntID  uint32
-	collectHuntID uint32
-	claimHuntID   uint32
-	createHuntErr error
+	pendingHunt    *TreasureHunt
+	guildHunts     []*TreasureHunt
+	listHuntsErr   error
+	acquireHuntID  uint32
+	reportHuntID   uint32
+	collectHuntID  uint32
+	claimHuntID    uint32
+	createHuntErr  error
+	secureHuntArgs []uint32
 
 	// Hunt data
-	guildKills     []*GuildKill
-	listKillsErr   error
-	countKills     int
-	countKillsErr  error
-	claimBoxCalled bool
+	guildKills      []*GuildKill
+	listKillsErr    error
+	countKills      int
+	countKillsErr   error
+	claimBoxCalled  bool
+	weeklyBonusArgs []uint32
 
 	// Data
-	membership  *GuildMember
-	application *GuildApplication
-	posts       []*MessageBoardPost
+	membership        *GuildMember
+	memberships       map[uint32]*GuildMember
+	membershipQueries []uint32
+	application       *GuildApplication
+	posts             []*MessageBoardPost
 }
 
 func (m *mockGuildRepo) GetByID(guildID uint32) (*Guild, error) {
@@ -396,16 +436,23 @@ func (m *mockGuildRepo) GetByCharID(_ uint32) (*Guild, error) {
 	return m.guild, nil
 }
 
-func (m *mockGuildRepo) GetMembers(_ uint32, _ bool) ([]*GuildMember, error) {
+func (m *mockGuildRepo) GetMembers(guildID uint32, applicants bool) ([]*GuildMember, error) {
+	m.getMembersCalls++
+	m.getMembersGuildID = guildID
+	m.getMembersApplicants = applicants
 	if m.getMembersErr != nil {
 		return nil, m.getMembersErr
 	}
 	return m.members, nil
 }
 
-func (m *mockGuildRepo) GetCharacterMembership(_ uint32) (*GuildMember, error) {
+func (m *mockGuildRepo) GetCharacterMembership(charID uint32) (*GuildMember, error) {
+	m.membershipQueries = append(m.membershipQueries, charID)
 	if m.getMemberErr != nil {
 		return nil, m.getMemberErr
+	}
+	if m.memberships != nil {
+		return m.memberships[charID], nil
 	}
 	return m.membership, nil
 }
@@ -425,17 +472,20 @@ func (m *mockGuildRepo) Disband(guildID uint32) error {
 	return m.disbandErr
 }
 
-func (m *mockGuildRepo) RemoveCharacter(charID uint32) error {
+func (m *mockGuildRepo) RemoveCharacter(guildID, charID uint32) error {
+	m.removedGuildID = guildID
 	m.removedCharID = charID
 	return m.removeErr
 }
 
-func (m *mockGuildRepo) AcceptApplication(_, charID uint32) error {
+func (m *mockGuildRepo) AcceptApplication(guildID, charID uint32) error {
+	m.acceptedGuildID = guildID
 	m.acceptedCharID = charID
 	return m.acceptErr
 }
 
-func (m *mockGuildRepo) RejectApplication(_, charID uint32) error {
+func (m *mockGuildRepo) RejectApplication(guildID, charID uint32) error {
+	m.rejectedGuildID = guildID
 	m.rejectedCharID = charID
 	return m.rejectErr
 }
@@ -465,7 +515,8 @@ func (m *mockGuildRepo) CreatePost(guildID, authorID, stampID uint32, postType i
 	return m.createPostErr
 }
 
-func (m *mockGuildRepo) DeletePost(postID uint32) error {
+func (m *mockGuildRepo) DeletePost(guildID, postID uint32) error {
+	m.deletedPostGuildID = guildID
 	m.deletedPostID = postID
 	return m.deletePostErr
 }
@@ -475,6 +526,12 @@ func (m *mockGuildRepo) GetAllianceByID(_ uint32) (*GuildAlliance, error) {
 }
 
 func (m *mockGuildRepo) CreateAlliance(_ string, _ uint32) error {
+	return m.createAllianceErr
+}
+
+func (m *mockGuildRepo) CreateAllianceForMember(_ string, guildID, actorCharID uint32) error {
+	m.createAllianceGuildID = guildID
+	m.createAllianceActorID = actorCharID
 	return m.createAllianceErr
 }
 
@@ -493,6 +550,16 @@ func (m *mockGuildRepo) RemoveGuildFromAlliance(allyID, guildID, sub1, sub2 uint
 	return m.removeAllyErr
 }
 
+func (m *mockGuildRepo) LeaveAlliance(allyID, guildID, actorCharID uint32) error {
+	m.removedAllyArgs = []uint32{allyID, guildID, actorCharID}
+	return m.removeAllyErr
+}
+
+func (m *mockGuildRepo) KickGuildFromAlliance(allyID, guildID, actorCharID uint32) error {
+	m.removedAllyArgs = []uint32{allyID, guildID, actorCharID}
+	return m.removeAllyErr
+}
+
 func (m *mockGuildRepo) ListMeals(_ uint32) ([]*GuildMeal, error) {
 	return m.meals, m.listMealsErr
 }
@@ -501,7 +568,17 @@ func (m *mockGuildRepo) CreateMeal(_, _, _ uint32, _ time.Time) (uint32, error) 
 	return m.createdMealID, m.createMealErr
 }
 
+func (m *mockGuildRepo) CreateMealForGuild(guildID, actorCharID, mealID, level uint32, _ time.Time) (uint32, error) {
+	m.updateMealArgs = []uint32{guildID, actorCharID, 0, mealID, level}
+	return m.createdMealID, m.createMealErr
+}
+
 func (m *mockGuildRepo) UpdateMeal(_, _, _ uint32, _ time.Time) error {
+	return m.updateMealErr
+}
+
+func (m *mockGuildRepo) UpdateMealForGuild(guildID, actorCharID, mealID, newMealID, level uint32, _ time.Time) error {
+	m.updateMealArgs = []uint32{guildID, actorCharID, mealID, newMealID, level}
 	return m.updateMealErr
 }
 
@@ -513,7 +590,15 @@ func (m *mockGuildRepo) CreateAdventure(_, _ uint32, _, _ int64) error {
 	return m.createAdvErr
 }
 
+func (m *mockGuildRepo) CreateAdventureForGuild(_, _, _ uint32, _, _ int64) error {
+	return m.createAdvErr
+}
+
 func (m *mockGuildRepo) CreateAdventureWithCharge(_, _, _ uint32, _, _ int64) error {
+	return m.createAdvErr
+}
+
+func (m *mockGuildRepo) CreateAdventureWithChargeForGuild(_, _, _, _ uint32, _, _ int64) error {
 	return m.createAdvErr
 }
 
@@ -522,9 +607,22 @@ func (m *mockGuildRepo) CollectAdventure(id uint32, _ uint32) error {
 	return nil
 }
 
+func (m *mockGuildRepo) CollectAdventureForGuild(guildID, id, charID uint32) error {
+	m.collectAdvID = id
+	m.collectAdvArgs = []uint32{guildID, id, charID}
+	return nil
+}
+
 func (m *mockGuildRepo) ChargeAdventure(id uint32, amount uint32) error {
 	m.chargeAdvID = id
 	m.chargeAdvAmount = amount
+	return nil
+}
+
+func (m *mockGuildRepo) ChargeAdventureForGuild(guildID, id, charID, amount uint32) error {
+	m.chargeAdvID = id
+	m.chargeAdvAmount = amount
+	m.chargeAdvArgs = []uint32{guildID, id, charID, amount}
 	return nil
 }
 
@@ -540,8 +638,18 @@ func (m *mockGuildRepo) CreateHunt(_, _, _, _ uint32, _ []byte, _ string) error 
 	return m.createHuntErr
 }
 
+func (m *mockGuildRepo) CreateHuntForGuild(_, _, _, _ uint32, _ []byte, _ string) error {
+	return m.createHuntErr
+}
+
 func (m *mockGuildRepo) AcquireHunt(id uint32) error {
 	m.acquireHuntID = id
+	return nil
+}
+
+func (m *mockGuildRepo) AcquireHuntForGuild(guildID, id, actorCharID uint32) error {
+	m.acquireHuntID = id
+	m.secureHuntArgs = []uint32{guildID, id, actorCharID}
 	return nil
 }
 
@@ -550,13 +658,31 @@ func (m *mockGuildRepo) RegisterHuntReport(id, _ uint32) error {
 	return nil
 }
 
+func (m *mockGuildRepo) RegisterHuntReportForGuild(guildID, id, charID uint32) error {
+	m.reportHuntID = id
+	m.secureHuntArgs = []uint32{guildID, id, charID}
+	return nil
+}
+
 func (m *mockGuildRepo) CollectHunt(id uint32) error {
 	m.collectHuntID = id
 	return nil
 }
 
+func (m *mockGuildRepo) CollectHuntForGuild(guildID, id, actorCharID uint32) error {
+	m.collectHuntID = id
+	m.secureHuntArgs = []uint32{guildID, id, actorCharID}
+	return nil
+}
+
 func (m *mockGuildRepo) ClaimHuntReward(id, _ uint32) error {
 	m.claimHuntID = id
+	return nil
+}
+
+func (m *mockGuildRepo) ClaimHuntRewardForGuild(guildID, id, charID uint32) error {
+	m.claimHuntID = id
+	m.secureHuntArgs = []uint32{guildID, id, charID}
 	return nil
 }
 
@@ -580,7 +706,11 @@ func (m *mockGuildRepo) CreateInviteWithMail(_, _, _, _, _ uint32, _, _ string) 
 func (m *mockGuildRepo) HasInvite(_, _ uint32) (bool, error) {
 	return m.hasInviteResult, m.hasInviteErr
 }
-func (m *mockGuildRepo) CancelInvite(_ uint32) error { return nil }
+func (m *mockGuildRepo) CancelInvite(guildID, inviteID uint32) error {
+	m.cancelInviteGuildID = guildID
+	m.cancelInviteID = inviteID
+	return m.cancelInviteErr
+}
 func (m *mockGuildRepo) AcceptInvite(_, charID uint32) error {
 	m.acceptInviteCharID = charID
 	return m.acceptErr
@@ -589,25 +719,61 @@ func (m *mockGuildRepo) DeclineInvite(_, charID uint32) error {
 	m.declineInviteCharID = charID
 	return m.rejectErr
 }
-func (m *mockGuildRepo) ArrangeCharacters(_ []uint32) error                        { return nil }
-func (m *mockGuildRepo) GetItemBox(_ uint32) ([]byte, error)                       { return nil, nil }
-func (m *mockGuildRepo) SaveItemBox(_ uint32, _ []byte) error                      { return nil }
-func (m *mockGuildRepo) UpdateItemBox(_ uint32, _ func([]byte) []byte) error       { return nil }
-func (m *mockGuildRepo) SetRecruiting(_ uint32, _ bool) error                      { return nil }
-func (m *mockGuildRepo) SetPugiOutfits(_ uint32, _ uint32) error                   { return nil }
-func (m *mockGuildRepo) SetRecruiter(_ uint32, _ bool) error                       { return nil }
-func (m *mockGuildRepo) AddMemberDailyRP(_ uint32, _ uint16) error                 { return nil }
-func (m *mockGuildRepo) ExchangeEventRP(_ uint32, _ uint16) (uint32, error)        { return 0, nil }
-func (m *mockGuildRepo) AddRankRP(_ uint32, _ uint16) error                        { return nil }
-func (m *mockGuildRepo) AddEventRP(_ uint32, _ uint16) error                       { return nil }
-func (m *mockGuildRepo) GetRoomRP(_ uint32) (uint16, error)                        { return 0, nil }
-func (m *mockGuildRepo) SetRoomRP(_ uint32, _ uint16) error                        { return nil }
-func (m *mockGuildRepo) AddRoomRP(_ uint32, _ uint16) error                        { return nil }
-func (m *mockGuildRepo) SetRoomExpiry(_ uint32, _ time.Time) error                 { return nil }
-func (m *mockGuildRepo) UpdatePost(_ uint32, _, _ string) error                    { return nil }
-func (m *mockGuildRepo) UpdatePostStamp(_, _ uint32) error                         { return nil }
-func (m *mockGuildRepo) GetPostLikedBy(_ uint32) (string, error)                   { return "", nil }
-func (m *mockGuildRepo) SetPostLikedBy(_ uint32, _ string) error                   { return nil }
+func (m *mockGuildRepo) ArrangeCharacters(guildID uint32, charIDs []uint32) error {
+	m.arrangeGuildID = guildID
+	m.arrangedCharIDs = append([]uint32(nil), charIDs...)
+	return m.arrangeErr
+}
+func (m *mockGuildRepo) GetItemBox(_ uint32) ([]byte, error) { return m.itemBoxData, nil }
+func (m *mockGuildRepo) SaveItemBox(_ uint32, data []byte) error {
+	m.itemBoxData = append([]byte(nil), data...)
+	return nil
+}
+func (m *mockGuildRepo) UpdateItemBox(guildID uint32, mutate func([]byte) []byte) error {
+	m.updateItemBoxCalled = true
+	m.updateItemBoxGuildID = guildID
+	m.itemBoxData = append([]byte(nil), mutate(m.itemBoxData)...)
+	return nil
+}
+func (m *mockGuildRepo) SetRecruiting(_ uint32, _ bool) error    { return nil }
+func (m *mockGuildRepo) SetPugiOutfits(_ uint32, _ uint32) error { return nil }
+func (m *mockGuildRepo) SetRecruiter(guildID, actorCharID, charID uint32, allowed bool) error {
+	m.setRecruiterCalled = true
+	m.recruiterGuildID = guildID
+	m.recruiterActorID = actorCharID
+	m.recruiterCharID = charID
+	m.recruiterAllowed = allowed
+	return m.setRecruiterErr
+}
+func (m *mockGuildRepo) AddMemberDailyRP(_ uint32, _ uint16) error          { return nil }
+func (m *mockGuildRepo) ExchangeEventRP(_ uint32, _ uint16) (uint32, error) { return 0, nil }
+func (m *mockGuildRepo) AddRankRP(_ uint32, _ uint16) error                 { return nil }
+func (m *mockGuildRepo) AddEventRP(_ uint32, _ uint16) error                { return nil }
+func (m *mockGuildRepo) GetRoomRP(_ uint32) (uint16, error)                 { return 0, nil }
+func (m *mockGuildRepo) SetRoomRP(_ uint32, _ uint16) error                 { return nil }
+func (m *mockGuildRepo) AddRoomRP(_ uint32, _ uint16) error                 { return nil }
+func (m *mockGuildRepo) SetRoomExpiry(_ uint32, _ time.Time) error          { return nil }
+func (m *mockGuildRepo) UpdatePost(guildID, postID uint32, _, _ string) error {
+	m.updatedPostGuildID = guildID
+	m.updatedPostID = postID
+	return nil
+}
+func (m *mockGuildRepo) UpdatePostStamp(guildID, postID, stampID uint32) error {
+	m.updatedStampGuildID = guildID
+	m.updatedStampPostID = postID
+	m.updatedStampID = stampID
+	return nil
+}
+func (m *mockGuildRepo) GetPostLikedBy(guildID, postID uint32) (string, error) {
+	m.likedPostGuildID = guildID
+	m.likedPostID = postID
+	return "", nil
+}
+func (m *mockGuildRepo) SetPostLikedBy(guildID, postID uint32, _ string) error {
+	m.setLikedPostGuildID = guildID
+	m.setLikedPostID = postID
+	return nil
+}
 func (m *mockGuildRepo) CountNewPosts(_ uint32, _ time.Time) (int, error)          { return 0, nil }
 func (m *mockGuildRepo) ListAlliances() ([]*GuildAlliance, error)                  { return nil, nil }
 func (m *mockGuildRepo) ClearTreasureHunt(_ uint32) error                          { return nil }
@@ -615,6 +781,10 @@ func (m *mockGuildRepo) InsertKillLog(_ uint32, _ int, _ uint8, _ time.Time) err
 func (m *mockGuildRepo) ListInvites(_ uint32) ([]*GuildInvite, error)              { return nil, nil }
 func (m *mockGuildRepo) RolloverDailyRP(_ uint32, _ time.Time) error               { return nil }
 func (m *mockGuildRepo) AddWeeklyBonusUsers(_ uint32, _ uint8) error               { return nil }
+func (m *mockGuildRepo) AddWeeklyBonusUsersForMember(guildID, actorCharID uint32, numUsers uint8) error {
+	m.weeklyBonusArgs = []uint32{guildID, actorCharID, uint32(numUsers)}
+	return nil
+}
 func (m *mockGuildRepo) FindOrCreateReturnGuild(_ uint8, _ string) (uint32, error) {
 	return 1, nil
 }

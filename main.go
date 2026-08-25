@@ -218,6 +218,25 @@ func main() {
 	if err := channelserver.BackfillPlaytimeRankings(db, config.RealClientMode, logger.Named("playtime-ranking")); err != nil {
 		logger.Warn("Database: playtime ranking backfill failed", zap.Error(err))
 	}
+	if expiry := config.Sign.SessionTokenExpiry(); expiry > 0 {
+		result, err := db.Exec(`DELETE FROM sign_sessions
+			WHERE server_id IS NULL
+			  AND last_used_at < NOW() - ($1 * INTERVAL '1 second')`, expiry.Seconds())
+		if err != nil {
+			logger.Warn("Failed to clean expired login sessions", zap.Error(err))
+		} else if removed, rowsErr := result.RowsAffected(); rowsErr == nil && removed > 0 {
+			logger.Info("Cleaned expired login sessions", zap.Int64("removed", removed))
+		}
+	}
+	if retentionDays := config.SecurityAudit.RetentionDays; retentionDays > 0 {
+		result, err := db.Exec(`DELETE FROM security_audit_events
+			WHERE created_at < NOW() - ($1 * INTERVAL '1 day')`, retentionDays)
+		if err != nil {
+			logger.Warn("Failed to clean expired security audit events", zap.Error(err))
+		} else if removed, rowsErr := result.RowsAffected(); rowsErr == nil && removed > 0 {
+			logger.Info("Cleaned expired security audit events", zap.Int64("removed", removed))
+		}
+	}
 
 	// Auto-apply seed data on a fresh database so users who skip the wizard
 	// still get shops, events, and gacha. Seed files use ON CONFLICT DO NOTHING

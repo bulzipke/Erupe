@@ -525,6 +525,22 @@ func TestDiffItemStacks_GeneratesNewWarehouseID(t *testing.T) {
 	}
 }
 
+func TestNewWarehouseIDReservesUniqueNonZeroIDs(t *testing.T) {
+	used := map[uint32]struct{}{1: {}}
+	for i := 0; i < 256; i++ {
+		id := NewWarehouseID(used)
+		if id == 0 {
+			t.Fatal("NewWarehouseID returned zero")
+		}
+		if id == 1 {
+			t.Fatal("NewWarehouseID returned an ID that was already reserved")
+		}
+	}
+	if got, want := len(used), 257; got != want {
+		t.Fatalf("reserved ID count = %d, want %d", got, want)
+	}
+}
+
 func TestDeserializeWarehouseItems_RoundTrip(t *testing.T) {
 	items := []MHFItemStack{
 		{WarehouseID: 100, Item: MHFItem{ItemID: 500}, Quantity: 3, Unk0: 7},

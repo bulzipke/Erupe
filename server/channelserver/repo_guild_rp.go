@@ -100,3 +100,18 @@ func (r *GuildRepository) AddWeeklyBonusUsers(guildID uint32, numUsers uint8) er
 	)
 	return err
 }
+
+// AddWeeklyBonusUsersForMember updates the actor's current guild only.
+func (r *GuildRepository) AddWeeklyBonusUsersForMember(guildID, actorCharID uint32, numUsers uint8) error {
+	return requireGuildScopedMutation(r.db.Exec(`
+		UPDATE guilds g
+		SET weekly_bonus_users = weekly_bonus_users + $1
+		WHERE g.id = $2
+		  AND EXISTS (
+			SELECT 1
+			FROM guild_characters gc
+			WHERE gc.guild_id = g.id
+			  AND gc.character_id = $3
+		  )
+	`, numUsers, guildID, actorCharID))
+}

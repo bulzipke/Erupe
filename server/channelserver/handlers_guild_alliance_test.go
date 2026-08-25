@@ -12,7 +12,7 @@ import (
 
 func TestCreateJoint_Success(t *testing.T) {
 	server := createMockServer()
-	guildMock := &mockGuildRepo{}
+	guildMock := &mockGuildRepo{membership: &GuildMember{GuildID: 10, CharID: 1, IsLeader: true}}
 	server.guildRepo = guildMock
 	session := createMockSession(1, server)
 
@@ -23,6 +23,9 @@ func TestCreateJoint_Success(t *testing.T) {
 	}
 
 	handleMsgMhfCreateJoint(session, pkt)
+	if guildMock.createAllianceGuildID != 10 || guildMock.createAllianceActorID != 1 {
+		t.Fatalf("CreateAllianceForMember scope = (%d, %d), want (10, 1)", guildMock.createAllianceGuildID, guildMock.createAllianceActorID)
+	}
 
 	select {
 	case <-session.sendPackets:
@@ -33,7 +36,10 @@ func TestCreateJoint_Success(t *testing.T) {
 
 func TestCreateJoint_Error(t *testing.T) {
 	server := createMockServer()
-	guildMock := &mockGuildRepo{createAllianceErr: errNotFound}
+	guildMock := &mockGuildRepo{
+		createAllianceErr: errNotFound,
+		membership:        &GuildMember{GuildID: 10, CharID: 1, IsLeader: true},
+	}
 	server.guildRepo = guildMock
 	session := createMockSession(1, server)
 
@@ -53,6 +59,23 @@ func TestCreateJoint_Error(t *testing.T) {
 	}
 }
 
+func TestCreateJoint_ApplicantRejected(t *testing.T) {
+	server := createMockServer()
+	guildMock := &mockGuildRepo{membership: &GuildMember{GuildID: 10, CharID: 1, IsApplicant: true, IsLeader: true}}
+	server.guildRepo = guildMock
+	session := createMockSession(1, server)
+
+	handleMsgMhfCreateJoint(session, &mhfpacket.MsgMhfCreateJoint{
+		AckHandle: 100,
+		GuildID:   10,
+		Name:      "TestAlliance",
+	})
+
+	if guildMock.createAllianceGuildID != 0 {
+		t.Fatal("applicant created an alliance")
+	}
+}
+
 // --- handleMsgMhfOperateJoint tests ---
 
 func TestOperateJoint_Disband_AsOwner(t *testing.T) {
@@ -62,6 +85,7 @@ func TestOperateJoint_Disband_AsOwner(t *testing.T) {
 			ID:            5,
 			ParentGuildID: 10,
 		},
+		membership: &GuildMember{GuildID: 10, CharID: 1, IsLeader: true},
 	}
 	guildMock.guild = &Guild{ID: 10}
 	guildMock.guild.LeaderCharID = 1 // session charID
@@ -123,6 +147,7 @@ func TestOperateJoint_Leave_AsLeader(t *testing.T) {
 			ParentGuildID: 99,
 			SubGuild1ID:   10,
 		},
+		membership: &GuildMember{GuildID: 10, CharID: 1, IsLeader: true},
 	}
 	guildMock.guild = &Guild{ID: 10}
 	guildMock.guild.LeaderCharID = 1
@@ -149,7 +174,8 @@ func TestOperateJoint_Leave_AsLeader(t *testing.T) {
 func TestOperateJoint_Leave_NotLeader(t *testing.T) {
 	server := createMockServer()
 	guildMock := &mockGuildRepo{
-		alliance: &GuildAlliance{ID: 5, ParentGuildID: 99},
+		alliance:   &GuildAlliance{ID: 5, ParentGuildID: 99},
+		membership: &GuildMember{GuildID: 10, CharID: 1},
 	}
 	guildMock.guild = &Guild{ID: 10}
 	guildMock.guild.LeaderCharID = 999 // not session char
@@ -179,6 +205,7 @@ func TestOperateJoint_Kick_AsAllianceOwner(t *testing.T) {
 			ParentGuild:   Guild{},
 			SubGuild1ID:   20,
 		},
+		membership: &GuildMember{GuildID: 10, CharID: 1, IsLeader: true},
 	}
 	guildMock.alliance.ParentGuild.LeaderCharID = 1 // session char owns alliance
 	guildMock.guild = &Guild{ID: 10}
@@ -217,6 +244,7 @@ func TestOperateJoint_Kick_NotOwner(t *testing.T) {
 			ParentGuildID: 99,
 			ParentGuild:   Guild{},
 		},
+		membership: &GuildMember{GuildID: 10, CharID: 1, IsLeader: true},
 	}
 	guildMock.alliance.ParentGuild.LeaderCharID = 999 // not session char
 	guildMock.guild = &Guild{ID: 10}

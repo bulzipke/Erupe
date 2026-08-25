@@ -81,6 +81,7 @@ func TestRegistGuildCooking_NewMeal(t *testing.T) {
 	server := createMockServer()
 	guildMock := &mockGuildRepo{
 		createdMealID: 42,
+		membership:    &GuildMember{GuildID: 10, CharID: 1},
 	}
 	guildMock.guild = &Guild{ID: 10}
 	server.guildRepo = guildMock
@@ -94,6 +95,9 @@ func TestRegistGuildCooking_NewMeal(t *testing.T) {
 	}
 
 	handleMsgMhfRegistGuildCooking(session, pkt)
+	if len(guildMock.updateMealArgs) != 5 || guildMock.updateMealArgs[0] != 10 || guildMock.updateMealArgs[1] != 1 {
+		t.Fatalf("CreateMealForGuild scope = %v, want guild 10 actor 1", guildMock.updateMealArgs)
+	}
 
 	select {
 	case p := <-session.sendPackets:
@@ -107,7 +111,7 @@ func TestRegistGuildCooking_NewMeal(t *testing.T) {
 
 func TestRegistGuildCooking_UpdateMeal(t *testing.T) {
 	server := createMockServer()
-	guildMock := &mockGuildRepo{}
+	guildMock := &mockGuildRepo{membership: &GuildMember{GuildID: 10, CharID: 1}}
 	guildMock.guild = &Guild{ID: 10}
 	server.guildRepo = guildMock
 	session := createMockSession(1, server)
@@ -120,6 +124,9 @@ func TestRegistGuildCooking_UpdateMeal(t *testing.T) {
 	}
 
 	handleMsgMhfRegistGuildCooking(session, pkt)
+	if len(guildMock.updateMealArgs) != 5 || guildMock.updateMealArgs[0] != 10 || guildMock.updateMealArgs[1] != 1 || guildMock.updateMealArgs[2] != 42 {
+		t.Fatalf("UpdateMealForGuild scope = %v, want guild 10 actor 1 meal 42", guildMock.updateMealArgs)
+	}
 
 	select {
 	case <-session.sendPackets:
@@ -132,6 +139,7 @@ func TestRegistGuildCooking_CreateError(t *testing.T) {
 	server := createMockServer()
 	guildMock := &mockGuildRepo{
 		createMealErr: errNotFound,
+		membership:    &GuildMember{GuildID: 10, CharID: 1},
 	}
 	guildMock.guild = &Guild{ID: 10}
 	server.guildRepo = guildMock
@@ -264,7 +272,7 @@ func TestGuildHuntdata_Check_NoKills(t *testing.T) {
 
 func TestAddGuildWeeklyBonusExceptionalUser_Success(t *testing.T) {
 	server := createMockServer()
-	guildMock := &mockGuildRepo{}
+	guildMock := &mockGuildRepo{membership: &GuildMember{GuildID: 10, CharID: 1}}
 	guildMock.guild = &Guild{ID: 10}
 	server.guildRepo = guildMock
 	session := createMockSession(1, server)
@@ -275,6 +283,9 @@ func TestAddGuildWeeklyBonusExceptionalUser_Success(t *testing.T) {
 	}
 
 	handleMsgMhfAddGuildWeeklyBonusExceptionalUser(session, pkt)
+	if len(guildMock.weeklyBonusArgs) != 3 || guildMock.weeklyBonusArgs[0] != 10 || guildMock.weeklyBonusArgs[1] != 1 || guildMock.weeklyBonusArgs[2] != 3 {
+		t.Fatalf("AddWeeklyBonusUsersForMember scope = %v, want [10 1 3]", guildMock.weeklyBonusArgs)
+	}
 
 	select {
 	case <-session.sendPackets:

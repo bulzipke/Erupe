@@ -61,6 +61,21 @@ func (r *GuildRepository) CreateAlliance(name string, parentGuildID uint32) erro
 	return err
 }
 
+// CreateAllianceForMember creates an alliance only while actorCharID is an
+// actual member of parentGuildID. It intentionally adds no new role policy.
+func (r *GuildRepository) CreateAllianceForMember(name string, parentGuildID, actorCharID uint32) error {
+	return requireGuildScopedMutation(r.db.Exec(`
+		INSERT INTO guild_alliances (name, parent_id)
+		SELECT $1, $2
+		WHERE EXISTS (
+			SELECT 1
+			FROM guild_characters gc
+			WHERE gc.guild_id = $2
+			  AND gc.character_id = $3
+		)
+	`, name, parentGuildID, actorCharID))
+}
+
 // DeleteAlliance removes an alliance by ID.
 func (r *GuildRepository) DeleteAlliance(allianceID uint32) error {
 	_, err := r.db.Exec("DELETE FROM guild_alliances WHERE id=$1", allianceID)
@@ -69,15 +84,57 @@ func (r *GuildRepository) DeleteAlliance(allianceID uint32) error {
 
 // RemoveGuildFromAlliance removes a guild from its alliance, shifting sub2 into sub1's slot if needed.
 func (r *GuildRepository) RemoveGuildFromAlliance(allianceID, guildID, subGuild1ID, subGuild2ID uint32) error {
-	if guildID == subGuild1ID && subGuild2ID > 0 {
-		_, err := r.db.Exec(`UPDATE guild_alliances SET sub1_id = sub2_id, sub2_id = NULL WHERE id = $1`, allianceID)
-		return err
-	} else if guildID == subGuild1ID {
-		_, err := r.db.Exec(`UPDATE guild_alliances SET sub1_id = NULL WHERE id = $1`, allianceID)
-		return err
-	}
-	_, err := r.db.Exec(`UPDATE guild_alliances SET sub2_id = NULL WHERE id = $1`, allianceID)
-	return err
+	_ = subGuild1ID
+	_ = subGuild2ID
+	return requireGuildScopedMutation(r.db.Exec(`
+		UPDATE guild_alliances
+		SET sub1_id = CASE WHEN sub1_id = $2 THEN sub2_id ELSE sub1_id END,
+		    sub2_id = NULL
+		WHERE id = $1
+		  AND (sub1_id = $2 OR sub2_id = $2)
+	`, allianceID, guildID))
+}
+
+// LeaveAlliance removes the actor's own guild from a subordinate alliance
+// slot. Both leadership and membership are checked in the same statement.
+func (r *GuildRepository) LeaveAlliance(allianceID, guildID, actorCharID uint32) error {
+	return requireGuildScopedMutation(r.db.Exec(`
+		UPDATE guild_alliances ga
+		SET sub1_id = CASE WHEN ga.sub1_id = $2 THEN ga.sub2_id ELSE ga.sub1_id END,
+		    sub2_id = NULL
+		WHERE ga.id = $1
+		  AND (ga.sub1_id = $2 OR ga.sub2_id = $2)
+		  AND EXISTS (
+			SELECT 1
+			FROM guilds g
+			JOIN guild_characters gc
+			  ON gc.guild_id = g.id
+			 AND gc.character_id = $3
+			WHERE g.id = $2
+			  AND g.leader_id = $3
+		  )
+	`, allianceID, guildID, actorCharID))
+}
+
+// KickGuildFromAlliance removes a subordinate guild only when actorCharID is
+// the current leader and an actual member of the alliance's parent guild.
+func (r *GuildRepository) KickGuildFromAlliance(allianceID, guildID, actorCharID uint32) error {
+	return requireGuildScopedMutation(r.db.Exec(`
+		UPDATE guild_alliances ga
+		SET sub1_id = CASE WHEN ga.sub1_id = $2 THEN ga.sub2_id ELSE ga.sub1_id END,
+		    sub2_id = NULL
+		WHERE ga.id = $1
+		  AND (ga.sub1_id = $2 OR ga.sub2_id = $2)
+		  AND EXISTS (
+			SELECT 1
+			FROM guilds g
+			JOIN guild_characters gc
+			  ON gc.guild_id = g.id
+			 AND gc.character_id = $3
+			WHERE g.id = ga.parent_id
+			  AND g.leader_id = $3
+		  )
+	`, allianceID, guildID, actorCharID))
 }
 
 // SetAllianceRecruiting updates whether an alliance is accepting applications.

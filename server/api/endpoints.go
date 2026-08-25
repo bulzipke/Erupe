@@ -689,6 +689,7 @@ func (s *APIServer) ImportSave(w http.ResponseWriter, r *http.Request) {
 
 	var charID uint32
 	if _, err := fmt.Sscanf(mux.Vars(r)["id"], "%d", &charID); err != nil {
+		s.auditImport(userID, 0, "warning", "rejected", "invalid_character_id")
 		writeError(w, http.StatusBadRequest, "invalid_request", "Invalid character ID")
 		return
 	}
@@ -698,16 +699,19 @@ func (s *APIServer) ImportSave(w http.ResponseWriter, r *http.Request) {
 		Character   map[string]interface{} `json:"character"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.auditImport(userID, charID, "warning", "rejected", "malformed_request")
 		writeError(w, http.StatusBadRequest, "invalid_request", "Malformed request body")
 		return
 	}
 	if req.ImportToken == "" {
+		s.auditImport(userID, charID, "warning", "rejected", "missing_import_token")
 		writeError(w, http.StatusBadRequest, "missing_token", "import_token is required")
 		return
 	}
 
 	blobs, err := saveBlobsFromMap(req.Character)
 	if err != nil {
+		s.auditImport(userID, charID, "warning", "rejected", "invalid_save_blobs")
 		s.logger.Warn("ImportSave: failed to extract blobs", zap.Error(err), zap.Uint32("charID", charID))
 		writeError(w, http.StatusBadRequest, "invalid_request", "Invalid save data: "+err.Error())
 		return
@@ -717,6 +721,7 @@ func (s *APIServer) ImportSave(w http.ResponseWriter, r *http.Request) {
 	if len(blobs.Savedata) > 0 {
 		decompressed, err := nullcomp.DecompressWithLimit(blobs.Savedata, maxImportedSavedata)
 		if err != nil {
+			s.auditImport(userID, charID, "warning", "rejected", "savedata_decompression_failed")
 			writeError(w, http.StatusBadRequest, "invalid_request", "savedata decompression failed")
 			return
 		}
@@ -725,12 +730,17 @@ func (s *APIServer) ImportSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.charRepo.ImportSave(ctx, charID, userID, req.ImportToken, blobs); err != nil {
+		// The repository deliberately returns one error surface for invalid
+		// credentials, ownership failures, expiry, and storage errors. Do not
+		// claim a more specific cause in the audit record than we can prove here.
+		s.auditImport(userID, charID, "warning", "rejected", "import_failed")
 		s.logger.Warn("ImportSave: failed", zap.Error(err), zap.Uint32("charID", charID))
 		writeError(w, http.StatusForbidden, "import_denied", "Import token invalid, expired, or character not owned by user")
 		return
 	}
 
 	s.logger.Info("ImportSave: save imported successfully", zap.Uint32("charID", charID), zap.Uint32("userID", userID))
+	s.auditImport(userID, charID, "info", "accepted", "valid_one_time_token")
 	w.WriteHeader(http.StatusOK)
 }
 

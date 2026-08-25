@@ -362,6 +362,9 @@ func TestCancelGuildScout_Success(t *testing.T) {
 	}
 
 	handleMsgMhfCancelGuildScout(session, pkt)
+	if guildMock.cancelInviteGuildID != 10 || guildMock.cancelInviteID != 42 {
+		t.Fatalf("CancelInvite args = (%d, %d), want (10, 42)", guildMock.cancelInviteGuildID, guildMock.cancelInviteID)
+	}
 
 	select {
 	case <-session.sendPackets:

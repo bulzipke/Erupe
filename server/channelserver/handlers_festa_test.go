@@ -327,7 +327,7 @@ func TestHandleMsgMhfEntryFesta_NoGuild(t *testing.T) {
 
 func TestHandleMsgMhfEntryFesta_WithGuild(t *testing.T) {
 	srv := createMockServer()
-	srv.guildRepo = &mockGuildRepo{guild: &Guild{ID: 1}}
+	srv.guildRepo = &mockGuildRepo{membership: &GuildMember{GuildID: 1, CharID: 100}}
 	srv.festaRepo = &mockFestaRepo{}
 	s := createMockSession(100, srv)
 
@@ -338,6 +338,20 @@ func TestHandleMsgMhfEntryFesta_WithGuild(t *testing.T) {
 	case <-s.sendPackets:
 	default:
 		t.Fatal("No response packet queued")
+	}
+}
+
+func TestHandleMsgMhfEntryFesta_ApplicantRejected(t *testing.T) {
+	srv := createMockServer()
+	srv.guildRepo = &mockGuildRepo{membership: &GuildMember{GuildID: 1, CharID: 100, IsApplicant: true}}
+	srv.festaRepo = &mockFestaRepo{}
+	s := createMockSession(100, srv)
+
+	handleMsgMhfEntryFesta(s, &mhfpacket.MsgMhfEntryFesta{AckHandle: 1})
+
+	ack := readAck(t, s)
+	if ack.ErrorCode == 0 {
+		t.Fatal("applicant festa entry succeeded")
 	}
 }
 

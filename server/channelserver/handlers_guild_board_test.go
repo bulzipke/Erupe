@@ -69,13 +69,15 @@ func TestUpdateGuildMessageBoard_DeletePost(t *testing.T) {
 	if guildMock.deletedPostID != 42 {
 		t.Errorf("DeletePost postID = %d, want 42", guildMock.deletedPostID)
 	}
+	if guildMock.deletedPostGuildID != 10 {
+		t.Errorf("DeletePost guildID = %d, want 10", guildMock.deletedPostGuildID)
+	}
 }
 
 func TestUpdateGuildMessageBoard_NoGuild(t *testing.T) {
 	server := createMockServer()
 	charMock := newMockCharacterRepo()
-	guildMock := &mockGuildRepo{}
-	guildMock.getErr = errNotFound
+	guildMock := &mockGuildRepo{getMemberErr: errNotFound}
 	server.guildRepo = guildMock
 	server.charRepo = charMock
 	session := createMockSession(1, server)
@@ -99,7 +101,7 @@ func TestUpdateGuildMessageBoard_Applicant(t *testing.T) {
 	server := createMockServer()
 	charMock := newMockCharacterRepo()
 	guildMock := &mockGuildRepo{
-		hasAppResult: true, // is an applicant
+		membership: &GuildMember{GuildID: 10, CharID: 1, IsApplicant: true},
 	}
 	guildMock.guild = &Guild{ID: 10}
 	guildMock.guild.LeaderCharID = 999
@@ -125,12 +127,10 @@ func TestUpdateGuildMessageBoard_Applicant(t *testing.T) {
 	}
 }
 
-func TestUpdateGuildMessageBoard_HasAppError(t *testing.T) {
+func TestUpdateGuildMessageBoard_MembershipError(t *testing.T) {
 	server := createMockServer()
 	charMock := newMockCharacterRepo()
-	guildMock := &mockGuildRepo{
-		hasAppErr: errNotFound, // error checking app status
-	}
+	guildMock := &mockGuildRepo{getMemberErr: errNotFound}
 	guildMock.guild = &Guild{ID: 10}
 	guildMock.guild.LeaderCharID = 1
 	server.guildRepo = guildMock
@@ -144,8 +144,10 @@ func TestUpdateGuildMessageBoard_HasAppError(t *testing.T) {
 		Body:      "Body",
 	}
 
-	// Should log warning and treat as non-applicant (applicant=false on error)
 	handleMsgMhfUpdateGuildMessageBoard(session, pkt)
+	if guildMock.createdPost != nil {
+		t.Error("CreatePost should not be called when membership lookup fails")
+	}
 
 	select {
 	case <-session.sendPackets:
@@ -243,7 +245,7 @@ func TestEnumerateGuildMessageBoard_DBError(t *testing.T) {
 func TestHandleMsgMhfUpdateGuildMessageBoard_CreatePost(t *testing.T) {
 	srv := createMockServer()
 	guild := &Guild{ID: 1}
-	srv.guildRepo = &mockGuildRepo{guild: guild}
+	srv.guildRepo = &mockGuildRepo{guild: guild, membership: &GuildMember{GuildID: 1, CharID: 100}}
 	srv.charRepo = newMockCharacterRepo()
 	s := createMockSession(100, srv)
 
@@ -262,7 +264,7 @@ func TestHandleMsgMhfUpdateGuildMessageBoard_CreatePost(t *testing.T) {
 func TestHandleMsgMhfUpdateGuildMessageBoard_CreatePostType1(t *testing.T) {
 	srv := createMockServer()
 	guild := &Guild{ID: 1}
-	srv.guildRepo = &mockGuildRepo{guild: guild}
+	srv.guildRepo = &mockGuildRepo{guild: guild, membership: &GuildMember{GuildID: 1, CharID: 100}}
 	srv.charRepo = newMockCharacterRepo()
 	s := createMockSession(100, srv)
 
@@ -280,7 +282,8 @@ func TestHandleMsgMhfUpdateGuildMessageBoard_CreatePostType1(t *testing.T) {
 func TestHandleMsgMhfUpdateGuildMessageBoard_DeletePost(t *testing.T) {
 	srv := createMockServer()
 	guild := &Guild{ID: 1}
-	srv.guildRepo = &mockGuildRepo{guild: guild}
+	guildRepo := &mockGuildRepo{guild: guild, membership: &GuildMember{GuildID: 1, CharID: 100}}
+	srv.guildRepo = guildRepo
 	srv.charRepo = newMockCharacterRepo()
 	s := createMockSession(100, srv)
 
@@ -291,12 +294,16 @@ func TestHandleMsgMhfUpdateGuildMessageBoard_DeletePost(t *testing.T) {
 	}
 	handleMsgMhfUpdateGuildMessageBoard(s, pkt)
 	<-s.sendPackets
+	if guildRepo.deletedPostGuildID != 1 || guildRepo.deletedPostID != 42 {
+		t.Fatalf("DeletePost args = (%d, %d), want (1, 42)", guildRepo.deletedPostGuildID, guildRepo.deletedPostID)
+	}
 }
 
 func TestHandleMsgMhfUpdateGuildMessageBoard_UpdatePost(t *testing.T) {
 	srv := createMockServer()
 	guild := &Guild{ID: 1}
-	srv.guildRepo = &mockGuildRepo{guild: guild}
+	guildRepo := &mockGuildRepo{guild: guild, membership: &GuildMember{GuildID: 1, CharID: 100}}
+	srv.guildRepo = guildRepo
 	srv.charRepo = newMockCharacterRepo()
 	s := createMockSession(100, srv)
 
@@ -309,12 +316,16 @@ func TestHandleMsgMhfUpdateGuildMessageBoard_UpdatePost(t *testing.T) {
 	}
 	handleMsgMhfUpdateGuildMessageBoard(s, pkt)
 	<-s.sendPackets
+	if guildRepo.updatedPostGuildID != 1 || guildRepo.updatedPostID != 1 {
+		t.Fatalf("UpdatePost args = (%d, %d), want (1, 1)", guildRepo.updatedPostGuildID, guildRepo.updatedPostID)
+	}
 }
 
 func TestHandleMsgMhfUpdateGuildMessageBoard_UpdateStamp(t *testing.T) {
 	srv := createMockServer()
 	guild := &Guild{ID: 1}
-	srv.guildRepo = &mockGuildRepo{guild: guild}
+	guildRepo := &mockGuildRepo{guild: guild, membership: &GuildMember{GuildID: 1, CharID: 100}}
+	srv.guildRepo = guildRepo
 	srv.charRepo = newMockCharacterRepo()
 	s := createMockSession(100, srv)
 
@@ -326,12 +337,16 @@ func TestHandleMsgMhfUpdateGuildMessageBoard_UpdateStamp(t *testing.T) {
 	}
 	handleMsgMhfUpdateGuildMessageBoard(s, pkt)
 	<-s.sendPackets
+	if guildRepo.updatedStampGuildID != 1 || guildRepo.updatedStampPostID != 1 || guildRepo.updatedStampID != 5 {
+		t.Fatalf("UpdatePostStamp args = (%d, %d, %d), want (1, 1, 5)", guildRepo.updatedStampGuildID, guildRepo.updatedStampPostID, guildRepo.updatedStampID)
+	}
 }
 
 func TestHandleMsgMhfUpdateGuildMessageBoard_LikePost(t *testing.T) {
 	srv := createMockServer()
 	guild := &Guild{ID: 1}
-	srv.guildRepo = &mockGuildRepo{guild: guild}
+	guildRepo := &mockGuildRepo{guild: guild, membership: &GuildMember{GuildID: 1, CharID: 100}}
+	srv.guildRepo = guildRepo
 	srv.charRepo = newMockCharacterRepo()
 	s := createMockSession(100, srv)
 
@@ -343,12 +358,18 @@ func TestHandleMsgMhfUpdateGuildMessageBoard_LikePost(t *testing.T) {
 	}
 	handleMsgMhfUpdateGuildMessageBoard(s, pkt)
 	<-s.sendPackets
+	if guildRepo.likedPostGuildID != 1 || guildRepo.likedPostID != 1 ||
+		guildRepo.setLikedPostGuildID != 1 || guildRepo.setLikedPostID != 1 {
+		t.Fatalf("like calls used wrong guild/post: get=(%d,%d) set=(%d,%d)",
+			guildRepo.likedPostGuildID, guildRepo.likedPostID,
+			guildRepo.setLikedPostGuildID, guildRepo.setLikedPostID)
+	}
 }
 
 func TestHandleMsgMhfUpdateGuildMessageBoard_CheckNewPosts(t *testing.T) {
 	srv := createMockServer()
 	guild := &Guild{ID: 1}
-	srv.guildRepo = &mockGuildRepo{guild: guild}
+	srv.guildRepo = &mockGuildRepo{guild: guild, membership: &GuildMember{GuildID: 1, CharID: 100}}
 	srv.charRepo = newMockCharacterRepo()
 	s := createMockSession(100, srv)
 
@@ -362,7 +383,7 @@ func TestHandleMsgMhfUpdateGuildMessageBoard_CheckNewPosts(t *testing.T) {
 
 func TestHandleMsgMhfUpdateGuildMessageBoard_NoGuild(t *testing.T) {
 	srv := createMockServer()
-	srv.guildRepo = &mockGuildRepo{getErr: errNotFound}
+	srv.guildRepo = &mockGuildRepo{getMemberErr: errNotFound}
 	srv.charRepo = newMockCharacterRepo()
 	s := createMockSession(100, srv)
 
@@ -374,7 +395,7 @@ func TestHandleMsgMhfUpdateGuildMessageBoard_NoGuild(t *testing.T) {
 func TestHandleMsgMhfUpdateGuildMessageBoard_Applicant(t *testing.T) {
 	srv := createMockServer()
 	guild := &Guild{ID: 1}
-	srv.guildRepo = &mockGuildRepo{guild: guild, hasAppResult: true}
+	srv.guildRepo = &mockGuildRepo{guild: guild, membership: &GuildMember{GuildID: 1, CharID: 100, IsApplicant: true}}
 	srv.charRepo = newMockCharacterRepo()
 	s := createMockSession(100, srv)
 

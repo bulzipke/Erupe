@@ -225,6 +225,21 @@ func TestGenerate_EmptyString(t *testing.T) {
 	}
 }
 
+func TestGenerateSecure(t *testing.T) {
+	got, err := GenerateSecure(64)
+	if err != nil {
+		t.Fatalf("GenerateSecure() error: %v", err)
+	}
+	if len(got) != 64 {
+		t.Fatalf("GenerateSecure() length = %d, want 64", len(got))
+	}
+	for _, char := range got {
+		if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9')) {
+			t.Fatalf("GenerateSecure() produced non-alphanumeric character %q", char)
+		}
+	}
+}
+
 func TestGenerate_OnlyAlphanumeric(t *testing.T) {
 	// Verify no special characters
 	token := Generate(1000)

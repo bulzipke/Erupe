@@ -172,9 +172,7 @@ func TestOperateGuild_Resign_SkipsAvoidLeadership(t *testing.T) {
 
 func TestOperateGuild_Apply_Success(t *testing.T) {
 	server := createMockServer()
-	guildMock := &mockGuildRepo{
-		membership: &GuildMember{GuildID: 10, CharID: 1, OrderIndex: 5},
-	}
+	guildMock := &mockGuildRepo{}
 	guildMock.guild = &Guild{ID: 10}
 	guildMock.guild.LeaderCharID = 999
 	server.guildRepo = guildMock
@@ -202,7 +200,6 @@ func TestOperateGuild_Apply_Success(t *testing.T) {
 func TestOperateGuild_Apply_RepoError(t *testing.T) {
 	server := createMockServer()
 	guildMock := &mockGuildRepo{
-		membership:   &GuildMember{GuildID: 10, CharID: 1, OrderIndex: 5},
 		createAppErr: errNotFound,
 	}
 	guildMock.guild = &Guild{ID: 10}
@@ -223,6 +220,27 @@ func TestOperateGuild_Apply_RepoError(t *testing.T) {
 	case <-session.sendPackets:
 	default:
 		t.Error("No response packet queued")
+	}
+}
+
+func TestOperateGuild_Apply_MayTargetGuildWithoutMembership(t *testing.T) {
+	server := createMockServer()
+	guildMock := &mockGuildRepo{}
+	guildMock.guild = &Guild{ID: 11}
+	guildMock.guild.LeaderCharID = 999
+	server.guildRepo = guildMock
+	session := createMockSession(1, server)
+
+	pkt := &mhfpacket.MsgMhfOperateGuild{
+		AckHandle: 100,
+		GuildID:   11,
+		Action:    mhfpacket.OperateGuildApply,
+	}
+
+	handleMsgMhfOperateGuild(session, pkt)
+
+	if guildMock.createdAppArgs == nil {
+		t.Fatal("CreateApplication should be called for the target guild")
 	}
 }
 
@@ -366,6 +384,35 @@ func TestOperateGuild_UpdateComment_NotLeader(t *testing.T) {
 		}
 	default:
 		t.Error("No response packet queued")
+	}
+}
+
+func TestOperateGuild_UpdateComment_RejectsAnotherGuild(t *testing.T) {
+	server := createMockServer()
+	guildMock := &mockGuildRepo{
+		membership: &GuildMember{GuildID: 10, CharID: 1, IsLeader: true, OrderIndex: 1},
+	}
+	guildMock.guild = &Guild{ID: 11}
+	guildMock.guild.LeaderCharID = 1
+	server.guildRepo = guildMock
+	session := createMockSession(1, server)
+
+	pkt := &mhfpacket.MsgMhfOperateGuild{
+		AckHandle: 100,
+		GuildID:   11,
+		Action:    mhfpacket.OperateGuildUpdateComment,
+		Data2:     newNullTermBF([]byte("CrossGuild\x00")),
+	}
+
+	handleMsgMhfOperateGuild(session, pkt)
+
+	if guildMock.savedGuild != nil {
+		t.Fatal("another guild must not be modified")
+	}
+	select {
+	case <-session.sendPackets:
+	default:
+		t.Fatal("expected rejection response")
 	}
 }
 

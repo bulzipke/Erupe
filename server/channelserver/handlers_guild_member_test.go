@@ -109,6 +109,16 @@ func TestGuildMember_CanRecruit(t *testing.T) {
 			},
 			expected: true,
 		},
+		{
+			name: "applicant never recruits despite every role flag",
+			member: GuildMember{
+				IsApplicant: true,
+				Recruiter:   true,
+				OrderIndex:  0,
+				IsLeader:    true,
+			},
+			expected: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -179,6 +189,13 @@ func TestGuildMember_IsSubLeader(t *testing.T) {
 					tt.orderIndex, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestGuildMember_ApplicantIsNeverSubLeader(t *testing.T) {
+	member := GuildMember{IsApplicant: true, OrderIndex: 0}
+	if member.IsSubLeader() {
+		t.Fatal("applicant with the default order index must not be treated as a sub-leader")
 	}
 }
 

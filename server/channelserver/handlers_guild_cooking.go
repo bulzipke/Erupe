@@ -51,21 +51,23 @@ func handleMsgMhfLoadGuildCooking(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfRegistGuildCooking(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfRegistGuildCooking)
-	guild, err := s.server.guildRepo.GetByCharID(s.charID)
-	if err != nil || guild == nil {
+	membership, err := s.server.guildRepo.GetCharacterMembership(s.charID)
+	if err != nil || membership == nil || membership.CharID != s.charID || membership.IsApplicant {
 		if err != nil {
-			s.logger.Error("Failed to get guild for cooking registration", zap.Error(err))
+			s.logger.Error("Failed to get guild membership for cooking registration", zap.Error(err))
 		}
 		doAckBufFail(s, pkt.AckHandle, nil)
 		return
 	}
 	startTime := TimeAdjusted().Add(time.Duration(s.server.erupeConfig.GameplayOptions.ClanMealDuration-3600) * time.Second)
 	if pkt.OverwriteID != 0 {
-		if err := s.server.guildRepo.UpdateMeal(pkt.OverwriteID, uint32(pkt.MealID), uint32(pkt.Success), startTime); err != nil {
+		if err := s.server.guildRepo.UpdateMealForGuild(membership.GuildID, s.charID, pkt.OverwriteID, uint32(pkt.MealID), uint32(pkt.Success), startTime); err != nil {
 			s.logger.Error("Failed to update guild meal", zap.Error(err))
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
 		}
 	} else {
-		id, err := s.server.guildRepo.CreateMeal(guild.ID, uint32(pkt.MealID), uint32(pkt.Success), startTime)
+		id, err := s.server.guildRepo.CreateMealForGuild(membership.GuildID, s.charID, uint32(pkt.MealID), uint32(pkt.Success), startTime)
 		if err != nil {
 			s.logger.Error("Failed to insert guild meal", zap.Error(err))
 			doAckBufFail(s, pkt.AckHandle, nil)
@@ -140,9 +142,9 @@ func handleMsgMhfGuildHuntdata(s *Session, p mhfpacket.MHFPacket) {
 func handleMsgMhfAddGuildWeeklyBonusExceptionalUser(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfAddGuildWeeklyBonusExceptionalUser)
 	if s.server.guildRepo != nil {
-		guild, err := s.server.guildRepo.GetByCharID(s.charID)
-		if err == nil && guild != nil {
-			if err := s.server.guildRepo.AddWeeklyBonusUsers(guild.ID, pkt.NumUsers); err != nil {
+		membership, err := s.server.guildRepo.GetCharacterMembership(s.charID)
+		if err == nil && membership != nil && membership.CharID == s.charID && !membership.IsApplicant {
+			if err := s.server.guildRepo.AddWeeklyBonusUsersForMember(membership.GuildID, s.charID, pkt.NumUsers); err != nil {
 				s.logger.Error("Failed to add weekly bonus users", zap.Error(err))
 			}
 		}

@@ -1,6 +1,8 @@
 package channelserver
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -213,6 +215,57 @@ func TestGetCharacterMembership(t *testing.T) {
 	}
 }
 
+func TestGetCharacterMembershipApplicantKeepsApplicationGuild(t *testing.T) {
+	repo, db, guildID, _ := setupGuildRepo(t)
+	userID := CreateTestUser(t, db, "membership_applicant_user")
+	charID := CreateTestCharacter(t, db, userID, "MembershipApplicant")
+
+	if err := repo.CreateApplication(guildID, charID, charID, GuildApplicationTypeApplied); err != nil {
+		t.Fatalf("CreateApplication failed: %v", err)
+	}
+
+	member, err := repo.GetCharacterMembership(charID)
+	if err != nil {
+		t.Fatalf("GetCharacterMembership failed: %v", err)
+	}
+	if member == nil {
+		t.Fatal("Expected applicant row, got nil")
+	}
+	if member.GuildID != guildID {
+		t.Errorf("Applicant GuildID = %d, want %d", member.GuildID, guildID)
+	}
+	if !member.IsApplicant {
+		t.Error("Expected IsApplicant=true")
+	}
+	if member.JoinedAt != nil || member.OrderIndex != 0 || member.Recruiter || member.IsLeader {
+		t.Errorf("Applicant inherited member role data: %+v", member)
+	}
+}
+
+func TestGetCharacterMembershipPrefersFullMembership(t *testing.T) {
+	repo, db, memberGuildID, charID := setupGuildRepo(t)
+	otherUserID := CreateTestUser(t, db, "membership_other_leader_user")
+	otherLeaderID := CreateTestCharacter(t, db, otherUserID, "MembershipOtherLeader")
+	applicationGuildID := CreateTestGuild(t, db, otherLeaderID, "MembershipOtherGuild")
+
+	// Represent legacy/corrupt data that contains both a full membership and a
+	// pending application. The full membership must always win deterministically.
+	if _, err := db.Exec(`
+		INSERT INTO guild_applications (guild_id, character_id, actor_id, application_type)
+		VALUES ($1, $2, $2, 'applied')
+	`, applicationGuildID, charID); err != nil {
+		t.Fatalf("Insert stale application failed: %v", err)
+	}
+
+	member, err := repo.GetCharacterMembership(charID)
+	if err != nil {
+		t.Fatalf("GetCharacterMembership failed: %v", err)
+	}
+	if member == nil || member.IsApplicant || member.GuildID != memberGuildID {
+		t.Fatalf("Membership = %+v, want full member of guild %d", member, memberGuildID)
+	}
+}
+
 func TestSaveMember(t *testing.T) {
 	repo, _, _, charID := setupGuildRepo(t)
 
@@ -250,7 +303,7 @@ func TestRemoveCharacter(t *testing.T) {
 		t.Fatalf("Failed to add member: %v", err)
 	}
 
-	if err := repo.RemoveCharacter(char2); err != nil {
+	if err := repo.RemoveCharacter(guildID, char2); err != nil {
 		t.Fatalf("RemoveCharacter failed: %v", err)
 	}
 
@@ -315,6 +368,101 @@ func TestApplicationWorkflow(t *testing.T) {
 	}
 	if has {
 		t.Error("Expected no application after accept")
+	}
+}
+
+func TestApplicationMutationsAreGuildScoped(t *testing.T) {
+	repo, db, wrongGuildID, _ := setupGuildRepo(t)
+	otherUserID := CreateTestUser(t, db, "scoped_app_other_user")
+	otherLeaderID := CreateTestCharacter(t, db, otherUserID, "ScopedAppOtherLeader")
+	applicationGuildID := CreateTestGuild(t, db, otherLeaderID, "ScopedApplicationGuild")
+	applicantUserID := CreateTestUser(t, db, "scoped_applicant_user")
+	applicantID := CreateTestCharacter(t, db, applicantUserID, "ScopedApplicant")
+
+	if err := repo.CreateApplication(applicationGuildID, applicantID, applicantID, GuildApplicationTypeApplied); err != nil {
+		t.Fatalf("CreateApplication failed: %v", err)
+	}
+	if err := repo.RejectApplication(wrongGuildID, applicantID); !errors.Is(err, ErrApplicationMissing) {
+		t.Fatalf("RejectApplication wrong guild error = %v, want ErrApplicationMissing", err)
+	}
+	if err := repo.AcceptApplication(wrongGuildID, applicantID); !errors.Is(err, ErrApplicationMissing) {
+		t.Fatalf("AcceptApplication wrong guild error = %v, want ErrApplicationMissing", err)
+	}
+	has, err := repo.HasApplication(applicationGuildID, applicantID)
+	if err != nil || !has {
+		t.Fatalf("Exact application was altered by wrong-guild operation: has=%v err=%v", has, err)
+	}
+
+	if err := repo.AcceptApplication(applicationGuildID, applicantID); err != nil {
+		t.Fatalf("AcceptApplication exact guild failed: %v", err)
+	}
+	member, err := repo.GetCharacterMembership(applicantID)
+	if err != nil || member == nil || member.GuildID != applicationGuildID || member.IsApplicant {
+		t.Fatalf("Accepted membership = %+v, err=%v", member, err)
+	}
+}
+
+func TestAcceptApplicationClearsOtherPendingApplications(t *testing.T) {
+	repo, db, acceptedGuildID, _ := setupGuildRepo(t)
+	otherLeaderUserID := CreateTestUser(t, db, "accept_clear_other_leader_user")
+	otherLeaderID := CreateTestCharacter(t, db, otherLeaderUserID, "AcceptClearOtherLeader")
+	otherGuildID := CreateTestGuild(t, db, otherLeaderID, "AcceptClearOtherGuild")
+	applicantUserID := CreateTestUser(t, db, "accept_clear_applicant_user")
+	applicantID := CreateTestCharacter(t, db, applicantUserID, "AcceptClearApplicant")
+
+	for _, guildID := range []uint32{acceptedGuildID, otherGuildID} {
+		if err := repo.CreateApplication(guildID, applicantID, applicantID, GuildApplicationTypeApplied); err != nil {
+			t.Fatalf("CreateApplication(%d) failed: %v", guildID, err)
+		}
+	}
+	if err := repo.AcceptApplication(acceptedGuildID, applicantID); err != nil {
+		t.Fatalf("AcceptApplication failed: %v", err)
+	}
+
+	var remaining int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM guild_applications WHERE character_id = $1`, applicantID,
+	).Scan(&remaining); err != nil {
+		t.Fatalf("Count applications failed: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("pending applications after acceptance = %d, want 0", remaining)
+	}
+}
+
+func TestAcceptApplicationRejectsExistingMembership(t *testing.T) {
+	repo, db, _, memberCharID := setupGuildRepo(t)
+	otherUserID := CreateTestUser(t, db, "accept_existing_other_user")
+	otherLeaderID := CreateTestCharacter(t, db, otherUserID, "AcceptExistingOtherLeader")
+	applicationGuildID := CreateTestGuild(t, db, otherLeaderID, "AcceptExistingOtherGuild")
+
+	if _, err := db.Exec(`
+		INSERT INTO guild_applications (guild_id, character_id, actor_id, application_type)
+		VALUES ($1, $2, $2, 'applied')
+	`, applicationGuildID, memberCharID); err != nil {
+		t.Fatalf("Insert stale application failed: %v", err)
+	}
+	if err := repo.AcceptApplication(applicationGuildID, memberCharID); !errors.Is(err, ErrAlreadyGuildMember) {
+		t.Fatalf("AcceptApplication error = %v, want ErrAlreadyGuildMember", err)
+	}
+	has, err := repo.HasApplication(applicationGuildID, memberCharID)
+	if err != nil || !has {
+		t.Fatalf("Rejected acceptance should preserve application: has=%v err=%v", has, err)
+	}
+}
+
+func TestRemoveCharacterIsGuildScoped(t *testing.T) {
+	repo, db, wrongGuildID, _ := setupGuildRepo(t)
+	otherUserID := CreateTestUser(t, db, "scoped_remove_other_user")
+	otherLeaderID := CreateTestCharacter(t, db, otherUserID, "ScopedRemoveOtherLeader")
+	actualGuildID := CreateTestGuild(t, db, otherLeaderID, "ScopedRemoveOtherGuild")
+
+	if err := repo.RemoveCharacter(wrongGuildID, otherLeaderID); !errors.Is(err, ErrGuildMemberMissing) {
+		t.Fatalf("RemoveCharacter wrong guild error = %v, want ErrGuildMemberMissing", err)
+	}
+	member, err := repo.GetCharacterMembership(otherLeaderID)
+	if err != nil || member == nil || member.GuildID != actualGuildID {
+		t.Fatalf("Cross-guild removal changed membership: member=%+v err=%v", member, err)
 	}
 }
 
@@ -485,7 +633,7 @@ func TestArrangeCharacters(t *testing.T) {
 	}
 
 	// Rearrange (excludes leader, sets order_index starting at 2)
-	if err := repo.ArrangeCharacters([]uint32{char3, char2}); err != nil {
+	if err := repo.ArrangeCharacters(guildID, []uint32{char3, char2}); err != nil {
 		t.Fatalf("ArrangeCharacters failed: %v", err)
 	}
 
@@ -499,10 +647,43 @@ func TestArrangeCharacters(t *testing.T) {
 	_ = leaderID
 }
 
-func TestSetRecruiter(t *testing.T) {
-	repo, db, _, charID := setupGuildRepo(t)
+func TestArrangeCharactersRejectsCrossGuildMemberAtomically(t *testing.T) {
+	repo, db, guildID, _ := setupGuildRepo(t)
 
-	if err := repo.SetRecruiter(charID, true); err != nil {
+	memberUserID := CreateTestUser(t, db, "arrange_atomic_member_user")
+	memberID := CreateTestCharacter(t, db, memberUserID, "ArrangeAtomicMember")
+	if _, err := db.Exec(
+		"INSERT INTO guild_characters (guild_id, character_id, order_index) VALUES ($1, $2, 7)",
+		guildID, memberID,
+	); err != nil {
+		t.Fatalf("Failed to add member: %v", err)
+	}
+
+	otherLeaderUserID := CreateTestUser(t, db, "arrange_atomic_other_leader_user")
+	otherLeaderID := CreateTestCharacter(t, db, otherLeaderUserID, "ArrangeAtomicOtherLeader")
+	CreateTestGuild(t, db, otherLeaderID, "ArrangeAtomicOtherGuild")
+
+	err := repo.ArrangeCharacters(guildID, []uint32{memberID, otherLeaderID})
+	if !errors.Is(err, ErrGuildMemberMissing) {
+		t.Fatalf("ArrangeCharacters error = %v, want ErrGuildMemberMissing", err)
+	}
+
+	var orderIndex uint16
+	if err := db.QueryRow(
+		"SELECT order_index FROM guild_characters WHERE guild_id=$1 AND character_id=$2",
+		guildID, memberID,
+	).Scan(&orderIndex); err != nil {
+		t.Fatalf("Failed to read member order after rejected arrangement: %v", err)
+	}
+	if orderIndex != 7 {
+		t.Fatalf("partial arrangement was committed: order_index=%d, want 7", orderIndex)
+	}
+}
+
+func TestSetRecruiter(t *testing.T) {
+	repo, db, guildID, charID := setupGuildRepo(t)
+
+	if err := repo.SetRecruiter(guildID, charID, charID, true); err != nil {
 		t.Fatalf("SetRecruiter failed: %v", err)
 	}
 
@@ -512,6 +693,28 @@ func TestSetRecruiter(t *testing.T) {
 	}
 	if !recruiter {
 		t.Error("Expected recruiter=true")
+	}
+}
+
+func TestSetRecruiterRejectsCrossGuildMember(t *testing.T) {
+	repo, db, wrongGuildID, actorCharID := setupGuildRepo(t)
+	otherLeaderUserID := CreateTestUser(t, db, "recruiter_scope_other_leader_user")
+	otherLeaderID := CreateTestCharacter(t, db, otherLeaderUserID, "RecruiterScopeOtherLeader")
+	actualGuildID := CreateTestGuild(t, db, otherLeaderID, "RecruiterScopeOtherGuild")
+
+	if err := repo.SetRecruiter(wrongGuildID, actorCharID, otherLeaderID, true); !errors.Is(err, ErrGuildMemberMissing) {
+		t.Fatalf("SetRecruiter error = %v, want ErrGuildMemberMissing", err)
+	}
+
+	var recruiter bool
+	if err := db.QueryRow(
+		"SELECT recruiter FROM guild_characters WHERE guild_id=$1 AND character_id=$2",
+		actualGuildID, otherLeaderID,
+	).Scan(&recruiter); err != nil {
+		t.Fatalf("Failed to verify recruiter flag: %v", err)
+	}
+	if recruiter {
+		t.Fatal("cross-guild SetRecruiter changed the target member")
 	}
 }
 
@@ -548,7 +751,7 @@ func TestCancelInvite(t *testing.T) {
 		t.Fatalf("Expected 1 invite, got %d (err: %v)", len(invites), err)
 	}
 
-	if err := repo.CancelInvite(invites[0].ID); err != nil {
+	if err := repo.CancelInvite(guildID, invites[0].ID); err != nil {
 		t.Fatalf("CancelInvite failed: %v", err)
 	}
 
@@ -558,6 +761,39 @@ func TestCancelInvite(t *testing.T) {
 	}
 	if has {
 		t.Error("Expected no invite after cancellation")
+	}
+}
+
+func TestCancelInviteCannotCrossGuild(t *testing.T) {
+	repo, db, firstGuildID, _ := setupGuildRepo(t)
+
+	secondLeaderUserID := CreateTestUser(t, db, "second_invite_guild_leader_user")
+	secondLeaderID := CreateTestCharacter(t, db, secondLeaderUserID, "SecondInviteLeader")
+	secondGuildID := CreateTestGuild(t, db, secondLeaderID, "SecondInviteGuild")
+	invitedUserID := CreateTestUser(t, db, "cross_guild_invite_user")
+	invitedCharID := CreateTestCharacter(t, db, invitedUserID, "CrossGuildInvited")
+
+	if err := repo.CreateInviteWithMail(secondGuildID, invitedCharID, secondLeaderID, secondLeaderID, invitedCharID, "Invite", "body"); err != nil {
+		t.Fatalf("CreateInviteWithMail failed: %v", err)
+	}
+	invites, err := repo.ListInvites(secondGuildID)
+	if err != nil || len(invites) != 1 {
+		t.Fatalf("Expected 1 invite, got %d (err: %v)", len(invites), err)
+	}
+
+	if err := repo.CancelInvite(firstGuildID, invites[0].ID); !errors.Is(err, ErrGuildInviteMissing) {
+		t.Fatalf("cross-guild CancelInvite error = %v, want ErrGuildInviteMissing", err)
+	}
+	has, err := repo.HasInvite(secondGuildID, invitedCharID)
+	if err != nil {
+		t.Fatalf("HasInvite after rejected cancellation failed: %v", err)
+	}
+	if !has {
+		t.Fatal("cross-guild cancellation removed another guild's invite")
+	}
+
+	if err := repo.CancelInvite(secondGuildID, invites[0].ID); err != nil {
+		t.Fatalf("owner guild CancelInvite failed: %v", err)
 	}
 }
 
@@ -728,7 +964,7 @@ func TestDeletePost(t *testing.T) {
 		t.Fatal("Expected post to exist")
 	}
 
-	if err := repo.DeletePost(posts[0].ID); err != nil {
+	if err := repo.DeletePost(guildID, posts[0].ID); err != nil {
 		t.Fatalf("DeletePost failed: %v", err)
 	}
 
@@ -746,7 +982,7 @@ func TestUpdatePost(t *testing.T) {
 	}
 	posts, _ := repo.ListPosts(guildID, 0)
 
-	if err := repo.UpdatePost(posts[0].ID, "Updated", "new body"); err != nil {
+	if err := repo.UpdatePost(guildID, posts[0].ID, "Updated", "new body"); err != nil {
 		t.Fatalf("UpdatePost failed: %v", err)
 	}
 
@@ -764,7 +1000,7 @@ func TestUpdatePostStamp(t *testing.T) {
 	}
 	posts, _ := repo.ListPosts(guildID, 0)
 
-	if err := repo.UpdatePostStamp(posts[0].ID, 42); err != nil {
+	if err := repo.UpdatePostStamp(guildID, posts[0].ID, 42); err != nil {
 		t.Fatalf("UpdatePostStamp failed: %v", err)
 	}
 
@@ -782,16 +1018,62 @@ func TestPostLikedBy(t *testing.T) {
 	}
 	posts, _ := repo.ListPosts(guildID, 0)
 
-	if err := repo.SetPostLikedBy(posts[0].ID, "100,200"); err != nil {
+	if err := repo.SetPostLikedBy(guildID, posts[0].ID, "100,200"); err != nil {
 		t.Fatalf("SetPostLikedBy failed: %v", err)
 	}
 
-	liked, err := repo.GetPostLikedBy(posts[0].ID)
+	liked, err := repo.GetPostLikedBy(guildID, posts[0].ID)
 	if err != nil {
 		t.Fatalf("GetPostLikedBy failed: %v", err)
 	}
 	if liked != "100,200" {
 		t.Errorf("Expected '100,200', got %q", liked)
+	}
+}
+
+func TestGuildPostMutationsCannotCrossGuild(t *testing.T) {
+	repo, db, guildID, charID := setupGuildRepo(t)
+	if err := repo.CreatePost(guildID, charID, 7, 0, "Original", "body", 10); err != nil {
+		t.Fatalf("CreatePost failed: %v", err)
+	}
+	posts, err := repo.ListPosts(guildID, 0)
+	if err != nil || len(posts) != 1 {
+		t.Fatalf("ListPosts = %d posts, %v; want 1 post", len(posts), err)
+	}
+	postID := posts[0].ID
+
+	otherUserID := CreateTestUser(t, db, "guild_post_scope_user")
+	otherCharID := CreateTestCharacter(t, db, otherUserID, "PostScopeLeader")
+	otherGuildID := CreateTestGuild(t, db, otherCharID, "PostScopeGuild")
+
+	mutations := []struct {
+		name string
+		call func() error
+	}{
+		{name: "delete", call: func() error { return repo.DeletePost(otherGuildID, postID) }},
+		{name: "update", call: func() error {
+			return repo.UpdatePost(otherGuildID, postID, "Tampered", "tampered")
+		}},
+		{name: "stamp", call: func() error { return repo.UpdatePostStamp(otherGuildID, postID, 99) }},
+		{name: "like", call: func() error { return repo.SetPostLikedBy(otherGuildID, postID, "999") }},
+	}
+	for _, mutation := range mutations {
+		t.Run(mutation.name, func(t *testing.T) {
+			if err := mutation.call(); !errors.Is(err, errGuildScopedMutationRejected) {
+				t.Fatalf("error = %v, want %v", err, errGuildScopedMutationRejected)
+			}
+		})
+	}
+	if _, err := repo.GetPostLikedBy(otherGuildID, postID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("GetPostLikedBy error = %v, want sql.ErrNoRows", err)
+	}
+
+	posts, err = repo.ListPosts(guildID, 0)
+	if err != nil || len(posts) != 1 {
+		t.Fatalf("ListPosts after rejected mutations = %d posts, %v; want 1 post", len(posts), err)
+	}
+	if posts[0].Title != "Original" || posts[0].Body != "body" || posts[0].StampID != 7 || posts[0].LikedBy != "" {
+		t.Fatalf("post changed after rejected mutations: %+v", posts[0])
 	}
 }
 

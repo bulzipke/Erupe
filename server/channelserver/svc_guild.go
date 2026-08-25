@@ -35,6 +35,17 @@ var ErrCannotRecruit = errors.New("cannot recruit")
 // ErrApplicationMissing is returned when the expected guild application is not found.
 var ErrApplicationMissing = errors.New("application missing")
 
+// ErrAlreadyGuildMember is returned when accepting an application would create
+// a second guild membership for the same character.
+var ErrAlreadyGuildMember = errors.New("already a guild member")
+
+// ErrGuildMemberMissing is returned when the expected member is not in the specified guild.
+var ErrGuildMemberMissing = errors.New("guild member missing")
+
+// ErrGuildInviteMissing is returned when an invite does not belong to the
+// guild attempting to cancel it or no longer exists.
+var ErrGuildInviteMissing = errors.New("guild invite missing")
+
 // OperateMemberResult holds the outcome of a guild member operation.
 type OperateMemberResult struct {
 	MailRecipientID uint32
@@ -103,13 +114,19 @@ func NewGuildService(gr GuildRepo, ms *MailService, cr CharacterRepo, log *zap.L
 // The actor must be the guild leader or a sub-leader. On success, a notification
 // mail is sent (best-effort) and the result is returned for protocol-level notification.
 func (svc *GuildService) OperateMember(actorCharID, targetCharID uint32, action GuildMemberAction) (*OperateMemberResult, error) {
-	guild, err := svc.guildRepo.GetByCharID(targetCharID)
-	if err != nil || guild == nil {
-		return nil, fmt.Errorf("guild lookup for char %d: %w", targetCharID, err)
+	actorMember, err := svc.guildRepo.GetCharacterMembership(actorCharID)
+	if err != nil {
+		return nil, fmt.Errorf("actor membership lookup: %w", err)
+	}
+	if actorMember == nil || actorMember.IsApplicant {
+		return nil, ErrUnauthorized
 	}
 
-	actorMember, err := svc.guildRepo.GetCharacterMembership(actorCharID)
-	if err != nil || (!actorMember.IsSubLeader() && guild.LeaderCharID != actorCharID) {
+	guild, err := svc.guildRepo.GetByID(actorMember.GuildID)
+	if err != nil {
+		return nil, fmt.Errorf("actor guild lookup: %w", err)
+	}
+	if guild == nil || (!actorMember.IsSubLeader() && guild.LeaderCharID != actorCharID) {
 		return nil, ErrUnauthorized
 	}
 
@@ -132,7 +149,7 @@ func (svc *GuildService) OperateMember(actorCharID, targetCharID uint32, action 
 			IsSystemMessage: true,
 		}
 	case GuildMemberActionKick:
-		err = svc.guildRepo.RemoveCharacter(targetCharID)
+		err = svc.guildRepo.RemoveCharacter(guild.ID, targetCharID)
 		mail = Mail{
 			RecipientID:     targetCharID,
 			Subject:         "Kicked",
@@ -249,7 +266,7 @@ func (svc *GuildService) Leave(charID, guildID uint32, isApplicant bool, guildNa
 			return &LeaveResult{Success: false}, nil
 		}
 	} else {
-		if err := svc.guildRepo.RemoveCharacter(charID); err != nil {
+		if err := svc.guildRepo.RemoveCharacter(guildID, charID); err != nil {
 			return &LeaveResult{Success: false}, nil
 		}
 	}

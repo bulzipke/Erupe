@@ -78,7 +78,7 @@ func TestLoadGuildAdventure_DBError(t *testing.T) {
 
 func TestRegistGuildAdventure_Success(t *testing.T) {
 	server := createMockServer()
-	guildMock := &mockGuildRepo{}
+	guildMock := &mockGuildRepo{membership: &GuildMember{GuildID: 10, CharID: 1}}
 	guildMock.guild = &Guild{ID: 10}
 	server.guildRepo = guildMock
 	session := createMockSession(1, server)
@@ -99,7 +99,10 @@ func TestRegistGuildAdventure_Success(t *testing.T) {
 
 func TestRegistGuildAdventure_Error(t *testing.T) {
 	server := createMockServer()
-	guildMock := &mockGuildRepo{createAdvErr: errNotFound}
+	guildMock := &mockGuildRepo{
+		createAdvErr: errNotFound,
+		membership:   &GuildMember{GuildID: 10, CharID: 1},
+	}
 	guildMock.guild = &Guild{ID: 10}
 	server.guildRepo = guildMock
 	session := createMockSession(1, server)
@@ -123,7 +126,7 @@ func TestRegistGuildAdventure_Error(t *testing.T) {
 
 func TestAcquireGuildAdventure_Success(t *testing.T) {
 	server := createMockServer()
-	guildMock := &mockGuildRepo{}
+	guildMock := &mockGuildRepo{membership: &GuildMember{GuildID: 10, CharID: 1}}
 	server.guildRepo = guildMock
 	session := createMockSession(1, server)
 
@@ -137,6 +140,9 @@ func TestAcquireGuildAdventure_Success(t *testing.T) {
 	if guildMock.collectAdvID != 42 {
 		t.Errorf("CollectAdventure ID = %d, want 42", guildMock.collectAdvID)
 	}
+	if len(guildMock.collectAdvArgs) != 3 || guildMock.collectAdvArgs[0] != 10 || guildMock.collectAdvArgs[2] != 1 {
+		t.Fatalf("CollectAdventureForGuild scope = %v, want guild 10 actor 1", guildMock.collectAdvArgs)
+	}
 
 	select {
 	case <-session.sendPackets:
@@ -149,7 +155,7 @@ func TestAcquireGuildAdventure_Success(t *testing.T) {
 
 func TestChargeGuildAdventure_Success(t *testing.T) {
 	server := createMockServer()
-	guildMock := &mockGuildRepo{}
+	guildMock := &mockGuildRepo{membership: &GuildMember{GuildID: 10, CharID: 1}}
 	server.guildRepo = guildMock
 	session := createMockSession(1, server)
 
@@ -167,6 +173,9 @@ func TestChargeGuildAdventure_Success(t *testing.T) {
 	if guildMock.chargeAdvAmount != 500 {
 		t.Errorf("ChargeAdventure Amount = %d, want 500", guildMock.chargeAdvAmount)
 	}
+	if len(guildMock.chargeAdvArgs) != 4 || guildMock.chargeAdvArgs[0] != 10 || guildMock.chargeAdvArgs[2] != 1 {
+		t.Fatalf("ChargeAdventureForGuild scope = %v, want guild 10 actor 1", guildMock.chargeAdvArgs)
+	}
 
 	select {
 	case <-session.sendPackets:
@@ -179,7 +188,7 @@ func TestChargeGuildAdventure_Success(t *testing.T) {
 
 func TestRegistGuildAdventureDiva_Success(t *testing.T) {
 	server := createMockServer()
-	guildMock := &mockGuildRepo{}
+	guildMock := &mockGuildRepo{membership: &GuildMember{GuildID: 10, CharID: 1}}
 	guildMock.guild = &Guild{ID: 10}
 	server.guildRepo = guildMock
 	session := createMockSession(1, server)

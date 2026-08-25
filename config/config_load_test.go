@@ -619,6 +619,15 @@ func TestMinimalConfigDefaults(t *testing.T) {
 	if !cfg.API.Enabled {
 		t.Error("API.Enabled should be true")
 	}
+	if cfg.Sign.SessionTokenExpirySeconds != 7*24*60*60 {
+		t.Errorf("Sign.SessionTokenExpirySeconds = %d, want 604800", cfg.Sign.SessionTokenExpirySeconds)
+	}
+	if got := cfg.Sign.SessionTokenExpiry(); got != 7*24*time.Hour {
+		t.Errorf("Sign.SessionTokenExpiry() = %v, want 168h", got)
+	}
+	if cfg.SecurityAudit.RetentionDays != 90 {
+		t.Errorf("SecurityAudit.RetentionDays = %d, want 90", cfg.SecurityAudit.RetentionDays)
+	}
 	if !cfg.Channel.Enabled {
 		t.Error("Channel.Enabled should be true")
 	}

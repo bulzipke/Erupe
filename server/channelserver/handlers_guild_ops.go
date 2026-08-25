@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"errors"
 	"time"
 
 	"erupe-ce/common/byteframe"
@@ -19,6 +20,15 @@ func handleMsgMhfOperateGuild(s *Session, p mhfpacket.MHFPacket) {
 	}
 	characterGuildInfo, err := s.server.guildRepo.GetCharacterMembership(s.charID)
 	if err != nil {
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	if reason := validateOperateGuildTarget(pkt.Action, characterGuildInfo, pkt.GuildID); reason != "" {
+		s.recordSecurityAudit("unauthorized_guild_operation", "warning", "rejected", map[string]interface{}{
+			"action":             uint8(pkt.Action),
+			"requested_guild_id": pkt.GuildID,
+			"reason":             reason,
+		})
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
@@ -157,6 +167,27 @@ func handleMsgMhfOperateGuild(s *Session, p mhfpacket.MHFPacket) {
 	}
 }
 
+// validateOperateGuildTarget protects member-only guild operations from a
+// client-supplied guild ID. Apply and leave are resolved by their exact
+// repository mutations: a character may have multiple pending applications,
+// so a single membership snapshot cannot safely identify which one is being
+// withdrawn.
+func validateOperateGuildTarget(action mhfpacket.OperateGuildAction, membership *GuildMember, requestedGuildID uint32) string {
+	if action == mhfpacket.OperateGuildApply || action == mhfpacket.OperateGuildLeave {
+		return ""
+	}
+	if membership == nil {
+		return "not_a_guild_member"
+	}
+	if membership.GuildID != requestedGuildID {
+		return "requested_guild_not_owned"
+	}
+	if membership.IsApplicant {
+		return "guild_applicant_not_member"
+	}
+	return ""
+}
+
 func handleRenamePugi(s *Session, bf *byteframe.ByteFrame, guild *Guild, num int) bool {
 	name := stringsupport.SJISToUTF8Lossy(bf.ReadNullTerminatedBytes())
 	if !s.validateNameInput("guild_pugi", name) {
@@ -269,9 +300,34 @@ func handleMsgMhfOperateGuildMember(s *Session, p mhfpacket.MHFPacket) {
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
+	actualGuildID, reason, lookupErr := resolveGuildMemberAccess(s, pkt.GuildID)
+	if lookupErr != nil {
+		s.logger.Error("Failed to establish guild membership for member operation", zap.Error(lookupErr))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	if reason != "" {
+		s.recordSecurityAudit("unauthorized_guild_member_operation", "warning", "rejected", map[string]interface{}{
+			"action":             pkt.Action,
+			"target_char_id":     pkt.CharID,
+			"requested_guild_id": pkt.GuildID,
+			"reason":             reason,
+		})
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
 
 	result, err := s.server.guildService.OperateMember(s.charID, pkt.CharID, action)
 	if err != nil {
+		if errors.Is(err, ErrUnauthorized) {
+			s.recordSecurityAudit("unauthorized_guild_member_operation", "warning", "rejected", map[string]interface{}{
+				"action":             pkt.Action,
+				"target_char_id":     pkt.CharID,
+				"requested_guild_id": pkt.GuildID,
+				"actual_guild_id":    actualGuildID,
+				"reason":             "target_not_managed_by_actor_guild_or_insufficient_role",
+			})
+		}
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}

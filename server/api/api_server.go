@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	cfg "erupe-ce/config"
+	"erupe-ce/server/securityaudit"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,6 +34,7 @@ type APIServer struct {
 	charRepo       APICharacterRepo
 	sessionRepo    APISessionRepo
 	eventRepo      APIEventRepo
+	securityAudit  *securityaudit.Repository
 	httpServer     *http.Server
 	startTime      time.Time
 	isShuttingDown bool
@@ -72,8 +74,9 @@ func NewAPIServer(config *Config) *APIServer {
 	if config.DB != nil {
 		s.userRepo = NewAPIUserRepository(config.DB)
 		s.charRepo = NewAPICharacterRepository(config.DB)
-		s.sessionRepo = NewAPISessionRepository(config.DB)
+		s.sessionRepo = NewAPISessionRepository(config.DB, config.ErupeConfig.Sign.SessionTokenExpiry())
 		s.eventRepo = NewAPIEventRepository(config.DB)
+		s.securityAudit = securityaudit.NewRepository(config.DB)
 	}
 	return s
 }

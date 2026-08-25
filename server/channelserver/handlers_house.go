@@ -5,7 +5,6 @@ import (
 	"erupe-ce/common/mhfitem"
 	ps "erupe-ce/common/pascalstring"
 	"erupe-ce/common/stringsupport"
-	"erupe-ce/common/token"
 	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
 	"go.uber.org/zap"
@@ -421,7 +420,11 @@ func handleMsgMhfOperateWarehouse(s *Session, p mhfpacket.MHFPacket) {
 
 func addWarehouseItem(s *Session, item mhfitem.MHFItemStack) {
 	giftBox := warehouseGetItems(s, 10)
-	item.WarehouseID = token.RNG.Uint32()
+	usedIDs := make(map[uint32]struct{}, len(giftBox))
+	for i := range giftBox {
+		usedIDs[giftBox[i].WarehouseID] = struct{}{}
+	}
+	item.WarehouseID = mhfitem.NewWarehouseID(usedIDs)
 	giftBox = append(giftBox, item)
 	if err := s.server.houseRepo.SetWarehouseItemData(s.charID, 10, mhfitem.SerializeWarehouseItems(giftBox)); err != nil {
 		s.logger.Error("Failed to update warehouse gift box", zap.Error(err))
@@ -502,7 +505,8 @@ func handleMsgMhfUpdateWarehouse(s *Session, p mhfpacket.MHFPacket) {
 	switch pkt.BoxType {
 	case 0:
 		boxTypeName = "items"
-		newStacks := mhfitem.DiffItemStacks(warehouseGetItems(s, pkt.BoxIndex), pkt.UpdatedItems)
+		oldStacks := warehouseGetItems(s, pkt.BoxIndex)
+		newStacks := mhfitem.DiffItemStacks(oldStacks, pkt.UpdatedItems)
 		serialized := mhfitem.SerializeWarehouseItems(newStacks)
 		dataSize = len(serialized)
 
@@ -528,7 +532,9 @@ func handleMsgMhfUpdateWarehouse(s *Session, p mhfpacket.MHFPacket) {
 		boxTypeName = "equipment"
 		oEquips := warehouseGetEquipment(s, pkt.BoxIndex)
 		equipmentByID := make(map[uint32]int, len(oEquips))
+		usedIDs := make(map[uint32]struct{}, len(oEquips)+len(pkt.UpdatedEquipment))
 		for i := range oEquips {
+			usedIDs[oEquips[i].WarehouseID] = struct{}{}
 			if _, exists := equipmentByID[oEquips[i].WarehouseID]; !exists {
 				equipmentByID[oEquips[i].WarehouseID] = i
 			}
@@ -539,7 +545,7 @@ func handleMsgMhfUpdateWarehouse(s *Session, p mhfpacket.MHFPacket) {
 				// Will set removed items to 0.
 				oEquips[index].ItemID = uEquip.ItemID
 			} else {
-				uEquip.WarehouseID = token.RNG.Uint32()
+				uEquip.WarehouseID = mhfitem.NewWarehouseID(usedIDs)
 				fEquip = append(fEquip, uEquip)
 			}
 		}

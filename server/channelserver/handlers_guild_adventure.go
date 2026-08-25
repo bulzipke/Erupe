@@ -50,13 +50,13 @@ func handleMsgMhfLoadGuildAdventure(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfRegistGuildAdventure(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfRegistGuildAdventure)
-	guild, err := s.server.guildRepo.GetByCharID(s.charID)
-	if err != nil || guild == nil {
+	membership, err := s.server.guildRepo.GetCharacterMembership(s.charID)
+	if err != nil || membership == nil || membership.CharID != s.charID || membership.IsApplicant {
 		s.logger.Error("Failed to get guild for character", zap.Error(err))
 		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
-	if err := s.server.guildRepo.CreateAdventure(guild.ID, pkt.Destination, TimeAdjusted().Unix(), TimeAdjusted().Add(6*time.Hour).Unix()); err != nil {
+	if err := s.server.guildRepo.CreateAdventureForGuild(membership.GuildID, s.charID, pkt.Destination, TimeAdjusted().Unix(), TimeAdjusted().Add(6*time.Hour).Unix()); err != nil {
 		s.logger.Error("Failed to register guild adventure", zap.Error(err))
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
@@ -64,7 +64,15 @@ func handleMsgMhfRegistGuildAdventure(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfAcquireGuildAdventure(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfAcquireGuildAdventure)
-	if err := s.server.guildRepo.CollectAdventure(pkt.ID, s.charID); err != nil {
+	membership, err := s.server.guildRepo.GetCharacterMembership(s.charID)
+	if err != nil || membership == nil || membership.CharID != s.charID || membership.IsApplicant {
+		if err != nil {
+			s.logger.Error("Failed to get guild membership for adventure collection", zap.Error(err))
+		}
+		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	if err := s.server.guildRepo.CollectAdventureForGuild(membership.GuildID, pkt.ID, s.charID); err != nil {
 		s.logger.Error("Failed to collect adventure", zap.Error(err))
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
@@ -72,7 +80,15 @@ func handleMsgMhfAcquireGuildAdventure(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfChargeGuildAdventure(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfChargeGuildAdventure)
-	if err := s.server.guildRepo.ChargeAdventure(pkt.ID, pkt.Amount); err != nil {
+	membership, err := s.server.guildRepo.GetCharacterMembership(s.charID)
+	if err != nil || membership == nil || membership.CharID != s.charID || membership.IsApplicant {
+		if err != nil {
+			s.logger.Error("Failed to get guild membership for adventure charge", zap.Error(err))
+		}
+		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	if err := s.server.guildRepo.ChargeAdventureForGuild(membership.GuildID, pkt.ID, s.charID, pkt.Amount); err != nil {
 		s.logger.Error("Failed to charge guild adventure", zap.Error(err))
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
@@ -80,13 +96,13 @@ func handleMsgMhfChargeGuildAdventure(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfRegistGuildAdventureDiva(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfRegistGuildAdventureDiva)
-	guild, err := s.server.guildRepo.GetByCharID(s.charID)
-	if err != nil || guild == nil {
+	membership, err := s.server.guildRepo.GetCharacterMembership(s.charID)
+	if err != nil || membership == nil || membership.CharID != s.charID || membership.IsApplicant {
 		s.logger.Error("Failed to get guild for character", zap.Error(err))
 		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
-	if err := s.server.guildRepo.CreateAdventureWithCharge(guild.ID, pkt.Destination, pkt.Charge, TimeAdjusted().Unix(), TimeAdjusted().Add(1*time.Hour).Unix()); err != nil {
+	if err := s.server.guildRepo.CreateAdventureWithChargeForGuild(membership.GuildID, s.charID, pkt.Destination, pkt.Charge, TimeAdjusted().Unix(), TimeAdjusted().Add(1*time.Hour).Unix()); err != nil {
 		s.logger.Error("Failed to register guild adventure", zap.Error(err))
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))

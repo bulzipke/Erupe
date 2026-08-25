@@ -22,7 +22,10 @@ func (s *APIServer) createNewUser(ctx context.Context, username string, password
 }
 
 func (s *APIServer) createLoginToken(ctx context.Context, uid uint32) (uint32, string, error) {
-	loginToken := token.Generate(16)
+	loginToken, err := token.GenerateSecure(16)
+	if err != nil {
+		return 0, "", fmt.Errorf("generate login token: %w", err)
+	}
 	tid, err := s.sessionRepo.CreateToken(ctx, uid, loginToken)
 	if err != nil {
 		return 0, "", err

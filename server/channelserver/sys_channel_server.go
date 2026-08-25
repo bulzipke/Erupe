@@ -19,6 +19,7 @@ import (
 	"erupe-ce/network/binpacket"
 	"erupe-ce/network/mhfpacket"
 	"erupe-ce/server/discordbot"
+	"erupe-ce/server/securityaudit"
 
 	"github.com/jmoiron/sqlx"
 	"go.uber.org/zap"
@@ -147,6 +148,7 @@ type Server struct {
 	ravienteRunRepo     RavienteRunRepo
 	ravienteRunTracker  *RavienteRunTracker
 	questStatsRepo      QuestStatsRepo
+	securityAuditRepo   *securityaudit.Repository
 
 	// Immutable server-authoritative filter loaded from Config.NGWordsFile.
 	ngWordFilter  *stringsupport.NGWordFilter
@@ -207,6 +209,7 @@ func NewServer(config *Config) *Server {
 		s.ravienteRunTracker = NewRavienteRunTracker(s.ravienteRunRepo, config.Logger)
 	}
 	s.questStatsRepo = NewQuestStatsRepository(config.DB)
+	s.securityAuditRepo = securityaudit.NewRepository(config.DB)
 	s.userRepo = NewUserRepository(config.DB)
 	s.gachaRepo = NewGachaRepository(config.DB, s.logger)
 	s.houseRepo = NewHouseRepository(config.DB)
@@ -216,7 +219,7 @@ func NewServer(config *Config) *Server {
 	s.mailRepo = NewMailRepository(config.DB)
 	s.stampRepo = NewStampRepository(config.DB)
 	s.distRepo = NewDistributionRepository(config.DB)
-	s.sessionRepo = NewSessionRepository(config.DB)
+	s.sessionRepo = NewSessionRepository(config.DB, config.ErupeConfig.Sign.SessionTokenExpiry())
 	s.eventRepo = NewEventRepository(config.DB)
 	s.achievementRepo = NewAchievementRepository(config.DB)
 	s.shopRepo = NewShopRepository(config.DB)

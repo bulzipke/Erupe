@@ -65,7 +65,7 @@ func handleMsgMhfArrangeGuildMember(s *Session, p mhfpacket.MHFPacket) {
 		return
 	}
 
-	err = s.server.guildRepo.ArrangeCharacters(pkt.CharIDs)
+	err = s.server.guildRepo.ArrangeCharacters(guild.ID, pkt.CharIDs)
 
 	if err != nil {
 		s.logger.Error(
@@ -285,7 +285,20 @@ func handleMsgMhfGetGuildTargetMemberNum(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfEnumerateGuildItem(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfEnumerateGuildItem)
-	items := guildGetItems(s, pkt.GuildID)
+	guildID, reason, lookupErr := resolveGuildMemberAccess(s, pkt.GuildID)
+	if lookupErr != nil {
+		s.logger.Error("Failed to establish guild membership for item enumeration", zap.Error(lookupErr))
+		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	if reason != "" {
+		s.recordSecurityAudit("unauthorized_guild_item_access", "warning", "rejected", map[string]interface{}{
+			"action": "enumerate", "requested_guild_id": pkt.GuildID, "reason": reason,
+		})
+		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	items := guildGetItems(s, guildID)
 	bf := byteframe.NewByteFrame()
 	bf.WriteBytes(mhfitem.SerializeWarehouseItems(items))
 	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
@@ -293,18 +306,53 @@ func handleMsgMhfEnumerateGuildItem(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfUpdateGuildItem(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfUpdateGuildItem)
+	guildID, reason, lookupErr := resolveGuildMemberAccess(s, pkt.GuildID)
+	if lookupErr != nil {
+		s.logger.Error("Failed to establish guild membership for item update", zap.Error(lookupErr))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	if reason != "" {
+		s.recordSecurityAudit("unauthorized_guild_item_access", "warning", "rejected", map[string]interface{}{
+			"action": "update", "requested_guild_id": pkt.GuildID, "reason": reason,
+		})
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+
 	// Same row-locked read-modify-write as the union box. A guild box is reachable
 	// by every member at once, so this races without any multi-boxing.
-	err := s.server.guildRepo.UpdateItemBox(pkt.GuildID, func(current []byte) []byte {
+	err := s.server.guildRepo.UpdateItemBox(guildID, func(current []byte) []byte {
 		merged := mhfitem.DiffItemStacks(mhfitem.DeserializeWarehouseItems(current), pkt.UpdatedItems)
 		return mhfitem.SerializeWarehouseItems(merged)
 	})
 	if err != nil {
-		s.logger.Error("Failed to update guild item box", zap.Error(err), zap.Uint32("guildID", pkt.GuildID))
+		s.logger.Error("Failed to update guild item box", zap.Error(err), zap.Uint32("guildID", guildID))
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+}
+
+// resolveGuildMemberAccess returns the character's actual guild ID. A zero ID in
+// the packet means "my guild"; applicants and requests naming another guild
+// cannot act on member-only guild state. Repository failures are returned
+// separately so they are not mislabeled as unauthorized activity.
+func resolveGuildMemberAccess(s *Session, requestedGuildID uint32) (uint32, string, error) {
+	membership, err := s.server.guildRepo.GetCharacterMembership(s.charID)
+	if err != nil {
+		return 0, "", err
+	}
+	if membership == nil {
+		return 0, "not_a_guild_member", nil
+	}
+	if membership.IsApplicant {
+		return 0, "guild_applicant_not_member", nil
+	}
+	if requestedGuildID != 0 && requestedGuildID != membership.GuildID {
+		return 0, "requested_guild_not_owned", nil
+	}
+	return membership.GuildID, "", nil
 }
 
 func handleMsgMhfUpdateGuildIcon(s *Session, p mhfpacket.MHFPacket) {
@@ -319,19 +367,34 @@ func handleMsgMhfUpdateGuildIcon(s *Session, p mhfpacket.MHFPacket) {
 	}
 
 	characterInfo, err := s.server.guildRepo.GetCharacterMembership(s.charID)
-
-	if err != nil || characterInfo == nil {
+	if err != nil {
 		s.logger.Error("Failed to get character guild data for icon update", zap.Error(err))
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
 
-	if !characterInfo.IsSubLeader() && !characterInfo.IsLeader {
+	reason := ""
+	switch {
+	case characterInfo == nil:
+		reason = "not_a_guild_member"
+	case characterInfo.IsApplicant:
+		reason = "guild_applicant_not_member"
+	case characterInfo.GuildID != pkt.GuildID:
+		reason = "requested_guild_not_owned"
+	case !characterInfo.IsSubLeader() && !characterInfo.IsLeader:
+		reason = "insufficient_role"
+	}
+	if reason != "" {
 		s.logger.Warn(
-			"character without leadership attempting to update guild icon",
+			"unauthorized character attempting to update guild icon",
 			zap.Uint32("guildID", guild.ID),
 			zap.Uint32("charID", s.charID),
+			zap.String("reason", reason),
 		)
+		s.recordSecurityAudit("unauthorized_guild_icon_update", "warning", "rejected", map[string]interface{}{
+			"requested_guild_id": pkt.GuildID,
+			"reason":             reason,
+		})
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
@@ -431,8 +494,54 @@ func handleMsgMhfUpdateGuild(s *Session, p mhfpacket.MHFPacket) {} // stub: unim
 
 func handleMsgMhfSetGuildManageRight(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfSetGuildManageRight)
-	if err := s.server.guildRepo.SetRecruiter(pkt.CharID, pkt.Allowed); err != nil {
-		s.logger.Error("Failed to update guild manage right", zap.Error(err))
+
+	actor, err := s.server.guildRepo.GetCharacterMembership(s.charID)
+	if err != nil {
+		s.logger.Error("Failed to get guild membership for manage right update",
+			zap.Uint32("charID", s.charID),
+			zap.Error(err),
+		)
+		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	if actor == nil || actor.CharID != s.charID || actor.IsApplicant {
+		s.logger.Warn("non-member attempted to update guild manage right",
+			zap.Uint32("charID", s.charID),
+			zap.Uint32("targetCharID", pkt.CharID),
+		)
+		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+
+	target, err := s.server.guildRepo.GetCharacterMembership(pkt.CharID)
+	if err != nil {
+		s.logger.Error("Failed to get target guild membership for manage right update",
+			zap.Uint32("charID", s.charID),
+			zap.Uint32("targetCharID", pkt.CharID),
+			zap.Error(err),
+		)
+		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	if target == nil || target.CharID != pkt.CharID || target.IsApplicant || target.GuildID != actor.GuildID {
+		s.logger.Warn("attempted to update guild manage right for a non-member",
+			zap.Uint32("charID", s.charID),
+			zap.Uint32("guildID", actor.GuildID),
+			zap.Uint32("targetCharID", pkt.CharID),
+		)
+		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+
+	if err := s.server.guildRepo.SetRecruiter(actor.GuildID, s.charID, pkt.CharID, pkt.Allowed); err != nil {
+		s.logger.Error("Failed to update guild manage right",
+			zap.Uint32("charID", s.charID),
+			zap.Uint32("guildID", actor.GuildID),
+			zap.Uint32("targetCharID", pkt.CharID),
+			zap.Error(err),
+		)
+		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
+		return
 	}
 	doAckBufSucceed(s, pkt.AckHandle, make([]byte, 4))
 }

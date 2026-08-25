@@ -663,8 +663,8 @@ func TestUpdateWarehouse_Items(t *testing.T) {
 	_, _, session, charID := setupHouseTest(t)
 
 	items := []mhfitem.MHFItemStack{
-		{Item: mhfitem.MHFItem{ItemID: 42}, Quantity: 10, WarehouseID: token.RNG.Uint32()},
-		{Item: mhfitem.MHFItem{ItemID: 99}, Quantity: 5, WarehouseID: token.RNG.Uint32()},
+		{Item: mhfitem.MHFItem{ItemID: 42}, Quantity: 10},
+		{Item: mhfitem.MHFItem{ItemID: 99}, Quantity: 5},
 	}
 	pkt := &mhfpacket.MsgMhfUpdateWarehouse{
 		AckHandle:    29,

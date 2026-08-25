@@ -372,6 +372,21 @@ func handleMsgMhfPostTenrouirai(s *Session, p mhfpacket.MHFPacket) {
 
 	if pkt.Op == 2 {
 		bf := byteframe.NewByteFrame()
+		guildID, reason, lookupErr := resolveGuildMemberAccess(s, pkt.GuildID)
+		if lookupErr != nil {
+			s.logger.Error("Failed to establish guild membership for tower donation", zap.Error(lookupErr))
+			bf.WriteUint32(0)
+			doAckSimpleFail(s, pkt.AckHandle, bf.Data())
+			return
+		}
+		if reason != "" {
+			s.recordSecurityAudit("unauthorized_guild_point_spend", "warning", "rejected", map[string]interface{}{
+				"point_kind": "rp", "requested_guild_id": pkt.GuildID, "reason": reason,
+			})
+			bf.WriteUint32(0)
+			doAckSimpleFail(s, pkt.AckHandle, bf.Data())
+			return
+		}
 
 		sd, err := GetCharacterSaveData(s, s.charID)
 		if err == nil && sd != nil {
@@ -379,7 +394,7 @@ func handleMsgMhfPostTenrouirai(s *Session, p mhfpacket.MHFPacket) {
 			if err := sd.Save(s); err != nil {
 				s.logger.Error("Failed to save RP after tower donation", zap.Error(err))
 			}
-			result, err := s.server.towerService.DonateGuildTowerRP(pkt.GuildID, pkt.DonatedRP)
+			result, err := s.server.towerService.DonateGuildTowerRP(guildID, pkt.DonatedRP)
 			if err != nil {
 				s.logger.Error("Failed to process tower RP donation", zap.Error(err))
 				bf.WriteUint32(0)

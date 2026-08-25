@@ -1,7 +1,9 @@
 package channelserver
 
 import (
+	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -51,6 +53,34 @@ func TestRepoSessionValidateLoginTokenWrongSession(t *testing.T) {
 	err := repo.ValidateLoginToken(token, 999999, charID)
 	if err == nil {
 		t.Fatal("Expected error for wrong session ID, got nil")
+	}
+}
+
+func TestRepoSessionRejectsExpiredUnboundToken(t *testing.T) {
+	_, db, _, charID, sessionID, token := setupSessionRepo(t)
+	repo := NewSessionRepository(db, time.Hour)
+
+	if _, err := db.Exec("UPDATE sign_sessions SET last_used_at=NOW()-INTERVAL '2 hours' WHERE id=$1", sessionID); err != nil {
+		t.Fatalf("Failed to age sign session: %v", err)
+	}
+	if err := repo.ValidateLoginToken(token, sessionID, charID); err != sql.ErrNoRows {
+		t.Fatalf("ValidateLoginToken error = %v, want sql.ErrNoRows", err)
+	}
+}
+
+func TestRepoSessionRejectsExpiredBoundTokenForNewAuthentication(t *testing.T) {
+	_, db, _, charID, sessionID, token := setupSessionRepo(t)
+	repo := NewSessionRepository(db, time.Hour)
+	CreateTestServer(t, db, 1)
+
+	if err := repo.BindSession(token, 1, charID); err != nil {
+		t.Fatalf("BindSession failed: %v", err)
+	}
+	if _, err := db.Exec("UPDATE sign_sessions SET last_used_at=NOW()-INTERVAL '2 hours' WHERE id=$1", sessionID); err != nil {
+		t.Fatalf("Failed to age sign session: %v", err)
+	}
+	if err := repo.ValidateLoginToken(token, sessionID, charID); err != sql.ErrNoRows {
+		t.Fatalf("ValidateLoginToken error = %v, want sql.ErrNoRows", err)
 	}
 }
 

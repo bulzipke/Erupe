@@ -53,7 +53,7 @@ func handleMsgMhfCancelGuildScout(s *Session, p mhfpacket.MHFPacket) {
 		return
 	}
 
-	err = s.server.guildRepo.CancelInvite(pkt.InvitationID)
+	err = s.server.guildRepo.CancelInvite(guild.ID, pkt.InvitationID)
 
 	if err != nil {
 		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))

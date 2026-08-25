@@ -108,7 +108,7 @@ func TestEnumerateGuildTresure_ListError(t *testing.T) {
 
 func TestAcquireGuildTresure_Success(t *testing.T) {
 	server := createMockServer()
-	guildMock := &mockGuildRepo{}
+	guildMock := &mockGuildRepo{membership: &GuildMember{GuildID: 10, CharID: 1}}
 	server.guildRepo = guildMock
 	session := createMockSession(1, server)
 
@@ -118,6 +118,9 @@ func TestAcquireGuildTresure_Success(t *testing.T) {
 
 	if guildMock.acquireHuntID != 42 {
 		t.Errorf("AcquireHunt ID = %d, want 42", guildMock.acquireHuntID)
+	}
+	if len(guildMock.secureHuntArgs) != 3 || guildMock.secureHuntArgs[0] != 10 || guildMock.secureHuntArgs[2] != 1 {
+		t.Fatalf("AcquireHuntForGuild scope = %v, want guild 10 actor 1", guildMock.secureHuntArgs)
 	}
 
 	select {
@@ -131,7 +134,7 @@ func TestAcquireGuildTresure_Success(t *testing.T) {
 
 func TestOperateGuildTresureReport_Register(t *testing.T) {
 	server := createMockServer()
-	guildMock := &mockGuildRepo{}
+	guildMock := &mockGuildRepo{membership: &GuildMember{GuildID: 10, CharID: 1}}
 	server.guildRepo = guildMock
 	session := createMockSession(1, server)
 
@@ -150,7 +153,7 @@ func TestOperateGuildTresureReport_Register(t *testing.T) {
 
 func TestOperateGuildTresureReport_Collect(t *testing.T) {
 	server := createMockServer()
-	guildMock := &mockGuildRepo{}
+	guildMock := &mockGuildRepo{membership: &GuildMember{GuildID: 10, CharID: 1}}
 	server.guildRepo = guildMock
 	session := createMockSession(1, server)
 
@@ -169,7 +172,7 @@ func TestOperateGuildTresureReport_Collect(t *testing.T) {
 
 func TestOperateGuildTresureReport_Claim(t *testing.T) {
 	server := createMockServer()
-	guildMock := &mockGuildRepo{}
+	guildMock := &mockGuildRepo{membership: &GuildMember{GuildID: 10, CharID: 1}}
 	server.guildRepo = guildMock
 	session := createMockSession(1, server)
 

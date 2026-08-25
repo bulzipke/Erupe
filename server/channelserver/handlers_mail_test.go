@@ -428,7 +428,8 @@ func TestHandleMsgMhfSendMail_Guild(t *testing.T) {
 	server := createMockServer()
 	mailMock := &mockMailRepo{}
 	guildMock := &mockGuildRepo{
-		guild: &Guild{ID: 10},
+		guild:      &Guild{ID: 10},
+		membership: &GuildMember{GuildID: 10, CharID: 1},
 		members: []*GuildMember{
 			{CharID: 100},
 			{CharID: 200},
@@ -492,5 +493,25 @@ func TestHandleMsgMhfSendMail_GuildNotFound(t *testing.T) {
 	case <-session.sendPackets:
 	default:
 		t.Error("No response packet queued")
+	}
+}
+
+func TestHandleMsgMhfSendMail_GuildApplicantRejected(t *testing.T) {
+	server := createMockServer()
+	mailMock := &mockMailRepo{}
+	server.mailRepo = mailMock
+	server.guildRepo = &mockGuildRepo{
+		membership: &GuildMember{GuildID: 10, CharID: 1, IsApplicant: true},
+		members:    []*GuildMember{{CharID: 100}},
+	}
+	ensureMailService(server)
+	session := createMockSession(1, server)
+
+	handleMsgMhfSendMail(session, &mhfpacket.MsgMhfSendMail{
+		AckHandle: 100, RecipientID: 0, Subject: "Guild News", Body: "Update",
+	})
+
+	if len(mailMock.sentMails) != 0 {
+		t.Fatalf("applicant broadcast %d guild mails, want 0", len(mailMock.sentMails))
 	}
 }

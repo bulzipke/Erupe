@@ -2,7 +2,23 @@ package config
 
 import (
 	"testing"
+	"time"
 )
+
+func TestSignSessionTokenExpiry(t *testing.T) {
+	if got := (Sign{SessionTokenExpirySeconds: 604800}).SessionTokenExpiry(); got != 7*24*time.Hour {
+		t.Fatalf("SessionTokenExpiry() = %v, want 168h", got)
+	}
+	if got := (Sign{SessionTokenExpirySeconds: 0}).SessionTokenExpiry(); got != 0 {
+		t.Fatalf("disabled SessionTokenExpiry() = %v, want 0", got)
+	}
+	if int64(^uint(0)>>1) > maxSessionTokenExpirySeconds {
+		overflowSeconds := maxSessionTokenExpirySeconds + 1
+		if got := (Sign{SessionTokenExpirySeconds: int(overflowSeconds)}).SessionTokenExpiry(); got != 0 {
+			t.Fatalf("overflowing SessionTokenExpiry() = %v, want 0", got)
+		}
+	}
+}
 
 // TestModeString tests the versionStrings array content
 func TestModeString(t *testing.T) {

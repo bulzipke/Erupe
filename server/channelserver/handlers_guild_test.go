@@ -1143,7 +1143,8 @@ func TestHandleMsgMhfCreateGuild_Error(t *testing.T) {
 func TestHandleMsgMhfArrangeGuildMember_Success(t *testing.T) {
 	server := createMockServer()
 	guild := &Guild{ID: 1, GuildLeader: GuildLeader{LeaderCharID: 100}}
-	server.guildRepo = &mockGuildRepo{guild: guild}
+	guildRepo := &mockGuildRepo{guild: guild}
+	server.guildRepo = guildRepo
 	session := createMockSession(100, server)
 
 	pkt := &mhfpacket.MsgMhfArrangeGuildMember{
@@ -1157,6 +1158,12 @@ func TestHandleMsgMhfArrangeGuildMember_Success(t *testing.T) {
 	case <-session.sendPackets:
 	default:
 		t.Error("expected response")
+	}
+	if guildRepo.arrangeGuildID != guild.ID {
+		t.Fatalf("ArrangeCharacters guildID = %d, want %d", guildRepo.arrangeGuildID, guild.ID)
+	}
+	if len(guildRepo.arrangedCharIDs) != 3 || guildRepo.arrangedCharIDs[0] != 100 || guildRepo.arrangedCharIDs[1] != 200 || guildRepo.arrangedCharIDs[2] != 300 {
+		t.Fatalf("ArrangeCharacters charIDs = %v, want [100 200 300]", guildRepo.arrangedCharIDs)
 	}
 }
 
@@ -1269,7 +1276,7 @@ func TestHandleMsgMhfGetGuildTargetMemberNum_WithGuild(t *testing.T) {
 
 func TestHandleMsgMhfEnumerateGuildItem(t *testing.T) {
 	server := createMockServer()
-	server.guildRepo = &mockGuildRepo{}
+	server.guildRepo = &mockGuildRepo{membership: &GuildMember{GuildID: 1, CharID: 1}}
 	session := createMockSession(100, server)
 
 	pkt := &mhfpacket.MsgMhfEnumerateGuildItem{AckHandle: 1, GuildID: 1}
@@ -1279,7 +1286,7 @@ func TestHandleMsgMhfEnumerateGuildItem(t *testing.T) {
 
 func TestHandleMsgMhfUpdateGuildItem(t *testing.T) {
 	server := createMockServer()
-	server.guildRepo = &mockGuildRepo{}
+	server.guildRepo = &mockGuildRepo{membership: &GuildMember{GuildID: 1, CharID: 1}}
 	session := createMockSession(100, server)
 
 	pkt := &mhfpacket.MsgMhfUpdateGuildItem{AckHandle: 1, GuildID: 1}
@@ -1290,7 +1297,7 @@ func TestHandleMsgMhfUpdateGuildItem(t *testing.T) {
 func TestHandleMsgMhfUpdateGuildIcon_LeaderSuccess(t *testing.T) {
 	server := createMockServer()
 	guild := &Guild{ID: 1}
-	membership := &GuildMember{CharID: 100, IsLeader: true}
+	membership := &GuildMember{GuildID: 1, CharID: 100, IsLeader: true}
 	server.guildRepo = &mockGuildRepo{guild: guild, membership: membership}
 	session := createMockSession(100, server)
 
@@ -1308,13 +1315,30 @@ func TestHandleMsgMhfUpdateGuildIcon_LeaderSuccess(t *testing.T) {
 func TestHandleMsgMhfUpdateGuildIcon_NotLeader(t *testing.T) {
 	server := createMockServer()
 	guild := &Guild{ID: 1}
-	membership := &GuildMember{CharID: 100, IsLeader: false, OrderIndex: 5}
+	membership := &GuildMember{GuildID: 1, CharID: 100, IsLeader: false, OrderIndex: 5}
 	server.guildRepo = &mockGuildRepo{guild: guild, membership: membership}
 	session := createMockSession(100, server)
 
 	pkt := &mhfpacket.MsgMhfUpdateGuildIcon{AckHandle: 1, GuildID: 1}
 	handleMsgMhfUpdateGuildIcon(session, pkt)
 	<-session.sendPackets
+}
+
+func TestHandleMsgMhfUpdateGuildIcon_CrossGuildLeaderRejected(t *testing.T) {
+	server := createMockServer()
+	guild := &Guild{ID: 1}
+	membership := &GuildMember{GuildID: 2, CharID: 100, IsLeader: true}
+	guildMock := &mockGuildRepo{guild: guild, membership: membership}
+	server.guildRepo = guildMock
+	session := createMockSession(100, server)
+
+	pkt := &mhfpacket.MsgMhfUpdateGuildIcon{AckHandle: 1, GuildID: 1}
+	handleMsgMhfUpdateGuildIcon(session, pkt)
+	<-session.sendPackets
+
+	if guildMock.savedGuild != nil {
+		t.Fatal("cross-guild icon update unexpectedly saved the target guild")
+	}
 }
 
 func TestHandleMsgMhfUpdateGuildIcon_GetByIDError(t *testing.T) {
@@ -1339,10 +1363,85 @@ func TestHandleMsgMhfReadGuildcard(t *testing.T) {
 
 func TestHandleMsgMhfSetGuildManageRight(t *testing.T) {
 	server := createMockServer()
-	server.guildRepo = &mockGuildRepo{}
+	guildRepo := &mockGuildRepo{memberships: map[uint32]*GuildMember{
+		100: {GuildID: 1, CharID: 100, IsLeader: true},
+		200: {GuildID: 1, CharID: 200},
+	}}
+	server.guildRepo = guildRepo
 	session := createMockSession(100, server)
 
 	pkt := &mhfpacket.MsgMhfSetGuildManageRight{AckHandle: 1, CharID: 200, Allowed: true}
 	handleMsgMhfSetGuildManageRight(session, pkt)
 	<-session.sendPackets
+
+	if !guildRepo.setRecruiterCalled {
+		t.Fatal("leader update did not call SetRecruiter")
+	}
+	if guildRepo.recruiterGuildID != 1 || guildRepo.recruiterActorID != 100 || guildRepo.recruiterCharID != 200 || !guildRepo.recruiterAllowed {
+		t.Fatalf("SetRecruiter args = (%d, %d, %d, %v), want (1, 100, 200, true)",
+			guildRepo.recruiterGuildID, guildRepo.recruiterActorID, guildRepo.recruiterCharID, guildRepo.recruiterAllowed)
+	}
+}
+
+func TestHandleMsgMhfSetGuildManageRight_SameGuildMemberPreservesOriginalBehavior(t *testing.T) {
+	server := createMockServer()
+	guildRepo := &mockGuildRepo{memberships: map[uint32]*GuildMember{
+		100: {GuildID: 1, CharID: 100, OrderIndex: 4},
+		200: {GuildID: 1, CharID: 200},
+	}}
+	server.guildRepo = guildRepo
+	session := createMockSession(100, server)
+
+	handleMsgMhfSetGuildManageRight(session, &mhfpacket.MsgMhfSetGuildManageRight{
+		AckHandle: 1,
+		CharID:    200,
+		Allowed:   true,
+	})
+	<-session.sendPackets
+
+	if !guildRepo.setRecruiterCalled {
+		t.Fatal("same-guild member update did not preserve the original behavior")
+	}
+}
+
+func TestHandleMsgMhfSetGuildManageRight_ApplicantLeaderRejected(t *testing.T) {
+	server := createMockServer()
+	guildRepo := &mockGuildRepo{memberships: map[uint32]*GuildMember{
+		100: {GuildID: 1, CharID: 100, IsApplicant: true, IsLeader: true},
+		200: {GuildID: 1, CharID: 200},
+	}}
+	server.guildRepo = guildRepo
+	session := createMockSession(100, server)
+
+	handleMsgMhfSetGuildManageRight(session, &mhfpacket.MsgMhfSetGuildManageRight{
+		AckHandle: 1,
+		CharID:    200,
+		Allowed:   true,
+	})
+	<-session.sendPackets
+
+	if guildRepo.setRecruiterCalled {
+		t.Fatal("applicant update unexpectedly called SetRecruiter")
+	}
+}
+
+func TestHandleMsgMhfSetGuildManageRight_CrossGuildTargetRejected(t *testing.T) {
+	server := createMockServer()
+	guildRepo := &mockGuildRepo{memberships: map[uint32]*GuildMember{
+		100: {GuildID: 1, CharID: 100, IsLeader: true},
+		200: {GuildID: 2, CharID: 200},
+	}}
+	server.guildRepo = guildRepo
+	session := createMockSession(100, server)
+
+	handleMsgMhfSetGuildManageRight(session, &mhfpacket.MsgMhfSetGuildManageRight{
+		AckHandle: 1,
+		CharID:    200,
+		Allowed:   true,
+	})
+	<-session.sendPackets
+
+	if guildRepo.setRecruiterCalled {
+		t.Fatal("cross-guild update unexpectedly called SetRecruiter")
+	}
 }

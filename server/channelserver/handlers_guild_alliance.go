@@ -32,7 +32,16 @@ func handleMsgMhfCreateJoint(s *Session, p mhfpacket.MHFPacket) {
 		doAckSimpleFail(s, pkt.AckHandle, []byte{0x01, 0x01, 0x01, 0x01})
 		return
 	}
-	if err := s.server.guildRepo.CreateAlliance(pkt.Name, pkt.GuildID); err != nil {
+	membership, err := s.server.guildRepo.GetCharacterMembership(s.charID)
+	if err != nil || membership == nil || membership.CharID != s.charID || membership.IsApplicant ||
+		membership.GuildID != pkt.GuildID {
+		if err != nil {
+			s.logger.Error("Failed to get guild membership for alliance creation", zap.Error(err))
+		}
+		doAckSimpleFail(s, pkt.AckHandle, []byte{0x01, 0x01, 0x01, 0x01})
+		return
+	}
+	if err := s.server.guildRepo.CreateAllianceForMember(pkt.Name, membership.GuildID, s.charID); err != nil {
 		s.logger.Error("Failed to create guild alliance in db", zap.Error(err))
 		doAckSimpleFail(s, pkt.AckHandle, []byte{0x01, 0x01, 0x01, 0x01})
 		return
@@ -78,8 +87,10 @@ func handleMsgMhfOperateJoint(s *Session, p mhfpacket.MHFPacket) {
 			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		}
 	case mhfpacket.OPERATE_JOINT_LEAVE:
-		if guild.LeaderCharID == s.charID {
-			if err := s.server.guildRepo.RemoveGuildFromAlliance(alliance.ID, guild.ID, alliance.SubGuild1ID, alliance.SubGuild2ID); err != nil {
+		membership, memberErr := s.server.guildRepo.GetCharacterMembership(s.charID)
+		if memberErr == nil && membership != nil && membership.CharID == s.charID && !membership.IsApplicant &&
+			membership.IsLeader && membership.GuildID == guild.ID && guild.LeaderCharID == s.charID {
+			if err := s.server.guildRepo.LeaveAlliance(alliance.ID, membership.GuildID, s.charID); err != nil {
 				s.logger.Error("Failed to remove guild from alliance", zap.Error(err))
 			}
 			// NOTE: Alliance join requests are not yet implemented (no DB table exists),
@@ -111,9 +122,11 @@ func handleMsgMhfOperateJoint(s *Session, p mhfpacket.MHFPacket) {
 			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		}
 	case mhfpacket.OPERATE_JOINT_KICK:
-		if alliance.ParentGuild.LeaderCharID == s.charID {
+		membership, memberErr := s.server.guildRepo.GetCharacterMembership(s.charID)
+		if memberErr == nil && membership != nil && membership.CharID == s.charID && !membership.IsApplicant &&
+			membership.IsLeader && membership.GuildID == alliance.ParentGuildID && alliance.ParentGuild.LeaderCharID == s.charID {
 			kickedGuildID := pkt.Data1.ReadUint32()
-			if err := s.server.guildRepo.RemoveGuildFromAlliance(alliance.ID, kickedGuildID, alliance.SubGuild1ID, alliance.SubGuild2ID); err != nil {
+			if err := s.server.guildRepo.KickGuildFromAlliance(alliance.ID, kickedGuildID, s.charID); err != nil {
 				s.logger.Error("Failed to kick guild from alliance", zap.Error(err))
 			}
 			doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))

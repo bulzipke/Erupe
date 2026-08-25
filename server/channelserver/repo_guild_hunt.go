@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"time"
@@ -66,16 +67,65 @@ func (r *GuildRepository) CreateHunt(guildID, hostID, destination, level uint32,
 	return err
 }
 
+// CreateHuntForGuild creates a hunt only for the host's current guild.
+func (r *GuildRepository) CreateHuntForGuild(guildID, hostID, destination, level uint32, huntData []byte, catsUsed string) error {
+	if huntData == nil {
+		huntData = []byte{}
+	}
+	return requireGuildScopedMutation(r.db.Exec(`
+		INSERT INTO guild_hunts (guild_id, host_id, destination, level, hunt_data, cats_used)
+		SELECT $1, $2, $3, $4, $5, $6
+		WHERE EXISTS (
+			SELECT 1
+			FROM guild_characters gc
+			WHERE gc.guild_id = $1
+			  AND gc.character_id = $2
+		)
+	`, guildID, hostID, destination, level, huntData, catsUsed))
+}
+
 // AcquireHunt marks a treasure hunt as acquired.
 func (r *GuildRepository) AcquireHunt(huntID uint32) error {
 	_, err := r.db.Exec(`UPDATE guild_hunts SET acquired=true WHERE id=$1`, huntID)
 	return err
 }
 
+// AcquireHuntForGuild acquires a hunt in the actor's current guild.
+func (r *GuildRepository) AcquireHuntForGuild(guildID, huntID, actorCharID uint32) error {
+	return requireGuildScopedMutation(r.db.Exec(`
+		UPDATE guild_hunts gh
+		SET acquired = TRUE
+		WHERE gh.id = $1
+		  AND gh.guild_id = $2
+		  AND EXISTS (
+			SELECT 1
+			FROM guild_characters gc
+			WHERE gc.guild_id = gh.guild_id
+			  AND gc.character_id = $3
+		  )
+	`, huntID, guildID, actorCharID))
+}
+
 // RegisterHuntReport sets a character's active treasure hunt.
 func (r *GuildRepository) RegisterHuntReport(huntID, charID uint32) error {
 	_, err := r.db.Exec(`UPDATE guild_characters SET treasure_hunt=$1 WHERE character_id=$2`, huntID, charID)
 	return err
+}
+
+// RegisterHuntReportForGuild assigns a hunt from the character's current guild.
+func (r *GuildRepository) RegisterHuntReportForGuild(guildID, huntID, charID uint32) error {
+	return requireGuildScopedMutation(r.db.Exec(`
+		UPDATE guild_characters gc
+		SET treasure_hunt = $1
+		WHERE gc.character_id = $2
+		  AND gc.guild_id = $3
+		  AND EXISTS (
+			SELECT 1
+			FROM guild_hunts gh
+			WHERE gh.id = $1
+			  AND gh.guild_id = gc.guild_id
+		  )
+	`, huntID, charID, guildID))
 }
 
 // CollectHunt marks a hunt as collected and clears all characters' treasure_hunt references.
@@ -87,10 +137,65 @@ func (r *GuildRepository) CollectHunt(huntID uint32) error {
 	return err
 }
 
+// CollectHuntForGuild collects a hunt in actorCharID's current guild and
+// clears only references owned by the same guild.
+func (r *GuildRepository) CollectHuntForGuild(guildID, huntID, actorCharID uint32) error {
+	tx, err := r.db.BeginTxx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if err := requireGuildScopedMutation(tx.Exec(`
+		UPDATE guild_hunts gh
+		SET collected = TRUE
+		WHERE gh.id = $1
+		  AND gh.guild_id = $2
+		  AND EXISTS (
+			SELECT 1
+			FROM guild_characters gc
+			WHERE gc.guild_id = gh.guild_id
+			  AND gc.character_id = $3
+		  )
+	`, huntID, guildID, actorCharID)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`
+		UPDATE guild_characters
+		SET treasure_hunt = NULL
+		WHERE guild_id = $1
+		  AND treasure_hunt = $2
+	`, guildID, huntID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // ClaimHuntReward records that a character has claimed a treasure hunt reward.
 func (r *GuildRepository) ClaimHuntReward(huntID, charID uint32) error {
 	_, err := r.db.Exec(`INSERT INTO guild_hunts_claimed VALUES ($1, $2)`, huntID, charID)
 	return err
+}
+
+// ClaimHuntRewardForGuild records a claim for a hunt belonging to the
+// character's current guild.
+func (r *GuildRepository) ClaimHuntRewardForGuild(guildID, huntID, charID uint32) error {
+	return requireGuildScopedMutation(r.db.Exec(`
+		INSERT INTO guild_hunts_claimed (hunt_id, character_id)
+		SELECT $1, $3
+		WHERE EXISTS (
+			SELECT 1
+			FROM guild_hunts gh
+			WHERE gh.id = $1
+			  AND gh.guild_id = $2
+		)
+		  AND EXISTS (
+			SELECT 1
+			FROM guild_characters gc
+			WHERE gc.guild_id = $2
+			  AND gc.character_id = $3
+		)
+	`, huntID, guildID, charID))
 }
 
 // ListGuildKills returns kill log entries for guild members since the character's last box claim.

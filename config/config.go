@@ -100,10 +100,16 @@ type Config struct {
 	Commands        []Command
 	Courses         []Course
 	Database        Database
+	SecurityAudit   SecurityAudit
 	Sign            Sign
 	API             API
 	Channel         Channel
 	Entrance        Entrance
+}
+
+// SecurityAudit controls retention for append-only security observations.
+type SecurityAudit struct {
+	RetentionDays int // Rows older than this are removed at process startup. 0 disables cleanup.
 }
 
 type SaveDumpOptions struct {
@@ -319,8 +325,22 @@ type Database struct {
 
 // Sign holds the sign server config.
 type Sign struct {
-	Enabled bool
-	Port    int
+	Enabled                   bool
+	Port                      int
+	SessionTokenExpirySeconds int // Sliding idle lifetime for login/API tokens. 0 disables expiry.
+}
+
+const maxSessionTokenExpirySeconds int64 = 9223372036 // max time.Duration expressed as whole seconds
+
+// SessionTokenExpiry returns the sliding idle lifetime for a login token.
+// An already-established channel connection is not interrupted when this
+// lifetime elapses, but the stale token cannot authenticate a new request.
+func (s Sign) SessionTokenExpiry() time.Duration {
+	seconds := int64(s.SessionTokenExpirySeconds)
+	if seconds <= 0 || seconds > maxSessionTokenExpirySeconds {
+		return 0
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 // API holds server config
@@ -584,6 +604,10 @@ func registerDefaults() {
 	// Sign server
 	viper.SetDefault("Sign.Enabled", true)
 	viper.SetDefault("Sign.Port", 53312)
+	viper.SetDefault("Sign.SessionTokenExpirySeconds", 7*24*60*60)
+
+	// Security audit log
+	viper.SetDefault("SecurityAudit.RetentionDays", 90)
 
 	// API server
 	viper.SetDefault("API.Enabled", true)
@@ -700,6 +724,15 @@ func LoadConfig() (*Config, error) {
 	}
 	if c.DebugOptions.SessionReadTimeoutSeconds < 0 {
 		return nil, fmt.Errorf("invalid DebugOptions.SessionReadTimeoutSeconds %d (expected 0 or greater)", c.DebugOptions.SessionReadTimeoutSeconds)
+	}
+	if c.Sign.SessionTokenExpirySeconds < 0 {
+		return nil, fmt.Errorf("invalid Sign.SessionTokenExpirySeconds %d (expected 0 or greater)", c.Sign.SessionTokenExpirySeconds)
+	}
+	if int64(c.Sign.SessionTokenExpirySeconds) > maxSessionTokenExpirySeconds {
+		return nil, fmt.Errorf("invalid Sign.SessionTokenExpirySeconds %d (maximum %d)", c.Sign.SessionTokenExpirySeconds, maxSessionTokenExpirySeconds)
+	}
+	if c.SecurityAudit.RetentionDays < 0 {
+		return nil, fmt.Errorf("invalid SecurityAudit.RetentionDays %d (expected 0 or greater)", c.SecurityAudit.RetentionDays)
 	}
 	// A read deadline at or below the idle timeout would make the socket error the reported cause
 	// of every stalled disconnect instead of the idle check, so reject that rather than silently

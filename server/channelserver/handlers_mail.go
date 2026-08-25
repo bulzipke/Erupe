@@ -200,13 +200,19 @@ func handleMsgMhfSendMail(s *Session, p mhfpacket.MHFPacket) {
 	}
 
 	if pkt.RecipientID == 0 { // Guild mail broadcast
-		g, err := s.server.guildRepo.GetByCharID(s.charID)
-		if err != nil {
-			s.logger.Error("Failed to get guild info for mail")
+		guildID, reason, lookupErr := resolveGuildMemberAccess(s, 0)
+		if lookupErr != nil {
+			s.logger.Error("Failed to establish guild membership for mail", zap.Error(lookupErr))
 			doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 			return
 		}
-		if err := s.server.mailService.BroadcastToGuild(s.charID, g.ID, pkt.Subject, pkt.Body); err != nil {
+		if reason != "" {
+			s.logger.Warn("Rejected guild mail because membership could not be established",
+				zap.Uint32("charID", s.charID), zap.String("reason", reason))
+			doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+		if err := s.server.mailService.BroadcastToGuild(s.charID, guildID, pkt.Subject, pkt.Body); err != nil {
 			s.logger.Error("Failed to broadcast guild mail", zap.Error(err))
 			doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 			return

@@ -228,7 +228,11 @@
   },
   "Sign": {
     "Enabled": true,
-    "Port": 53312
+    "Port": 53312,
+    "SessionTokenExpirySeconds": 604800
+  },
+  "SecurityAudit": {
+    "RetentionDays": 90
   },
   "API": {
     "Enabled": true,

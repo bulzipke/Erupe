@@ -54,6 +54,10 @@ func TestInfoGuild_ByGuildID(t *testing.T) {
 	if session.prevGuildID != 10 {
 		t.Errorf("prevGuildID = %d, want 10", session.prevGuildID)
 	}
+	if guildMock.getMembersCalls != 1 || guildMock.getMembersGuildID != 10 || !guildMock.getMembersApplicants {
+		t.Errorf("applicant query = calls:%d guild:%d applicants:%t, want 1, 10, true",
+			guildMock.getMembersCalls, guildMock.getMembersGuildID, guildMock.getMembersApplicants)
+	}
 }
 
 func TestInfoGuild_ByCharID(t *testing.T) {

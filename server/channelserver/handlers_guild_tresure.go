@@ -73,8 +73,8 @@ func handleMsgMhfRegistGuildTresure(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfRegistGuildTresure)
 	bf := byteframe.NewByteFrameFromBytes(pkt.Data)
 	huntData := byteframe.NewByteFrame()
-	guild, err := s.server.guildRepo.GetByCharID(s.charID)
-	if err != nil || guild == nil {
+	membership, err := s.server.guildRepo.GetCharacterMembership(s.charID)
+	if err != nil || membership == nil || membership.CharID != s.charID || membership.IsApplicant {
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
@@ -98,7 +98,7 @@ func handleMsgMhfRegistGuildTresure(s *Session, p mhfpacket.MHFPacket) {
 			huntData.WriteBytes(bf.ReadBytes(9))
 		}
 	}
-	if err := s.server.guildRepo.CreateHunt(guild.ID, s.charID, destination, level, huntData.Data(), catsUsed); err != nil {
+	if err := s.server.guildRepo.CreateHuntForGuild(membership.GuildID, s.charID, destination, level, huntData.Data(), catsUsed); err != nil {
 		s.logger.Error("Failed to register guild treasure hunt", zap.Error(err))
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
@@ -106,7 +106,15 @@ func handleMsgMhfRegistGuildTresure(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfAcquireGuildTresure(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfAcquireGuildTresure)
-	if err := s.server.guildRepo.AcquireHunt(pkt.HuntID); err != nil {
+	membership, err := s.server.guildRepo.GetCharacterMembership(s.charID)
+	if err != nil || membership == nil || membership.CharID != s.charID || membership.IsApplicant {
+		if err != nil {
+			s.logger.Error("Failed to get guild membership for treasure hunt acquisition", zap.Error(err))
+		}
+		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	if err := s.server.guildRepo.AcquireHuntForGuild(membership.GuildID, pkt.HuntID, s.charID); err != nil {
 		s.logger.Error("Failed to acquire guild treasure hunt", zap.Error(err))
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
@@ -114,17 +122,25 @@ func handleMsgMhfAcquireGuildTresure(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfOperateGuildTresureReport(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfOperateGuildTresureReport)
+	membership, err := s.server.guildRepo.GetCharacterMembership(s.charID)
+	if err != nil || membership == nil || membership.CharID != s.charID || membership.IsApplicant {
+		if err != nil {
+			s.logger.Error("Failed to get guild membership for treasure hunt operation", zap.Error(err))
+		}
+		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
 	switch pkt.State {
 	case 0: // Report registration
-		if err := s.server.guildRepo.RegisterHuntReport(pkt.HuntID, s.charID); err != nil {
+		if err := s.server.guildRepo.RegisterHuntReportForGuild(membership.GuildID, pkt.HuntID, s.charID); err != nil {
 			s.logger.Error("Failed to register treasure hunt report", zap.Error(err))
 		}
 	case 1: // Collected by hunter
-		if err := s.server.guildRepo.CollectHunt(pkt.HuntID); err != nil {
+		if err := s.server.guildRepo.CollectHuntForGuild(membership.GuildID, pkt.HuntID, s.charID); err != nil {
 			s.logger.Error("Failed to collect treasure hunt", zap.Error(err))
 		}
 	case 2: // Claim treasure
-		if err := s.server.guildRepo.ClaimHuntReward(pkt.HuntID, s.charID); err != nil {
+		if err := s.server.guildRepo.ClaimHuntRewardForGuild(membership.GuildID, pkt.HuntID, s.charID); err != nil {
 			s.logger.Error("Failed to claim treasure hunt reward", zap.Error(err))
 		}
 	}

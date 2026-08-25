@@ -67,42 +67,35 @@ func handleMsgMhfUpdateGuildMessageBoard(s *Session, p mhfpacket.MHFPacket) {
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
-	guild, err := s.server.guildRepo.GetByCharID(s.charID)
-	applicant := false
-	if guild != nil {
-		var appErr error
-		applicant, appErr = s.server.guildRepo.HasApplication(guild.ID, s.charID)
-		if appErr != nil {
-			s.logger.Warn("Failed to check guild application status", zap.Error(appErr))
-		}
-	}
-	if err != nil || guild == nil || applicant {
+	membership, err := s.server.guildRepo.GetCharacterMembership(s.charID)
+	if err != nil || membership == nil || membership.CharID != s.charID || membership.IsApplicant {
 		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
+	guildID := membership.GuildID
 	switch pkt.MessageOp {
 	case 0: // Create message
 		maxPosts := 100
 		if pkt.PostType == 1 {
 			maxPosts = 4
 		}
-		if err := s.server.guildRepo.CreatePost(guild.ID, s.charID, pkt.StampID, int(pkt.PostType), pkt.Title, pkt.Body, maxPosts); err != nil {
+		if err := s.server.guildRepo.CreatePost(guildID, s.charID, pkt.StampID, int(pkt.PostType), pkt.Title, pkt.Body, maxPosts); err != nil {
 			s.logger.Error("Failed to create guild post", zap.Error(err))
 		}
 	case 1: // Delete message
-		if err := s.server.guildRepo.DeletePost(pkt.PostID); err != nil {
+		if err := s.server.guildRepo.DeletePost(guildID, pkt.PostID); err != nil {
 			s.logger.Error("Failed to soft-delete guild post", zap.Error(err))
 		}
 	case 2: // Update message
-		if err := s.server.guildRepo.UpdatePost(pkt.PostID, pkt.Title, pkt.Body); err != nil {
+		if err := s.server.guildRepo.UpdatePost(guildID, pkt.PostID, pkt.Title, pkt.Body); err != nil {
 			s.logger.Error("Failed to update guild post", zap.Error(err))
 		}
 	case 3: // Update stamp
-		if err := s.server.guildRepo.UpdatePostStamp(pkt.PostID, pkt.StampID); err != nil {
+		if err := s.server.guildRepo.UpdatePostStamp(guildID, pkt.PostID, pkt.StampID); err != nil {
 			s.logger.Error("Failed to update guild post stamp", zap.Error(err))
 		}
 	case 4: // Like message
-		likedBy, err := s.server.guildRepo.GetPostLikedBy(pkt.PostID)
+		likedBy, err := s.server.guildRepo.GetPostLikedBy(guildID, pkt.PostID)
 		if err != nil {
 			s.logger.Error("Failed to get guild message like data from db", zap.Error(err))
 		} else {
@@ -111,14 +104,14 @@ func handleMsgMhfUpdateGuildMessageBoard(s *Session, p mhfpacket.MHFPacket) {
 			} else {
 				likedBy = stringsupport.CSVRemove(likedBy, int(s.charID))
 			}
-			if err := s.server.guildRepo.SetPostLikedBy(pkt.PostID, likedBy); err != nil {
+			if err := s.server.guildRepo.SetPostLikedBy(guildID, pkt.PostID, likedBy); err != nil {
 				s.logger.Error("Failed to update guild post likes", zap.Error(err))
 			}
 		}
 	case 5: // Check for new messages
 		timeChecked, err := s.server.charRepo.ReadGuildPostChecked(s.charID)
 		if err == nil {
-			newPosts, countErr := s.server.guildRepo.CountNewPosts(guild.ID, timeChecked)
+			newPosts, countErr := s.server.guildRepo.CountNewPosts(guildID, timeChecked)
 			if countErr != nil {
 				s.logger.Warn("Failed to count new guild posts", zap.Error(countErr))
 			}

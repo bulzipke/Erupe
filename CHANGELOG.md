@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Generated, language-independent Ferias item metadata catalog containing ItemID, rarity, raw `M`/`X` suffix, and pouch limit, plus a deterministic regeneration tool.
+- Best-effort append-only security audit observations, with configurable startup cleanup, for server-authoritative authorization decisions.
+
+### Changed
+
+- Login, API, and BBS capability tokens now use a cryptographically secure generator; login tokens use a configurable sliding idle expiry and stale unbound rows are cleaned automatically.
+
+### Fixed
+
+- Guild item access and guild mutations now use the acting character's actual non-applicant membership and guild-scoped SQL instead of trusting client-supplied guild identifiers.
+- Server-issued warehouse IDs now avoid zero and collisions within the target item container.
+
 ### Removed
 
 - `stable/v9.2.x` branch and its `SECURITY.md` supported-version entry — the branch had been untouched since 2026-02-08 and 9.2.x is well past the current 9.4.x release line.

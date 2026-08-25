@@ -1,10 +1,14 @@
 package token
 
 import (
+	cryptorand "crypto/rand"
+	"math/big"
 	"math/rand"
 	"sync"
 	"time"
 )
+
+const alphanumeric = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 // SafeRand is a concurrency-safe wrapper around *rand.Rand.
 type SafeRand struct {
@@ -42,10 +46,30 @@ var RNG = NewSafeRand()
 
 // Generate returns an alphanumeric token of specified length
 func Generate(length int) string {
-	var chars = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+	var chars = []rune(alphanumeric)
 	b := make([]rune, length)
 	for i := range b {
 		b[i] = chars[RNG.Intn(len(chars))]
 	}
 	return string(b)
+}
+
+// GenerateSecure returns a cryptographically random alphanumeric token.
+// Authentication and public capability tokens must use this function rather
+// than the deterministic PRNG retained for non-security game identifiers.
+func GenerateSecure(length int) (string, error) {
+	if length <= 0 {
+		return "", nil
+	}
+	chars := []byte(alphanumeric)
+	limit := big.NewInt(int64(len(chars)))
+	result := make([]byte, length)
+	for i := range result {
+		index, err := cryptorand.Int(cryptorand.Reader, limit)
+		if err != nil {
+			return "", err
+		}
+		result[i] = chars[index.Int64()]
+	}
+	return string(result), nil
 }

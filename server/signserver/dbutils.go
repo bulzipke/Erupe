@@ -5,6 +5,7 @@ import (
 	"errors"
 	"erupe-ce/common/mhfcourse"
 	"erupe-ce/common/token"
+	"fmt"
 	"time"
 
 	"go.uber.org/zap"
@@ -148,13 +149,19 @@ func (s *Server) deleteCharacter(cid int, tok string, tokenID uint32) error {
 }
 
 func (s *Server) registerUidToken(uid uint32) (uint32, string, error) {
-	_token := token.Generate(16)
+	_token, err := token.GenerateSecure(16)
+	if err != nil {
+		return 0, "", fmt.Errorf("generate login token: %w", err)
+	}
 	tid, err := s.sessionRepo.RegisterUID(uid, _token)
 	return tid, _token, err
 }
 
 func (s *Server) registerPsnToken(psn string) (uint32, string, error) {
-	_token := token.Generate(16)
+	_token, err := token.GenerateSecure(16)
+	if err != nil {
+		return 0, "", fmt.Errorf("generate login token: %w", err)
+	}
 	tid, err := s.sessionRepo.RegisterPSN(psn, _token)
 	return tid, _token, err
 }

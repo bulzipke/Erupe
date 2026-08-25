@@ -399,8 +399,13 @@ func handleMsgMhfVoteFesta(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfEntryFesta(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfEntryFesta)
-	guild, err := s.server.guildRepo.GetByCharID(s.charID)
-	if err != nil || guild == nil {
+	guildID, reason, lookupErr := resolveGuildMemberAccess(s, 0)
+	if lookupErr != nil {
+		s.logger.Error("Failed to establish guild membership for festa entry", zap.Error(lookupErr))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	if reason != "" {
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
@@ -409,7 +414,7 @@ func handleMsgMhfEntryFesta(s *Session, p mhfpacket.MHFPacket) {
 	if team == 1 {
 		teamName = "red"
 	}
-	if err := s.server.festaRepo.RegisterGuild(guild.ID, teamName); err != nil {
+	if err := s.server.festaRepo.RegisterGuild(guildID, teamName); err != nil {
 		s.logger.Error("Failed to register guild for festa", zap.Error(err))
 	}
 	bf := byteframe.NewByteFrame()
@@ -419,7 +424,20 @@ func handleMsgMhfEntryFesta(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfChargeFesta(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfChargeFesta)
-	if err := s.server.festaService.SubmitSouls(s.charID, pkt.GuildID, pkt.Souls); err != nil {
+	guildID, reason, lookupErr := resolveGuildMemberAccess(s, pkt.GuildID)
+	if lookupErr != nil {
+		s.logger.Error("Failed to establish guild membership for festa submission", zap.Error(lookupErr))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	if reason != "" {
+		s.recordSecurityAudit("unauthorized_guild_point_claim", "warning", "rejected", map[string]interface{}{
+			"point_kind": "festa_souls", "requested_guild_id": pkt.GuildID, "reason": reason,
+		})
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	if err := s.server.festaService.SubmitSouls(s.charID, guildID, pkt.Souls); err != nil {
 		s.logger.Error("Failed to submit festa souls", zap.Error(err))
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))

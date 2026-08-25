@@ -86,6 +86,36 @@ func TestGuildService_OperateMember(t *testing.T) {
 			wantErrIs:    ErrUnauthorized,
 		},
 		{
+			name:         "operation is scoped to actor guild",
+			actorCharID:  5,
+			targetCharID: 42,
+			action:       GuildMemberActionAccept,
+			guild:        &Guild{ID: 11, Name: "ActorGuild", GuildLeader: GuildLeader{LeaderCharID: 1}},
+			membership:   &GuildMember{GuildID: 11, CharID: 5, OrderIndex: 2},
+			acceptErr:    ErrApplicationMissing,
+			wantErr:      true,
+			wantErrIs:    ErrApplicationMissing,
+		},
+		{
+			name:         "unauthorized - applicant is not a sub-leader",
+			actorCharID:  5,
+			targetCharID: 42,
+			action:       GuildMemberActionReject,
+			guild:        &Guild{ID: 10, Name: "TestGuild", GuildLeader: GuildLeader{LeaderCharID: 1}},
+			membership:   &GuildMember{GuildID: 10, CharID: 5, IsApplicant: true, OrderIndex: 0},
+			wantErr:      true,
+			wantErrIs:    ErrUnauthorized,
+		},
+		{
+			name:         "unauthorized - missing membership",
+			actorCharID:  5,
+			targetCharID: 42,
+			action:       GuildMemberActionKick,
+			guild:        &Guild{ID: 10, Name: "TestGuild", GuildLeader: GuildLeader{LeaderCharID: 1}},
+			wantErr:      true,
+			wantErrIs:    ErrUnauthorized,
+		},
+		{
 			name:         "repo error on accept",
 			actorCharID:  1,
 			targetCharID: 42,
@@ -170,6 +200,57 @@ func TestGuildService_OperateMember(t *testing.T) {
 			}
 			if result.MailRecipientID != tt.targetCharID {
 				t.Errorf("result.MailRecipientID = %d, want %d", result.MailRecipientID, tt.targetCharID)
+			}
+		})
+	}
+}
+
+func TestGuildService_OperateMember_KickCannotCrossGuild(t *testing.T) {
+	guildMock := &mockGuildRepo{
+		guild:      &Guild{ID: 10, Name: "ActorGuild", GuildLeader: GuildLeader{LeaderCharID: 1}},
+		membership: &GuildMember{GuildID: 10, CharID: 1, IsLeader: true, OrderIndex: 1},
+		// The scoped repository reports this when target 42 is a member of a
+		// different guild (even if a stale application points at guild 10).
+		removeErr: ErrGuildMemberMissing,
+	}
+	svc := newTestGuildService(guildMock, &mockMailRepo{})
+
+	_, err := svc.OperateMember(1, 42, GuildMemberActionKick)
+	if !errors.Is(err, ErrGuildMemberMissing) {
+		t.Fatalf("OperateMember error = %v, want ErrGuildMemberMissing", err)
+	}
+	if guildMock.removedGuildID != 10 || guildMock.removedCharID != 42 {
+		t.Fatalf("RemoveCharacter args = (%d, %d), want (10, 42)", guildMock.removedGuildID, guildMock.removedCharID)
+	}
+}
+
+func TestGuildService_OperateMember_ApplicationActionsUseActorGuild(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		action GuildMemberAction
+	}{
+		{name: "accept", action: GuildMemberActionAccept},
+		{name: "reject", action: GuildMemberActionReject},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			guildMock := &mockGuildRepo{
+				guild:      &Guild{ID: 17, Name: "ActorGuild", GuildLeader: GuildLeader{LeaderCharID: 1}},
+				membership: &GuildMember{GuildID: 17, CharID: 1, IsLeader: true, OrderIndex: 1},
+			}
+			svc := newTestGuildService(guildMock, &mockMailRepo{})
+
+			if _, err := svc.OperateMember(1, 42, tc.action); err != nil {
+				t.Fatalf("OperateMember failed: %v", err)
+			}
+			switch tc.action {
+			case GuildMemberActionAccept:
+				if guildMock.acceptedGuildID != 17 || guildMock.acceptedCharID != 42 {
+					t.Fatalf("AcceptApplication args = (%d, %d), want (17, 42)", guildMock.acceptedGuildID, guildMock.acceptedCharID)
+				}
+			case GuildMemberActionReject:
+				if guildMock.rejectedGuildID != 17 || guildMock.rejectedCharID != 42 {
+					t.Fatalf("RejectApplication args = (%d, %d), want (17, 42)", guildMock.rejectedGuildID, guildMock.rejectedCharID)
+				}
 			}
 		})
 	}
