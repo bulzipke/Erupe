@@ -12,6 +12,7 @@ import (
 // SaveAtomicParams bundles all fields needed for an atomic save transaction.
 type SaveAtomicParams struct {
 	CharID     uint32
+	Name       string
 	CompSave   []byte
 	Hash       []byte // SHA-256 of decompressed savedata
 	HR         uint16
@@ -162,7 +163,7 @@ func (r *CharacterRepository) SaveString(charID uint32, column string, value str
 // ReadBool reads a single boolean column by character ID.
 func (r *CharacterRepository) ReadBool(charID uint32, column string) (bool, error) {
 	var value bool
-	err := r.db.QueryRow("SELECT "+column+" FROM characters WHERE id=$1", charID).Scan(&value)
+	err := r.db.QueryRow("SELECT COALESCE("+column+", false) FROM characters WHERE id=$1", charID).Scan(&value)
 	return value, err
 }
 
@@ -339,8 +340,8 @@ func (r *CharacterRepository) SaveCharacterDataAtomic(params SaveAtomicParams) e
 
 	// 1. Save character data + hash
 	if _, err := tx.Exec(
-		`UPDATE characters SET savedata=$1, savedata_hash=$2, is_new_character=false, hr=$3, gr=$4, is_female=$5, weapon_type=$6, weapon_id=$7, playtime_seconds=$8 WHERE id=$9`,
-		params.CompSave, params.Hash, params.HR, params.GR, params.IsFemale, params.WeaponType, params.WeaponID, params.Playtime, params.CharID,
+		`UPDATE characters SET savedata=$1, savedata_hash=$2, is_new_character=false, name=$3, hr=$4, gr=$5, is_female=$6, weapon_type=$7, weapon_id=$8, playtime_seconds=$9 WHERE id=$10`,
+		params.CompSave, params.Hash, params.Name, params.HR, params.GR, params.IsFemale, params.WeaponType, params.WeaponID, params.Playtime, params.CharID,
 	); err != nil {
 		return fmt.Errorf("save character data: %w", err)
 	}

@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	cfg "erupe-ce/config"
+	"erupe-ce/server/signserver"
 	"go.uber.org/zap"
 )
 
@@ -42,6 +45,26 @@ func TestNewAPIServer(t *testing.T) {
 
 	if server.isShuttingDown != false {
 		t.Error("Server should not be shutting down on creation")
+	}
+}
+
+func TestNewAPIServerBuildsLauncherClientFilter(t *testing.T) {
+	logger := NewTestLogger(t)
+	defer func() { _ = logger.Sync() }()
+
+	ngWordsPath := filepath.Join(t.TempDir(), "ng_words.csv")
+	if err := os.WriteFile(ngWordsPath, []byte("word\n시발\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := NewTestConfig()
+	c.NGWordsFile = ngWordsPath
+	server := NewAPIServer(&Config{Logger: logger, ErupeConfig: c})
+	want, selected := signserver.BuildClientNGWordFilter([]string{"시발"})
+	if selected != 1 {
+		t.Fatalf("selected words = %d, want 1", selected)
+	}
+	if !bytes.Equal(server.clientFilter, want) {
+		t.Fatal("launcher client filter differs from the native Sign filter")
 	}
 }
 

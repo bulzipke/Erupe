@@ -1,10 +1,12 @@
 package signserver
 
 import (
-	"erupe-ce/common/stringsupport"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"erupe-ce/common/stringsupport"
 )
 
 func TestLoadNGWordsCSV(t *testing.T) {
@@ -21,21 +23,40 @@ func TestLoadNGWordsCSV(t *testing.T) {
 	}
 }
 
+func TestSelectNGWordPartsSkipsWordBeyondLauncherPartLimit(t *testing.T) {
+	_, message, selected := selectNGWordParts(0, []string{strings.Repeat("a", 256), "ok"})
+	if selected != 1 {
+		t.Fatalf("selected words = %d, want 1", selected)
+	}
+	if len(message) != 1 {
+		t.Fatalf("message entries = %d, want 1", len(message))
+	}
+	want := stringsupport.ToNGWordCP949("ok")
+	if len(message[0]) != len(want) {
+		t.Fatalf("selected fallback entry has %d parts, want %d", len(message[0]), len(want))
+	}
+	for i := range want {
+		if message[0][i] != want[i] {
+			t.Fatalf("fallback entry part %d = %04X, want %04X", i, message[0][i], want[i])
+		}
+	}
+}
+
 func TestSelectNGWordPartsFitsProtocolLimit(t *testing.T) {
 	words := make([]string, 10000)
 	for i := range words {
 		words[i] = "금칙어테스트"
 	}
 	name, message, selected := selectNGWordParts(8000, words)
-	used := 8000 + 16
+	used := 8000 + 16 + 8
 	for _, parts := range name {
 		used += ngWordEntrySize(parts)
 	}
 	for _, parts := range message {
 		used += ngWordEntrySize(parts)
 	}
-	if used > maxNGWordFilterBytes {
-		t.Fatalf("selected payload size %d exceeds %d", used, maxNGWordFilterBytes)
+	if used > maxNGWordFilterPayloadBytes {
+		t.Fatalf("selected payload size %d exceeds %d", used, maxNGWordFilterPayloadBytes)
 	}
 	if selected == len(words) {
 		t.Fatal("oversized list was not truncated")

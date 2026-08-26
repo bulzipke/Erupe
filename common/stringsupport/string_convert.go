@@ -99,23 +99,22 @@ func ToNGWord(x string) []uint16 {
 }
 
 // ToNGWordCP949 converts Korean-client text into the uint16 representation
-// used by the NG-word tables. The text is encoded as CP949 first, then split
-// with the client's original Shift-JIS byte-width rules. This intentionally
-// does not keep each Hangul rune as one uint16: common CP949 Hangul bytes in
-// the 0xA0-0xDF range are treated as separate one-byte characters by the
-// client's matcher.
+// used by the NG-word tables. Vorbis patches the client's name/message
+// validators from the original Shift-JIS lead ranges to CP949's 0x81-0xFE
+// range, so each encoded Hangul syllable must remain one two-byte token.
 func ToNGWordCP949(x string) []uint16 {
-	return tokenizeClientNGWordBytes(UTF8ToSJIS(x))
+	return tokenizePatchedClientNGWordBytes(UTF8ToSJIS(x))
 }
 
-// tokenizeClientNGWordBytes mirrors FUN_1156e890/FUN_1156dc80 in the PC
-// client. Bytes 0x81-0x9F and 0xE0-0xFF begin a two-byte token when another
-// byte follows; every other byte becomes its own token.
-func tokenizeClientNGWordBytes(encoded []byte) []uint16 {
+// tokenizePatchedClientNGWordBytes mirrors the validators after Vorbis applies
+// PatchSjisLeadIdiom to FUN_11547f10/FUN_1156e890 and their neighbouring
+// walkers. The patch joins the two original Shift-JIS lead ranges into the
+// CP949-compatible 0x81-0xFE range.
+func tokenizePatchedClientNGWordBytes(encoded []byte) []uint16 {
 	parts := make([]uint16, 0, len(encoded))
 	for i := 0; i < len(encoded); {
 		first := encoded[i]
-		if ((first >= 0x81 && first <= 0x9F) || first >= 0xE0) && i+1 < len(encoded) {
+		if first >= 0x81 && first <= 0xFE && i+1 < len(encoded) {
 			parts = append(parts, uint16(encoded[i+1])<<8|uint16(first))
 			i += 2
 			continue

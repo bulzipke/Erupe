@@ -428,6 +428,11 @@ func (s *Session) handlePacketGroup(pktGroup []byte, depth int) {
 		return
 	}
 	handler(s, mhfPkt)
+	// A handler may reject the authenticated operation and terminate the
+	// session. Do not dispatch any packets batched behind that rejection.
+	if s.closed.Load() {
+		return
+	}
 	// If there is more data on the stream that the .Parse method didn't read, then read another packet off it.
 	remainingData := bf.DataFromCurrent()
 

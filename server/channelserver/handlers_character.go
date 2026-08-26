@@ -38,6 +38,7 @@ func GetCharacterSaveData(s *Session, charID uint32) (*CharacterSaveData, error)
 		compSave:       savedata,
 		IsNewCharacter: isNew,
 		Name:           name,
+		StoredName:     name,
 		Mode:           s.server.erupeConfig.RealClientMode,
 		Pointers:       getPointers(s.server.erupeConfig.RealClientMode),
 	}
@@ -74,12 +75,19 @@ func GetCharacterSaveData(s *Session, charID uint32) (*CharacterSaveData, error)
 		)
 	}
 
+	if err = saveData.validateLayout(); err != nil {
+		s.logger.Error("Invalid savedata layout; attempting backup recovery",
+			zap.Error(err), zap.Uint32("charID", charID))
+		return recoverFromBackups(s, saveData, charID)
+	}
+
 	saveData.updateStructWithSaveData()
 
 	return saveData, nil
 }
 
-// recoverFromBackups is called when the primary savedata fails its integrity check.
+// recoverFromBackups is called when the primary savedata fails its checksum or
+// fixed-layout validation.
 // It queries savedata_backups in recency order and returns the first slot whose
 // compressed blob decompresses cleanly. It never writes to the database — the
 // next successful Save() will overwrite the primary with fresh data and a new hash,
@@ -106,6 +114,7 @@ func recoverFromBackups(s *Session, base *CharacterSaveData, charID uint32) (*Ch
 			CharID:         base.CharID,
 			IsNewCharacter: base.IsNewCharacter,
 			Name:           base.Name,
+			StoredName:     base.StoredName,
 			Mode:           base.Mode,
 			Pointers:       base.Pointers,
 			compSave:       backup.Data,
@@ -121,15 +130,11 @@ func recoverFromBackups(s *Session, base *CharacterSaveData, charID uint32) (*Ch
 			continue
 		}
 
-		// nullcomp passes through data without a "cmp" header as-is (legitimate for
-		// old uncompressed saves). Guard against garbage data that is too small to
-		// contain the minimum save layout (name field at offset 88–100).
-		const minSaveSize = saveFieldNameOffset + saveFieldNameLen
-		if len(candidate.decompSave) < minSaveSize {
-			s.logger.Warn("Backup slot data too small after decompression, skipping",
+		if err := candidate.validateLayout(); err != nil {
+			s.logger.Warn("Backup slot has an invalid savedata layout, skipping",
 				zap.Uint32("charID", charID),
 				zap.Int("slot", backup.Slot),
-				zap.Int("size", len(candidate.decompSave)),
+				zap.Error(err),
 			)
 			continue
 		}
@@ -156,6 +161,21 @@ func (save *CharacterSaveData) Save(s *Session) error {
 			zap.Uint32("charID", save.CharID),
 		)
 		return errors.New("no decompressed save data")
+	}
+	if err := save.validateLayout(); err != nil {
+		return fmt.Errorf("invalid savedata layout: %w", err)
+	}
+	if save.IsNewCharacter {
+		if !s.validateNameInput("character", save.Name) {
+			return errors.New("invalid new character name")
+		}
+	} else {
+		if !s.validateNameInput("character", save.StoredName) {
+			return errors.New("invalid stored character name")
+		}
+		if save.Name != save.StoredName && !save.writeStoredName() {
+			return errors.New("failed to restore stored character name")
+		}
 	}
 
 	// Capture the previous compressed savedata before it's overwritten by
@@ -188,6 +208,7 @@ func (save *CharacterSaveData) Save(s *Session) error {
 	// optionally a backup snapshot, all in one transaction.
 	params := SaveAtomicParams{
 		CharID:        save.CharID,
+		Name:          save.Name,
 		CompSave:      save.compSave,
 		Hash:          hash[:],
 		HR:            save.HR,

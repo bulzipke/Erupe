@@ -7,12 +7,10 @@ import (
 	"erupe-ce/common/stringsupport"
 	cfg "erupe-ce/config"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"time"
 
-	"erupe-ce/common/byteframe"
 	"erupe-ce/network/mhfpacket"
 	"erupe-ce/server/channelserver/compression/deltacomp"
 	"erupe-ce/server/channelserver/compression/nullcomp"
@@ -142,10 +140,61 @@ func handleMsgMhfSavedata(s *Session, p mhfpacket.MHFPacket) {
 		characterSaveData.decompSave = saveData
 		traceSaveBlob(s, "full-blob", pkt.RawDataPayload, characterSaveData.decompSave)
 	}
-	characterSaveData.updateStructWithSaveData()
-	if characterSaveData.IsNewCharacter && !s.validateNameInput("character", characterSaveData.Name) {
+	if err := characterSaveData.validateLayout(); err != nil {
+		s.logger.Warn("Rejected savedata with invalid layout",
+			zap.Error(err), zap.Uint32("charID", s.charID))
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
+	}
+	characterSaveData.updateStructWithSaveData()
+
+	// A name containing control characters or U+FFFD is not an encoding
+	// difference — the blob itself is damaged (observed after abandoning an
+	// event quest: the name field held f7 fc 59 78 0b -> "販Yx\v"). Check the
+	// raw incoming name before the authoritative-name repair below can mask it.
+	if !characterSaveData.IsNewCharacter && hasCorruptName(characterSaveData.Name) {
+		s.logger.Error("Refusing to save corrupted savedata",
+			zap.String("savedata_name", characterSaveData.Name),
+			zap.String("session_name", s.Name),
+			zap.Uint32("charID", s.charID),
+			zap.Int("decompressed_len", len(characterSaveData.decompSave)),
+		)
+		dumpSaveData(s, characterSaveData.decompSave, "corrupt-savedata")
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+
+	if characterSaveData.IsNewCharacter && !s.validateNameInput("character", characterSaveData.Name) {
+		// The client ignores a failed SAVEDATA acknowledgement during initial
+		// character creation and continues into the game with its local copy.
+		// The database write is already prevented above; terminate this
+		// provisional session as well so the rejected character cannot appear to
+		// have been created or issue follow-up packets in the same connection.
+		s.logger.Warn("Disconnecting session after rejected character name",
+			zap.Uint32("charID", s.charID))
+		s.markClosed()
+		s.closeConnection()
+		return
+	}
+	if !characterSaveData.IsNewCharacter {
+		if !s.validateNameInput("character", characterSaveData.StoredName) {
+			s.logger.Warn("Disconnecting session with invalid stored character name",
+				zap.Uint32("charID", s.charID))
+			s.markClosed()
+			s.closeConnection()
+			return
+		}
+		if characterSaveData.Name != characterSaveData.StoredName {
+			s.logger.Warn("Restoring client-modified name in savedata",
+				zap.String("savedata_name", characterSaveData.Name),
+				zap.String("stored_name", characterSaveData.StoredName),
+				zap.Uint32("charID", s.charID))
+			if !characterSaveData.writeStoredName() {
+				doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+				return
+			}
+		}
+		s.Name = characterSaveData.StoredName
 	}
 
 	// Mitigate house theme corruption (issue #92): the game client
@@ -171,31 +220,6 @@ func handleMsgMhfSavedata(s *Session, p mhfpacket.MHFPacket) {
 		s.Name = characterSaveData.Name
 	}
 
-	// A name containing control characters or U+FFFD is not an encoding
-	// difference — the blob itself is damaged (observed after abandoning an
-	// event quest: the name field held f7 fc 59 78 0b -> "販Yx\v"). Refuse the
-	// write so the last good save survives; the name-repair path below would
-	// otherwise relabel the garbage and persist it.
-	if !characterSaveData.IsNewCharacter && hasCorruptName(characterSaveData.Name) {
-		s.logger.Error("Refusing to save corrupted savedata",
-			zap.String("savedata_name", characterSaveData.Name),
-			zap.String("session_name", s.Name),
-			zap.Uint32("charID", s.charID),
-			zap.Int("decompressed_len", len(characterSaveData.decompSave)),
-		)
-		dumpSaveData(s, characterSaveData.decompSave, "corrupt-savedata")
-		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
-		return
-	}
-
-	// Force name to match session to prevent corruption detection false positives
-	// This handles SJIS/UTF-8 encoding differences and ensures saves succeed across all game versions
-	if characterSaveData.Name != s.Name && !characterSaveData.IsNewCharacter {
-		s.logger.Info("Correcting name mismatch in savedata", zap.String("savedata_name", characterSaveData.Name), zap.String("session_name", s.Name))
-		characterSaveData.Name = s.Name
-		characterSaveData.updateSaveDataWithStruct()
-	}
-
 	if characterSaveData.Name == s.Name || s.server.erupeConfig.RealClientMode <= cfg.S10 {
 		if err := characterSaveData.Save(s); err != nil {
 			s.logger.Error("Failed to save character data", zap.Error(err))
@@ -212,9 +236,6 @@ func handleMsgMhfSavedata(s *Session, p mhfpacket.MHFPacket) {
 			}
 		}
 		return
-	}
-	if err := s.server.charRepo.SaveString(s.charID, "name", characterSaveData.Name); err != nil {
-		s.logger.Error("Failed to update character name in db", zap.Error(err))
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }
@@ -282,40 +303,121 @@ func dumpSaveData(s *Session, data []byte, suffix string) {
 
 func handleMsgMhfLoaddata(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfLoaddata)
-	if _, err := os.Stat(filepath.Join(s.server.erupeConfig.BinPath, "save_override.bin")); err == nil {
-		data, readErr := os.ReadFile(filepath.Join(s.server.erupeConfig.BinPath, "save_override.bin"))
+	unlock := s.server.charSaveLocks.Lock(s.charID)
+	defer unlock()
+
+	usingOverride := false
+	var overrideData []byte
+	overridePath := filepath.Join(s.server.erupeConfig.BinPath, "save_override.bin")
+	if _, statErr := os.Stat(overridePath); statErr == nil {
+		var readErr error
+		overrideData, readErr = os.ReadFile(overridePath)
 		if readErr != nil {
 			s.logger.Error("Failed to read save_override.bin", zap.Error(readErr))
 		} else {
-			doAckBufSucceed(s, pkt.AckHandle, data)
-			return
+			usingOverride = true
 		}
 	}
 
-	data, err := s.server.charRepo.LoadColumn(s.charID, "savedata")
-	if err != nil || len(data) == 0 {
-		s.logger.Warn("Failed to load savedata", zap.Uint32("charID", s.charID), zap.Error(err))
-		_ = s.rawConn.Close() // Terminate the connection
-		return
-	}
-	doAckBufSucceed(s, pkt.AckHandle, data)
-
-	decompSaveData, err := nullcomp.DecompressWithLimit(data, saveDataMaxDecompressedPayload)
-	if err != nil {
-		s.logger.Error("Failed to decompress savedata", zap.Error(err))
-		return
-	}
-	if playtime, playtimeErr := extractPlaytimeFromSavedata(s.server.erupeConfig.RealClientMode, data); playtimeErr != nil {
-		s.logger.Warn("Failed to initialize session playtime from savedata", zap.Error(playtimeErr))
+	var characterSaveData *CharacterSaveData
+	var err error
+	if usingOverride {
+		isNewCharacter, stateErr := s.server.charRepo.ReadBool(s.charID, "is_new_character")
+		storedName, nameErr := s.server.charRepo.GetName(s.charID)
+		if stateErr != nil || nameErr != nil {
+			s.logger.Warn("Failed to load character identity for save override",
+				zap.Uint32("charID", s.charID),
+				zap.NamedError("state_error", stateErr),
+				zap.NamedError("name_error", nameErr))
+			s.markClosed()
+			s.closeConnection()
+			return
+		}
+		characterSaveData = &CharacterSaveData{
+			CharID:         s.charID,
+			Name:           storedName,
+			StoredName:     storedName,
+			IsNewCharacter: isNewCharacter,
+			Mode:           s.server.erupeConfig.RealClientMode,
+			Pointers:       getPointers(s.server.erupeConfig.RealClientMode),
+			compSave:       overrideData,
+		}
+		if err = characterSaveData.Decompress(); err == nil {
+			err = characterSaveData.validateLayout()
+		}
+		if err == nil {
+			characterSaveData.updateStructWithSaveData()
+		}
 	} else {
-		s.playtime = playtime
-		s.playtimeTime = time.Now()
+		characterSaveData, err = GetCharacterSaveData(s, s.charID)
 	}
-	bf := byteframe.NewByteFrameFromBytes(decompSaveData)
-	_, _ = bf.Seek(88, io.SeekStart)
-	name := bf.ReadNullTerminatedBytes()
-	s.server.userBinary.Set(s.charID, 1, append(name, []byte{0x00}...))
-	s.Name = stringsupport.SJISToUTF8Lossy(name)
+	if err != nil || characterSaveData == nil || len(characterSaveData.compSave) == 0 {
+		s.logger.Warn("Failed to load valid savedata", zap.Error(err), zap.Uint32("charID", s.charID))
+		s.markClosed()
+		s.closeConnection()
+		return
+	}
+
+	if characterSaveData.IsNewCharacter {
+		if !s.validateNameInput("character", characterSaveData.Name) {
+			s.logger.Warn("Disconnecting load for invalid new character name",
+				zap.Uint32("charID", s.charID))
+			s.markClosed()
+			s.closeConnection()
+			return
+		}
+	} else {
+		if !s.validateNameInput("character", characterSaveData.StoredName) {
+			s.logger.Warn("Disconnecting load for invalid stored character name",
+				zap.Uint32("charID", s.charID))
+			s.markClosed()
+			s.closeConnection()
+			return
+		}
+		if characterSaveData.Name != characterSaveData.StoredName {
+			s.logger.Warn("Restoring stored character name before load",
+				zap.String("savedata_name", characterSaveData.Name),
+				zap.String("stored_name", characterSaveData.StoredName),
+				zap.Uint32("charID", s.charID))
+			if !characterSaveData.writeStoredName() {
+				s.markClosed()
+				s.closeConnection()
+				return
+			}
+			if usingOverride {
+				// save_override.bin remains a non-persistent debug override, but its
+				// client-visible identity must still be the database identity.
+				if characterSaveData.Mode >= cfg.G1 {
+					if err := characterSaveData.Compress(); err != nil {
+						s.logger.Error("Failed to recompress repaired save override", zap.Error(err))
+						s.markClosed()
+						s.closeConnection()
+						return
+					}
+				} else {
+					characterSaveData.compSave = characterSaveData.decompSave
+				}
+			} else {
+				// Persist the repaired blob before sending it. Diff saves sent later
+				// are based on this response, so the database and client must share
+				// the exact same base bytes.
+				if err := characterSaveData.Save(s); err != nil {
+					s.logger.Error("Failed to persist repaired savedata", zap.Error(err))
+					s.markClosed()
+					s.closeConnection()
+					return
+				}
+			}
+		}
+	}
+
+	doAckBufSucceed(s, pkt.AckHandle, characterSaveData.compSave)
+	s.playtime = characterSaveData.Playtime
+	s.playtimeTime = time.Now()
+	nameBytes := append([]byte(nil), bfutil.UpToNull(
+		characterSaveData.decompSave[saveFieldNameOffset:saveFieldNameOffset+saveFieldNameLen])...)
+	s.server.userBinary.Set(s.charID, 1, append(nameBytes, 0x00))
+	s.Name = characterSaveData.Name
 }
 
 func handleMsgMhfSaveScenarioData(s *Session, p mhfpacket.MHFPacket) {

@@ -35,7 +35,7 @@ func TestMakeSignResponseNGWordPayloadFitsClientBuffer(t *testing.T) {
 		t.Fatal("NG-word filter start not found")
 	}
 	filterLen := int(binary.BigEndian.Uint16(result[filterStart-2 : filterStart]))
-	if filterLen <= 0 || filterLen > maxNGWordFilterBytes {
+	if filterLen <= 0 || filterLen > maxNGWordFilterPayloadBytes {
 		t.Fatalf("filter length = %d", filterLen)
 	}
 	if filterStart+filterLen > len(result) {
@@ -43,7 +43,67 @@ func TestMakeSignResponseNGWordPayloadFitsClientBuffer(t *testing.T) {
 	}
 }
 
-func TestMakeSignResponseAppliesSMCNormalizationToCP949NGWord(t *testing.T) {
+func TestBuildClientNGWordFilterHasNativeTerminators(t *testing.T) {
+	filter, selected := BuildClientNGWordFilter([]string{"시발"})
+	if selected != 1 {
+		t.Fatalf("selected words = %d, want 1", selected)
+	}
+	if len(filter) > maxNGWordFilterPayloadBytes {
+		t.Fatalf("filter length = %d, max = %d", len(filter), maxNGWordFilterPayloadBytes)
+	}
+
+	offset := 0
+	for i, tag := range []string{"smc\x00", "nam\x00", "msg\x00"} {
+		if offset+8 > len(filter) {
+			t.Fatalf("record %d header is outside filter", i)
+		}
+		if got := string(filter[offset : offset+4]); got != tag {
+			t.Fatalf("record %d tag = %q, want %q", i, got, tag)
+		}
+		payloadLen := int(binary.LittleEndian.Uint32(filter[offset+4 : offset+8]))
+		offset += 8
+		if payloadLen > len(filter)-offset {
+			t.Fatalf("record %d payload length %d exceeds remaining %d", i, payloadLen, len(filter)-offset)
+		}
+		payload := filter[offset : offset+payloadLen]
+		if i == 0 {
+			if payloadLen < 8 || !bytes.Equal(payload[payloadLen-8:], make([]byte, 8)) {
+				t.Fatal("smc table is missing its final group and table terminators")
+			}
+		} else if payloadLen < 4 || !bytes.Equal(payload[payloadLen-4:], make([]byte, 4)) {
+			t.Fatalf("%s table is missing its uint32 terminator", tag[:3])
+		}
+		offset += payloadLen
+	}
+	if offset != len(filter) {
+		t.Fatalf("parsed %d of %d filter bytes", offset, len(filter))
+	}
+}
+
+func TestMakeSignResponseUsesSharedClientFilter(t *testing.T) {
+	config := &cfg.Config{
+		DebugOptions: cfg.DebugOptions{CapLink: cfg.CapLinkOptions{Values: []uint16{0, 0, 0, 0, 0}}},
+		GameplayOptions: cfg.GameplayOptions{
+			MezFesSoloTickets: 1, MezFesGroupTickets: 1,
+			ClanMemberLimits: [][]uint8{{0, 30}},
+		},
+	}
+	server := newMakeSignResponseServer(config)
+	server.ngWords = []string{"시발", "fuck"}
+	result := (&Session{logger: zap.NewNop(), server: server, client: PC100, rawConn: newMockConn()}).makeSignResponse(0)
+
+	filterStart := bytes.Index(result, []byte("smc\x00"))
+	if filterStart < 2 {
+		t.Fatal("NG-word filter start not found")
+	}
+	filterLen := int(binary.BigEndian.Uint16(result[filterStart-2 : filterStart]))
+	want, _ := BuildClientNGWordFilter(server.ngWords)
+	if got := result[filterStart : filterStart+filterLen]; !bytes.Equal(got, want) {
+		t.Fatal("native Sign response and shared launcher filter differ")
+	}
+}
+
+func TestMakeSignResponseUsesPatchedCP949NGWordTokens(t *testing.T) {
 	config := &cfg.Config{
 		DebugOptions: cfg.DebugOptions{CapLink: cfg.CapLinkOptions{Values: []uint16{0, 0, 0, 0, 0}}},
 		GameplayOptions: cfg.GameplayOptions{
@@ -74,17 +134,16 @@ func TestMakeSignResponseAppliesSMCNormalizationToCP949NGWord(t *testing.T) {
 
 	entry := nthNGWordEntry(t, nam, len(nameSyntaxNGWords))
 	partCount := int(binary.LittleEndian.Uint32(entry[:4]))
-	if partCount != 4 {
-		t.Fatalf("시발 nam part count = %d, want 4", partCount)
+	if partCount != 2 {
+		t.Fatalf("시발 nam part count = %d, want 2", partCount)
 	}
-	wantMapped := []bool{true, true, true, false}
-	for i, mapped := range wantMapped {
+	wantValues := []uint16{0xC3BD, 0xDFB9}
+	for i := 0; i < partCount; i++ {
+		value := binary.LittleEndian.Uint16(entry[4+i*4 : 4+i*4+2])
 		smcIndex := int16(binary.LittleEndian.Uint16(entry[4+i*4+2 : 4+i*4+4]))
-		if mapped && smcIndex == -1 {
-			t.Errorf("시발 part %d was not mapped through SMC", i)
-		}
-		if !mapped && smcIndex != -1 {
-			t.Errorf("시발 part %d SMC index = %d, want -1", i, smcIndex)
+		if value != wantValues[i] || smcIndex != -1 {
+			t.Errorf("시발 part %d = (%04X,%d), want (%04X,-1)",
+				i, value, smcIndex, wantValues[i])
 		}
 	}
 }
@@ -147,14 +206,22 @@ func TestGeneratedConservativeNGWordListFitsWithoutTruncation(t *testing.T) {
 	msgLen := int(binary.LittleEndian.Uint32(filter[offset : offset+4]))
 	offset += 4
 	messageCount := 0
-	for consumed := 0; consumed < msgLen; messageCount++ {
+	for consumed := 0; consumed < msgLen; {
 		parts := int(binary.LittleEndian.Uint32(filter[offset+consumed : offset+consumed+4]))
+		if parts == 0 {
+			consumed += 4
+			if consumed != msgLen {
+				t.Fatalf("msg terminator ends at %d of %d bytes", consumed, msgLen)
+			}
+			break
+		}
 		consumed += ngWordEntrySize(make([]uint16, parts))
+		messageCount++
 	}
 	if messageCount != len(words) {
 		t.Fatalf("message table contains %d of %d configured words", messageCount, len(words))
 	}
-	t.Logf("all %d configured words fit; filter payload is %d/%d bytes", len(words), filterLen, maxNGWordFilterBytes)
+	t.Logf("all %d configured words fit; filter payload is %d/%d bytes", len(words), filterLen, maxNGWordFilterPayloadBytes)
 }
 
 func TestConservativeNGWordListProfile(t *testing.T) {

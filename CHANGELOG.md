@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Character names are now server-authoritative across initial creation, normal saves, loads, and imported savedata. Rejected initial names terminate the provisional channel session (the client ignored the failed save acknowledgement), existing invalid names cannot load, client-modified blob names are restored from the database, and the authoritative name is committed atomically with the savedata.
 - Guild item access and guild mutations now use the acting character's actual non-applicant membership and guild-scoped SQL instead of trusting client-supplied guild identifiers.
 - Server-issued warehouse IDs now avoid zero and collisions within the target item container.
 

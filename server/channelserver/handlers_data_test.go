@@ -772,6 +772,7 @@ func TestSaveDataChecksumDetectsCorruption(t *testing.T) {
 func TestSaveAtomicParamsStructure(t *testing.T) {
 	params := SaveAtomicParams{
 		CharID:     42,
+		Name:       "Hunter",
 		CompSave:   []byte{0x01},
 		Hash:       make([]byte, 32),
 		HR:         999,
@@ -785,6 +786,9 @@ func TestSaveAtomicParamsStructure(t *testing.T) {
 
 	if params.CharID != 42 {
 		t.Error("CharID mismatch")
+	}
+	if params.Name != "Hunter" {
+		t.Errorf("Name mismatch: got %q", params.Name)
 	}
 	if params.Playtime != 987654 {
 		t.Errorf("Playtime mismatch: got %d", params.Playtime)

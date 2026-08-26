@@ -6,23 +6,25 @@ import (
 	"erupe-ce/common/stringsupport"
 )
 
-func TestNormalizeClientNGWordPartsAccountsForCP949SMCCollisions(t *testing.T) {
+func TestNormalizeClientNGWordPartsKeepsPatchedCP949Pairs(t *testing.T) {
 	groups := []smcGroup{
 		{charGroup: [][]rune{{'す'}, {'ス'}, {'ｽ'}}},
 		{charGroup: [][]rune{{'て'}, {'テ'}, {'ﾃ'}}},
 		{charGroup: [][]rune{{'け'}, {'ケ'}, {'ｹ'}}},
 	}
 
-	// CP949 "시발" is BD C3 B9 DF. Under the client's Shift-JIS parser,
-	// BD/C3/B9 collide with the half-width kana ｽ/ﾃ/ｹ in the SMC table.
+	// CP949 "시발" is BD C3 B9 DF. Vorbis patches the name validator's
+	// lead range, so the client sees two CP949 tokens instead of four
+	// half-width-kana-like Shift-JIS bytes.
 	got := normalizeClientNGWordParts(stringsupport.ToNGWordCP949("시발"), groups)
-	if len(got) != 4 {
-		t.Fatalf("normalized part count = %d, want 4", len(got))
+	if len(got) != 2 {
+		t.Fatalf("normalized part count = %d, want 2", len(got))
 	}
-	wantIndexes := []int16{0, 4, 8, -1}
-	for i, want := range wantIndexes {
-		if got[i].smcIndex != want {
-			t.Errorf("part %d SMC index = %d, want %d", i, got[i].smcIndex, want)
+	wantValues := []uint16{0xC3BD, 0xDFB9}
+	for i, want := range wantValues {
+		if got[i].value != want || got[i].smcIndex != -1 {
+			t.Errorf("part %d = (%04X,%d), want (%04X,-1)",
+				i, got[i].value, got[i].smcIndex, want)
 		}
 	}
 }

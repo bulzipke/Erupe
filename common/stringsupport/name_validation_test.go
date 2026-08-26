@@ -32,21 +32,21 @@ func TestIsValidPlayerName(t *testing.T) {
 	}
 }
 
-func TestToNGWordCP949UsesClientShiftJISTokenization(t *testing.T) {
+func TestToNGWordCP949UsesPatchedClientCP949Tokenization(t *testing.T) {
 	tests := []struct {
 		name string
 		text string
 		want []uint16
 	}{
 		{
-			name: "common Hangul bytes are individual tokens",
+			name: "Hangul syllables remain CP949 pairs",
 			text: "시발", // CP949: BD C3 B9 DF
-			want: []uint16{0x00BD, 0x00C3, 0x00B9, 0x00DF},
+			want: []uint16{0xC3BD, 0xDFB9},
 		},
 		{
-			name: "Shift-JIS lead byte groups with the following byte",
+			name: "CP949 trail FE stays in its syllable",
 			text: "샤넬", // CP949: BB FE B3 DA
-			want: []uint16{0x00BB, 0xB3FE, 0x00DA},
+			want: []uint16{0xFEBB, 0xDAB3},
 		},
 		{
 			name: "ASCII remains one token per byte",

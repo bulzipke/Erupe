@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
 	"image"
@@ -548,6 +549,37 @@ func TestNewAuthDataStructure(t *testing.T) {
 
 	if len(authData.Notices) == 0 {
 		t.Error("Notices should not be empty when HideLoginNotice is false")
+	}
+}
+
+func TestNewAuthDataEncodesClientFilterAsBase64(t *testing.T) {
+	logger := NewTestLogger(t)
+	defer func() { _ = logger.Sync() }()
+
+	c := NewTestConfig()
+	filter := []byte("smc\x00\x00\x00\x00\x00nam\x00\x00\x00\x00\x00msg\x00\x00\x00\x00\x00")
+	server := &APIServer{
+		logger:       logger,
+		erupeConfig:  c,
+		userRepo:     newTestUserRepo(),
+		clientFilter: filter,
+	}
+	authData := server.newAuthData(1, 0, 1, "token", nil)
+
+	encoded, err := json.Marshal(authData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	if err := json.Unmarshal(payload["clientFilter"], &got); err != nil {
+		t.Fatal(err)
+	}
+	if want := base64.StdEncoding.EncodeToString(filter); got != want {
+		t.Fatalf("clientFilter = %q, want %q", got, want)
 	}
 }
 

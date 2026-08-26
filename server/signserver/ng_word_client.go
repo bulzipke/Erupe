@@ -12,9 +12,9 @@ type clientNGWordPart struct {
 }
 
 // normalizeClientNGWordParts mirrors the SMC pass performed by the client
-// before it compares text with the nam/msg tables. This matters for the Korean
-// client because many CP949 bytes overlap Shift-JIS half-width kana bytes and
-// are therefore rewritten by the original Japanese SMC table.
+// before it compares text with the nam/msg tables. Korean CP949 pairs normally
+// remain unmapped after the Vorbis lead-range patch; Japanese and ASCII
+// variants still need the original SMC canonicalization.
 func normalizeClientNGWordParts(parts []uint16, groups []smcGroup) []clientNGWordPart {
 	normalized := make([]clientNGWordPart, 0, len(parts))
 	for offset := 0; offset < len(parts); {

@@ -81,15 +81,49 @@ func handleMsgSysLogin(s *Session, p mhfpacket.MHFPacket) {
 
 	if !s.server.erupeConfig.DebugOptions.DisableTokenCheck {
 		if err := s.server.sessionRepo.ValidateLoginToken(pkt.LoginTokenString, pkt.LoginTokenNumber, pkt.CharID0); err != nil {
-			_ = s.rawConn.Close()
 			s.logger.Warn("Invalid login token", zap.Uint32("charID", pkt.CharID0))
+			s.markClosed()
+			s.closeConnection()
+			return
+		}
+	}
+
+	// Existing characters already have a server-authoritative database name.
+	// Validate it before binding/broadcasting the channel session so a modified
+	// client cannot skip MSG_MHF_LOADDATA and operate with a legacy invalid name.
+	loginCharID := pkt.CharID0
+	isNewCharacter, err := s.server.charRepo.ReadBool(loginCharID, "is_new_character")
+	if err != nil {
+		s.logger.Error("Failed to load character creation state", zap.Error(err), zap.Uint32("charID", loginCharID))
+		s.markClosed()
+		s.closeConnection()
+		return
+	}
+	storedName := ""
+	if !isNewCharacter {
+		loadedName, nameErr := s.server.charRepo.GetName(loginCharID)
+		if nameErr != nil {
+			s.logger.Error("Failed to load character name", zap.Error(nameErr), zap.Uint32("charID", loginCharID))
+			s.markClosed()
+			s.closeConnection()
+			return
+		}
+		storedName = loadedName
+		if !s.validateNameInputForChar("character", storedName, loginCharID) {
+			s.logger.Warn("Disconnecting login with invalid stored character name",
+				zap.Uint32("charID", loginCharID))
+			s.markClosed()
+			s.closeConnection()
 			return
 		}
 	}
 
 	s.Lock()
-	s.charID = pkt.CharID0
+	s.charID = loginCharID
 	s.token = pkt.LoginTokenString
+	if storedName != "" {
+		s.Name = storedName
+	}
 	s.Unlock()
 
 	userID, err := s.server.charRepo.GetUserID(s.charID)
@@ -227,14 +261,19 @@ func saveAllCharacterData(s *Session, rpToAdd int) error {
 
 	// Force name to match to prevent corruption detection issues
 	// This handles SJIS/UTF-8 encoding differences across game versions
-	if characterSaveData.Name != s.Name {
+	if !characterSaveData.IsNewCharacter && characterSaveData.Name != characterSaveData.StoredName {
 		s.logger.Debug("Correcting name mismatch before save",
 			zap.String("savedata_name", characterSaveData.Name),
 			zap.String("session_name", s.Name),
 			zap.Uint32("charID", s.charID),
 		)
-		characterSaveData.Name = s.Name
-		characterSaveData.updateSaveDataWithStruct()
+		if characterSaveData.StoredName != "" {
+			characterSaveData.Name = characterSaveData.StoredName
+			if !characterSaveData.writeStoredName() {
+				return fmt.Errorf("savedata name field out of bounds for charID %d", s.charID)
+			}
+			s.Name = characterSaveData.StoredName
+		}
 	}
 
 	// Update playtime from session

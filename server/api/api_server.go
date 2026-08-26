@@ -2,14 +2,17 @@ package api
 
 import (
 	"context"
-	cfg "erupe-ce/config"
-	"erupe-ce/server/securityaudit"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"sync"
 	"time"
+
+	"erupe-ce/common/stringsupport"
+	cfg "erupe-ce/config"
+	"erupe-ce/server/securityaudit"
+	"erupe-ce/server/signserver"
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
@@ -35,6 +38,7 @@ type APIServer struct {
 	sessionRepo    APISessionRepo
 	eventRepo      APIEventRepo
 	securityAudit  *securityaudit.Repository
+	clientFilter   []byte
 	httpServer     *http.Server
 	startTime      time.Time
 	isShuttingDown bool
@@ -70,6 +74,26 @@ func NewAPIServer(config *Config) *APIServer {
 			IdleTimeout:       90 * time.Second,
 			MaxHeaderBytes:    1 << 20,
 		},
+	}
+	var ngWords []string
+	if config.ErupeConfig != nil && config.ErupeConfig.NGWordsFile != "" {
+		words, err := stringsupport.LoadNGWordsCSV(config.ErupeConfig.NGWordsFile)
+		if err != nil {
+			config.Logger.Warn("NG-word CSV could not be loaded for launcher clients; using name syntax rules only",
+				zap.String("path", config.ErupeConfig.NGWordsFile), zap.Error(err))
+		} else {
+			ngWords = words
+		}
+	}
+	var selectedWords int
+	s.clientFilter, selectedWords = signserver.BuildClientNGWordFilter(ngWords)
+	config.Logger.Info("Built launcher client NG-word filter",
+		zap.Int("bytes", len(s.clientFilter)),
+		zap.Int("selected", selectedWords),
+		zap.Int("configured", len(ngWords)))
+	if selectedWords < len(ngWords) {
+		config.Logger.Warn("Some NG-word CSV entries exceeded the launcher client buffer or per-entry limit and were omitted",
+			zap.Int("selected", selectedWords), zap.Int("configured", len(ngWords)))
 	}
 	if config.DB != nil {
 		s.userRepo = NewAPIUserRepository(config.DB)

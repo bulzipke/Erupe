@@ -2,6 +2,7 @@ package channelserver
 
 import (
 	"encoding/binary"
+	"fmt"
 	"unicode/utf8"
 
 	"erupe-ce/common/bfutil"
@@ -42,6 +43,7 @@ const (
 type CharacterSaveData struct {
 	CharID         uint32
 	Name           string
+	StoredName     string
 	IsNewCharacter bool
 	Mode           cfg.Mode
 	Pointers       map[SavePointer]int
@@ -66,6 +68,86 @@ type CharacterSaveData struct {
 
 	compSave   []byte
 	decompSave []byte
+}
+
+// writeStoredName replaces the client-controlled name field in the
+// decompressed blob with the server-authoritative database name.
+func (save *CharacterSaveData) writeStoredName() bool {
+	if len(save.decompSave) < saveFieldNameOffset+saveFieldNameLen {
+		return false
+	}
+	encoded := stringsupport.UTF8ToSJIS(save.StoredName)
+	if len(encoded) > saveFieldNameLen || stringsupport.SJISToUTF8Lossy(encoded) != save.StoredName {
+		return false
+	}
+	field := save.decompSave[saveFieldNameOffset : saveFieldNameOffset+saveFieldNameLen]
+	clear(field)
+	copy(field, encoded)
+	save.Name = save.StoredName
+	return true
+}
+
+// validateLayout checks every fixed savedata range touched by the parser or
+// writer for the configured client version. Imported and client-supplied blobs
+// must pass this before updateStructWithSaveData/updateSaveDataWithStruct use
+// direct slices into the payload.
+func (save *CharacterSaveData) validateLayout() error {
+	if len(save.decompSave) < saveFieldNameOffset+saveFieldNameLen {
+		return fmt.Errorf("savedata is too small for name field: %d bytes", len(save.decompSave))
+	}
+	require := func(pointer SavePointer, size int, field string) error {
+		// Several legacy debug-only modes have no verified pointer table and the
+		// existing parser historically reads their missing entries at offset 0.
+		// Match that behavior here: this guard prevents slice panics without
+		// turning those previously accepted modes into unconditional login errors.
+		offset := save.Pointers[pointer]
+		if offset < 0 || size < 0 || offset > len(save.decompSave)-size {
+			return fmt.Errorf("savedata is too small for %s: offset=%d size=%d total=%d", field, offset, size, len(save.decompSave))
+		}
+		return nil
+	}
+
+	if err := require(pGender, 1, "gender"); err != nil {
+		return err
+	}
+	if save.Mode >= cfg.F4 {
+		if err := require(pRP, saveFieldRP, "RP"); err != nil {
+			return err
+		}
+	}
+	if save.Mode >= cfg.S6 {
+		fields := []struct {
+			pointer SavePointer
+			size    int
+			name    string
+		}{
+			{pPlaytime, saveFieldPlaytime, "playtime"},
+			{pWeaponID, saveFieldWeaponID, "weapon ID"},
+			{pWeaponType, 1, "weapon type"},
+			{pHouseTier, saveFieldHouseTier, "house tier"},
+			{pToreData, saveFieldTore, "tore data"},
+			{pHR, saveFieldHR, "HR"},
+			{pHouseData, saveFieldHouseData, "house data"},
+			{pGalleryData, saveFieldGallery, "gallery data"},
+			{pGardenData, saveFieldGarden, "garden data"},
+		}
+		for _, field := range fields {
+			if err := require(field.pointer, field.size, field.name); err != nil {
+				return err
+			}
+		}
+	}
+	if save.Mode >= cfg.G1 {
+		if err := require(pGRP, saveFieldGRP, "GRP"); err != nil {
+			return err
+		}
+	}
+	if save.Mode >= cfg.G10 {
+		if err := require(pKQF, saveFieldKQF, "KQF"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func getPointers(mode cfg.Mode) map[SavePointer]int {

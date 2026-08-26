@@ -135,6 +135,9 @@ type mockCharacterRepo struct {
 	loadSaveDataName string
 	loadSaveDataHash []byte
 	loadSaveDataErr  error
+	loadBackups      []SavedataBackup
+	loadBackupsErr   error
+	saveAtomicParams []SaveAtomicParams
 
 	// ReadEtcPoints mock fields
 	etcBonusQuests uint32
@@ -198,7 +201,12 @@ func (m *mockCharacterRepo) SaveColumn(_ uint32, column string, data []byte) err
 	m.columns[column] = data
 	return m.saveErr
 }
-func (m *mockCharacterRepo) GetName(_ uint32) (string, error)              { return "TestChar", nil }
+func (m *mockCharacterRepo) GetName(_ uint32) (string, error) {
+	if name, ok := m.strings["name"]; ok {
+		return name, nil
+	}
+	return "TestChar", nil
+}
 func (m *mockCharacterRepo) GetUserID(_ uint32) (uint32, error)            { return 1, nil }
 func (m *mockCharacterRepo) UpdateLastLogin(_ uint32, _ int64) error       { return nil }
 func (m *mockCharacterRepo) UpdateTimePlayed(_ uint32, _ int) error        { return nil }
@@ -242,14 +250,17 @@ func (m *mockCharacterRepo) SaveHouseData(_ uint32, _ []byte, _, _, _, _, _ []by
 func (m *mockCharacterRepo) LoadSaveData(_ uint32) (uint32, []byte, bool, string, error) {
 	return m.loadSaveDataID, m.loadSaveDataData, m.loadSaveDataNew, m.loadSaveDataName, m.loadSaveDataErr
 }
-func (m *mockCharacterRepo) SaveBackup(_ uint32, _ int, _ []byte) error       { return nil }
-func (m *mockCharacterRepo) GetLastBackupTime(_ uint32) (time.Time, error)    { return time.Time{}, nil }
-func (m *mockCharacterRepo) SaveCharacterDataAtomic(_ SaveAtomicParams) error { return nil }
+func (m *mockCharacterRepo) SaveBackup(_ uint32, _ int, _ []byte) error    { return nil }
+func (m *mockCharacterRepo) GetLastBackupTime(_ uint32) (time.Time, error) { return time.Time{}, nil }
+func (m *mockCharacterRepo) SaveCharacterDataAtomic(params SaveAtomicParams) error {
+	m.saveAtomicParams = append(m.saveAtomicParams, params)
+	return nil
+}
 func (m *mockCharacterRepo) LoadSaveDataWithHash(_ uint32) (uint32, []byte, bool, string, []byte, error) {
 	return m.loadSaveDataID, m.loadSaveDataData, m.loadSaveDataNew, m.loadSaveDataName, m.loadSaveDataHash, m.loadSaveDataErr
 }
 func (m *mockCharacterRepo) LoadBackupsByRecency(_ uint32) ([]SavedataBackup, error) {
-	return []SavedataBackup{}, nil
+	return m.loadBackups, m.loadBackupsErr
 }
 
 // --- mockGoocooRepo ---

@@ -101,6 +101,7 @@ type AuthData struct {
 	Courses       []CourseInfo `json:"courses"`
 	MezFes        *MezFes      `json:"mezFes"`
 	PatchServer   string       `json:"patchServer"`
+	ClientFilter  []byte       `json:"clientFilter,omitempty"`
 }
 
 // ExportData wraps a character's full database row for save export.
@@ -127,9 +128,10 @@ func (s *APIServer) newAuthData(userID uint32, userRights uint32, userTokenID ui
 			TokenID: userTokenID,
 			Token:   userToken,
 		},
-		Characters:  characters,
-		PatchServer: s.erupeConfig.API.PatchServer,
-		Notices:     []string{},
+		Characters:   characters,
+		PatchServer:  s.erupeConfig.API.PatchServer,
+		Notices:      []string{},
+		ClientFilter: append([]byte(nil), s.clientFilter...),
 	}
 	// Compute returning status per character
 	ninetyDaysAgo := time.Now().Add(-90 * 24 * time.Hour)

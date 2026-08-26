@@ -368,6 +368,10 @@ components:
             - type: "null"
         patchServer:
           type: string
+        clientFilter:
+          type: string
+          format: byte
+          description: Base64-encoded raw smc/nam/msg client filter block (maximum 0x2ff8 bytes)
 
     User:
       type: object
