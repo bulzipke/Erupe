@@ -236,6 +236,8 @@ func TestHandleMsgSysRecordLog_ZZMode(t *testing.T) {
 	server.huntRecordRepo = huntRecordRepo
 
 	session := createMockSession(1, server)
+	const capturedWeaponType = uint8(13)
+	session.questWeaponState.Store(uint32(12345)<<8 | uint32(capturedWeaponType+1))
 
 	// Create a stage for the session (handler accesses s.stage.reservedClientSlots)
 	stage := &Stage{
@@ -250,6 +252,7 @@ func TestHandleMsgSysRecordLog_ZZMode(t *testing.T) {
 	data := make([]byte, 32+176)
 	binary.LittleEndian.PutUint16(data[questIDOffset:questIDOffset+2], 12345)
 	binary.LittleEndian.PutUint32(data[questElapsedFramesOffset:questElapsedFramesOffset+4], 3_750)
+	data[questResultCodeOffset] = questResultCodeCleared
 	// Set monster index 5 to have 2 kills (a large monster per mhfmon)
 	data[32+6] = 2
 
@@ -265,6 +268,12 @@ func TestHandleMsgSysRecordLog_ZZMode(t *testing.T) {
 	record := huntRecordRepo.records[0]
 	if record.CharacterID != 1 || record.MonsterID != 6 || record.VariantKind != string(mhfquest.HuntVariantUnknown) || record.RankKind != string(mhfquest.HuntRankUnknown) || record.QuestID != 12345 || record.QuestName != "퀘스트 #12345" || record.BestTimeFrames != 3_750 {
 		t.Errorf("hunt record = %+v, want char=1 monster=6 quest=12345 fallback-title frames=3750", record)
+	}
+	if record.WeaponType == nil || *record.WeaponType != capturedWeaponType {
+		t.Errorf("hunt record weapon = %v, want %d", record.WeaponType, capturedWeaponType)
+	}
+	if state := session.questWeaponState.Load(); state != 0 {
+		t.Errorf("weapon state after result = %#x, want cleared", state)
 	}
 
 	// Check that reserved slot was cleaned up

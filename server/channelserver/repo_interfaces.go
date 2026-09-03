@@ -162,6 +162,12 @@ type HuntRecordRepo interface {
 	UpsertPersonalBest(record HuntRecordUpsert) error
 }
 
+// WeaponUsageRepo records one authenticated hunter's weapon class when that
+// hunter first enters a quest stage.
+type WeaponUsageRepo interface {
+	RecordQuestDeparture(characterID uint32) (weaponType uint8, ok bool, err error)
+}
+
 // RavienteRunRepo persists whole-siege team records.  Completion writes the
 // final participant snapshot and status in one transaction.
 type RavienteRunRepo interface {

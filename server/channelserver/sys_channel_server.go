@@ -145,6 +145,7 @@ type Server struct {
 	guildMissionRepo    GuildMissionRepo
 	guildMissionService *GuildMissionService
 	huntRecordRepo      HuntRecordRepo
+	weaponUsageRepo     WeaponUsageRepo
 	ravienteRunRepo     RavienteRunRepo
 	ravienteRunTracker  *RavienteRunTracker
 	questStatsRepo      QuestStatsRepo
@@ -204,6 +205,7 @@ func NewServer(config *Config) *Server {
 	s.guildRepo = NewGuildRepository(config.DB)
 	s.guildMissionRepo = NewGuildMissionRepository(config.DB)
 	s.huntRecordRepo = NewHuntRecordRepository(config.DB)
+	s.weaponUsageRepo = NewWeaponUsageRepository(config.DB)
 	if config.DB != nil {
 		s.ravienteRunRepo = NewRavienteRunRepository(config.DB)
 		s.ravienteRunTracker = NewRavienteRunTracker(s.ravienteRunRepo, config.Logger)

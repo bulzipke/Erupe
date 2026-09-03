@@ -87,6 +87,17 @@ type Session struct {
 	hidden        atomic.Bool   // Set via MsgSysHideClient; excludes this session from MsgSysEnumerateClient's "All" results.
 	questHadParty atomic.Bool   // Sticky for one quest; prevents party hunts from entering solo time rankings.
 	questRunState atomic.Uint32 // Packed quest ID and runtime normal/HC selection for the active quest.
+	// questWeaponState retains the weapon class captured at quest-stage entry
+	// until the matching result log arrives. The client returns to town before
+	// sending that log, so endQuestRun must not clear it. Layout: quest ID in the
+	// upper 16 bits and weapon type + 1 in the low byte (zero means unknown).
+	questWeaponState atomic.Uint32
+	// Guarded by lifecycleMu. The generation stops a slow database result from
+	// an older departure overwriting a newer quest's snapshot. A ZZ first entry
+	// waits in pendingStage only when the validated setup has not arrived yet.
+	questWeaponGeneration        uint64
+	questWeaponPendingGeneration uint64
+	questWeaponPendingStage      string
 	// Live quest run, published to the dashboard. Set on entering a quest stage
 	// and cleared on leaving one; the title is resolved once here rather than on
 	// every dashboard poll, which would re-read the quest file each time.

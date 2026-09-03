@@ -352,5 +352,6 @@ func SetTestDB(s *Server, db *sqlx.DB) {
 	s.miscRepo = NewMiscRepository(db)
 	s.scenarioRepo = NewScenarioRepository(db)
 	s.mercenaryRepo = NewMercenaryRepository(db)
+	s.weaponUsageRepo = NewWeaponUsageRepository(db)
 	s.guildMissionService = NewGuildMissionService(s.guildMissionRepo, s.logger)
 }

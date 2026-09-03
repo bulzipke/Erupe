@@ -72,7 +72,8 @@ func TestDashboardStatsJSON_NoDB(t *testing.T) {
 		t.Errorf("Expected empty OnlineCharacters without DB, got %v", stats.OnlineCharacters)
 	}
 	if stats.Rankings.MonsterHunts == nil || stats.Rankings.Guilds == nil ||
-		stats.Rankings.Playtime == nil || stats.Rankings.MonsterTimes == nil ||
+		stats.Rankings.Playtime == nil || stats.Rankings.MostUsedWeapons == nil ||
+		stats.Rankings.LeastUsedWeapons == nil || stats.Rankings.MonsterTimes == nil ||
 		stats.Rankings.RavienteRuns == nil {
 		t.Error("Expected ranking arrays to be initialized without DB")
 	}
@@ -149,6 +150,12 @@ func TestDashboardStatsJSON_JSONShape(t *testing.T) {
 	if _, ok := rankings["playtime"]; !ok {
 		t.Error("Missing rankings.playtime JSON key")
 	}
+	if _, ok := rankings["mostUsedWeapons"]; !ok {
+		t.Error("Missing rankings.mostUsedWeapons JSON key")
+	}
+	if _, ok := rankings["leastUsedWeapons"]; !ok {
+		t.Error("Missing rankings.leastUsedWeapons JSON key")
+	}
 	if _, ok := rankings["monsterTimes"]; !ok {
 		t.Error("Missing rankings.monsterTimes JSON key")
 	}
@@ -206,7 +213,8 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 	body := rec.Body.String()
 	for _, marker := range []string{
 		"접속 중인 헌터",
-		"위치",
+		`["헌터", "랭크", "무기", "접속 채널"]`,
+		"online-weapon-icon",
 		"월드 채팅",
 		"대형 몬스터 토벌",
 		"대형 몬스터별 최단 토벌",
@@ -215,7 +223,7 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 		"기타 기록은 접어서 표시합니다.",
 		"기타 (펼침)",
 		"기타 (접기)",
-		"몬스터별 상위 10명 중 3위 이후는 카드 안에서 세로로 스크롤",
+		"각 랭킹의 상위 10개 중 3위 이후는 내부에서 세로로 스크롤할 수 있습니다.",
 		"id=\"monster-time-zenith\"",
 		"id=\"monster-time-challenge\"",
 		"id=\"monster-time-upper-shiten\"",
@@ -233,6 +241,11 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 		"전체 시간",
 		"완료 일시",
 		"플레이 타임",
+		"가장 많이 사용한 무기",
+		"id=\"weapon-most-ranking\"",
+		"monster-time-weapon-icon",
+		`["#", "캐릭터이름", "무기", "시간", "퀘스트명"]`,
+		`renderWeaponRanking("weapon-most-ranking", mostUsedWeapons);`,
 		"/api/dashboard/stats",
 		"/api/dashboard/chat",
 	} {
@@ -250,6 +263,10 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 		`id="channel-count"`,
 		`id="total-characters"`,
 		`id="uptime"`,
+		`class="weapon-ranking-columns"`,
+		`<span>무기</span><span>사용횟수</span>`,
+		`id="weapon-least-ranking"`,
+		"가장 적게 사용한 무기",
 	} {
 		if strings.Contains(body, removed) {
 			t.Errorf("Dashboard still contains removed summary element %q", removed)
@@ -262,6 +279,9 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 		".monster-time-table-scroll{width:100%;overflow-x:auto;",
 		".monster-time-table thead tr,.monster-time-table tbody tr{display:grid;",
 		".monster-time-table tbody{display:block;max-height:102px;overflow-x:hidden;overflow-y:auto;",
+		".monster-time-weapon-icon{display:block;width:26px;height:26px;object-fit:contain}",
+		".ranking-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}",
+		".ranking-grid{grid-template-columns:1fr}",
 		".raviente-run-stack{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch;gap:12px}",
 		".raviente-run-stack{grid-template-columns:repeat(2,minmax(0,1fr))}",
 		".raviente-run-stack{grid-template-columns:minmax(0,1fr)}",
@@ -295,19 +315,17 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 	if strings.Contains(body, "monsterIconById") {
 		t.Error("Dashboard still contains the removed legacy icon mapping")
 	}
-	channelIndex := strings.Index(body, "채널 상태")
 	onlineIndex := strings.Index(body, "접속 중인 헌터")
 	chatIndex := strings.Index(body, "월드 채팅")
-	if channelIndex == -1 || onlineIndex == -1 || chatIndex == -1 || !(channelIndex < onlineIndex && onlineIndex < chatIndex) {
-		t.Errorf("Dashboard sections are not ordered channel, online, chat")
+	if onlineIndex == -1 || chatIndex == -1 || !(onlineIndex < chatIndex) {
+		t.Errorf("Dashboard operator sections are not ordered online, chat")
 	}
-	hunterRankIndex := strings.Index(body, "헌터 랭크")
 	monsterRankIndex := strings.Index(body, "대형 몬스터 토벌")
 	playtimeRankIndex := strings.Index(body, "플레이 타임")
 	guildRankIndex := strings.Index(body, "수렵단 RP")
-	if hunterRankIndex == -1 || monsterRankIndex == -1 || playtimeRankIndex == -1 || guildRankIndex == -1 ||
-		!(hunterRankIndex < monsterRankIndex && monsterRankIndex < playtimeRankIndex && playtimeRankIndex < guildRankIndex) {
-		t.Errorf("Dashboard rankings are not ordered hunter rank, monster hunts, playtime, guild RP")
+	if monsterRankIndex == -1 || playtimeRankIndex == -1 || guildRankIndex == -1 ||
+		!(monsterRankIndex < playtimeRankIndex && playtimeRankIndex < guildRankIndex) {
+		t.Errorf("Dashboard rankings are not ordered monster hunts, playtime, guild RP")
 	}
 }
 
@@ -327,6 +345,31 @@ func TestDashboardMonsterIcon(t *testing.T) {
 	want, err := dashboardMonsterIconFS.ReadFile("dashboard_assets/namu_ad1ae05706f8dc9d.webp")
 	if err != nil {
 		t.Fatalf("Read embedded icon: %v", err)
+	}
+	if rec.Body.Len() != len(want) {
+		t.Fatalf("Icon body length = %d, want %d", rec.Body.Len(), len(want))
+	}
+	if cacheControl := rec.Header().Get("Cache-Control"); !strings.Contains(cacheControl, "immutable") {
+		t.Fatalf("Expected immutable cache header, got %q", cacheControl)
+	}
+}
+
+func TestDashboardWeaponIcon(t *testing.T) {
+	server := &APIServer{}
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/assets/weapon_13.png", nil)
+	rec := httptest.NewRecorder()
+
+	server.DashboardMonsterIcon(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+	if contentType := rec.Header().Get("Content-Type"); contentType != "image/png" {
+		t.Fatalf("Expected PNG content type, got %q", contentType)
+	}
+	want, err := dashboardMonsterIconFS.ReadFile("dashboard_assets/weapon_13.png")
+	if err != nil {
+		t.Fatalf("Read embedded weapon icon: %v", err)
 	}
 	if rec.Body.Len() != len(want) {
 		t.Fatalf("Icon body length = %d, want %d", rec.Body.Len(), len(want))
@@ -457,6 +500,114 @@ func TestDashboardMonsterFeaturedGroup(t *testing.T) {
 	}
 }
 
+func TestDashboardWeaponDisplayNames(t *testing.T) {
+	want := []string{
+		"대검", "헤비보우건", "해머", "랜스", "한손검", "라이트보우건", "쌍검",
+		"태도", "수렵피리", "건랜스", "활", "천룡곤", "슬래시액스F", "마그넷스파이크",
+	}
+	for weaponType, name := range want {
+		if got := dashboardWeaponDisplayName(weaponType); got != name {
+			t.Errorf("weapon type %d name = %q, want %q", weaponType, got, name)
+		}
+	}
+	for _, weaponType := range []int{-1, 14, 255} {
+		if got := dashboardWeaponDisplayName(weaponType); got != "" {
+			t.Errorf("invalid weapon type %d name = %q, want empty", weaponType, got)
+		}
+	}
+}
+
+func TestDashboardOnlineCharactersQuerySelectsOnlyKnownWeaponTypes(t *testing.T) {
+	query := strings.Join(strings.Fields(dashboardOnlineCharactersQuery), " ")
+	for _, marker := range []string{
+		"SELECT character_id, character_name, hr, gr, channel_name, land, weapon_type",
+		"WHEN c.weapon_type BETWEEN 0 AND 13 THEN c.weapon_type::integer",
+		"ELSE NULL",
+		"END AS weapon_type",
+	} {
+		if !strings.Contains(query, marker) {
+			t.Errorf("online-character query missing %q", marker)
+		}
+	}
+}
+
+func TestEnrichDashboardOnlineCharactersNamesAllWeaponTypes(t *testing.T) {
+	for weaponType := 0; weaponType < 14; weaponType++ {
+		weaponType := weaponType
+		online := []OnlineCharacter{{
+			CharID:     uint32(weaponType + 1),
+			WeaponType: &weaponType,
+		}}
+		sessions := map[uint32]DashboardSessionInfo{
+			uint32(weaponType + 1): {StageID: "sl1Ns200p0a0u0"},
+		}
+		enrichDashboardOnlineCharacters(online, sessions, time.Now())
+
+		if want := dashboardWeaponDisplayName(weaponType); online[0].WeaponName != want {
+			t.Errorf("weapon type %d online name = %q, want %q", weaponType, online[0].WeaponName, want)
+		}
+		data, err := json.Marshal(online[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		var raw map[string]interface{}
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatal(err)
+		}
+		if raw["weaponType"] != float64(weaponType) || raw["weaponName"] != online[0].WeaponName {
+			t.Errorf("weapon type %d missing from online JSON: %s", weaponType, data)
+		}
+	}
+}
+
+func TestEnrichDashboardOnlineCharactersOmitsInvalidWeapon(t *testing.T) {
+	invalidWeaponType := 99
+	online := []OnlineCharacter{{CharID: 1, WeaponType: &invalidWeaponType}}
+	enrichDashboardOnlineCharacters(online, nil, time.Now())
+	if online[0].WeaponType != nil || online[0].WeaponName != "" {
+		t.Fatalf("invalid online weapon was exposed: %+v", online[0])
+	}
+}
+
+func TestDashboardWeaponUsageQueriesReturnEveryWeaponClass(t *testing.T) {
+	most := strings.Join(strings.Fields(dashboardMostUsedWeaponsQuery), " ")
+	for _, marker := range []string{
+		"FROM weapon_usage_stats",
+		"ORDER BY usage_count DESC, weapon_type ASC",
+	} {
+		if !strings.Contains(most, marker) {
+			t.Errorf("most-used weapon query missing %q", marker)
+		}
+	}
+	for _, forbidden := range []string{"WHERE usage_count > 0", "LIMIT"} {
+		if strings.Contains(most, forbidden) {
+			t.Errorf("most-used weapon query unexpectedly contains %q: %s", forbidden, most)
+		}
+	}
+
+	least := strings.Join(strings.Fields(dashboardLeastUsedWeaponsQuery), " ")
+	for _, marker := range []string{
+		"FROM weapon_usage_stats",
+		"ORDER BY usage_count ASC, weapon_type ASC",
+	} {
+		if !strings.Contains(least, marker) {
+			t.Errorf("least-used weapon query missing %q", marker)
+		}
+	}
+	if strings.Contains(least, "LIMIT") {
+		t.Errorf("least-used weapon query unexpectedly limits weapon classes: %s", least)
+	}
+}
+
+func TestDashboardQuestResultQueriesLimitToWeaponClassCount(t *testing.T) {
+	for _, column := range []string{"cleared", "failed"} {
+		query := strings.Join(strings.Fields(dashboardQuestResultQuery(column)), " ")
+		if !strings.Contains(query, "ORDER BY "+column+" DESC, quest_id ASC LIMIT 14") {
+			t.Errorf("%s ranking query does not limit the ordered result to the 14 weapon classes: %s", column, query)
+		}
+	}
+}
+
 func TestDashboardMonsterTimeRankingQuerySelectsPersonalBestBeforeTopTen(t *testing.T) {
 	query := strings.Join(strings.Fields(dashboardMonsterTimesQuery), " ")
 	for _, marker := range []string{
@@ -464,6 +615,8 @@ func TestDashboardMonsterTimeRankingQuerySelectsPersonalBestBeforeTopTen(t *test
 		"WHERE personal_position = 1",
 		"PARTITION BY monster_id, rank_kind, variant_kind",
 		"WHERE position <= 10",
+		"r.weapon_type",
+		"character_name, weapon_type, quest_id",
 		"COALESCE(r.variant_kind, '') = 'zenith'",
 		"COALESCE(r.variant_kind, '') = 'challenge'",
 		`COALESCE(r.variant_kind, '') LIKE 'extreme\_%' ESCAPE '\'`,
@@ -521,7 +674,14 @@ func TestDashboardBerserkRavienteAlwaysUsesOtherGroup(t *testing.T) {
 }
 
 func TestMonsterTimeRankEntryJSONIncludesClassification(t *testing.T) {
-	data, err := json.Marshal(MonsterTimeRankEntry{RankKind: "g", VariantKind: "normal", FeaturedGroup: ""})
+	weaponType := 12
+	data, err := json.Marshal(MonsterTimeRankEntry{
+		RankKind:      "g",
+		VariantKind:   "normal",
+		FeaturedGroup: "",
+		WeaponType:    &weaponType,
+		WeaponName:    "슬래시액스F",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -531,6 +691,26 @@ func TestMonsterTimeRankEntryJSONIncludesClassification(t *testing.T) {
 	}
 	if raw["rankKind"] != "g" || raw["variantKind"] != "normal" || raw["featuredGroup"] != "" {
 		t.Fatalf("classification fields missing from JSON: %s", data)
+	}
+	if raw["weaponType"] != float64(12) || raw["weaponName"] != "슬래시액스F" {
+		t.Fatalf("weapon fields missing from JSON: %s", data)
+	}
+}
+
+func TestMonsterTimeRankEntryJSONOmitsUnknownWeapon(t *testing.T) {
+	data, err := json.Marshal(MonsterTimeRankEntry{RankKind: "g", VariantKind: "normal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := raw["weaponType"]; ok {
+		t.Fatalf("unknown weaponType must be omitted: %s", data)
+	}
+	if _, ok := raw["weaponName"]; ok {
+		t.Fatalf("unknown weaponName must be omitted: %s", data)
 	}
 }
 
@@ -564,6 +744,12 @@ func TestEmptyDashboardRankingsIncludesOptionalRankings(t *testing.T) {
 	rankings := emptyDashboardRankings()
 	if rankings.Playtime == nil {
 		t.Fatal("playtime ranking must encode as an empty array, not null")
+	}
+	if rankings.MostUsedWeapons == nil {
+		t.Fatal("most-used weapon ranking must encode as an empty array, not null")
+	}
+	if rankings.LeastUsedWeapons == nil {
+		t.Fatal("least-used weapon ranking must encode as an empty array, not null")
 	}
 	if rankings.MonsterTimes == nil {
 		t.Fatal("monster time ranking must encode as an empty array, not null")

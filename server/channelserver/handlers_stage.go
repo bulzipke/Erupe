@@ -157,6 +157,9 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	s.stage = stage
 	s.Unlock()
 	var ravienteQuestID uint16
+	var weaponQuestID uint16
+	var weaponGeneration uint64
+	recordWeaponDeparture := false
 	if stageKind(stageID) == "Qs" {
 		// Guests do not necessarily send SET_STAGE_BINARY themselves.  Decode
 		// the host's stored quest setup when they actually enter the quest so
@@ -165,16 +168,45 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 		questSetup := append([]byte(nil), stage.rawBinaryData[stageBinaryKey{1, 3}]...)
 		stage.RUnlock()
 		questID, runMode, decoded := decodeQuestRunModeFromStageBinary(stageID, 1, 3, questSetup)
+		if decoded {
+			// Weapon usage is independent of client mode. Keeping the decoded ID
+			// lets a later ZZ result attach the departure weapon to its exact run.
+			weaponQuestID = questID
+		}
 		if s.server.erupeConfig.RealClientMode == cfg.ZZ && decoded {
 			s.storeQuestRunMode(questID, runMode)
 			ravienteQuestID = questID
 		}
 		s.beginQuestRun()
+		if !alreadyClient {
+			// A new first entry supersedes any result snapshot or pending stage
+			// from an older attempt. Only a validated quest setup is countable;
+			// if it is still in flight, SET_STAGE_BINARY completes the work.
+			s.questWeaponState.Store(0)
+			s.questWeaponGeneration++
+			weaponGeneration = s.questWeaponGeneration
+			if s.server.erupeConfig.RealClientMode != cfg.ZZ {
+				// Older modes do not have a validated setup decoder. Leave them
+				// uncounted rather than allowing arbitrary Qs stage names to inflate
+				// the public usage rankings.
+				s.questWeaponPendingStage = ""
+				s.questWeaponPendingGeneration = 0
+			} else if decoded {
+				s.questWeaponPendingStage = ""
+				s.questWeaponPendingGeneration = 0
+				recordWeaponDeparture = true
+			} else {
+				s.questWeaponPendingStage = stageID
+				s.questWeaponPendingGeneration = weaponGeneration
+			}
+		}
 	} else {
 		// Failed or abandoned quests may not send a record log. Returning to any
 		// non-quest stage is therefore the reliable boundary for stale run state.
 		s.clearQuestRunMode(0)
 		s.endQuestRun()
+		s.questWeaponPendingStage = ""
+		s.questWeaponPendingGeneration = 0
 	}
 	s.lifecycleMu.Unlock()
 	lifecycleHeld = false
@@ -261,6 +293,11 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	// Previously, if newNotif was empty (no users, no objects), no packet was sent,
 	// causing the client to timeout after 60 seconds.
 	s.QueueSend(newNotif.Data())
+	// Queue every transition packet before the database write, so statistics
+	// cannot hold up the client's stage transition.
+	if recordWeaponDeparture {
+		s.recordQuestWeaponDeparture(weaponQuestID, weaponGeneration)
+	}
 	return true
 }
 
@@ -626,15 +663,13 @@ func handleMsgSysSetStagePass(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgSysSetStageBinary(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgSysSetStageBinary)
-	questID, runMode, runModeDecoded := decodeQuestRunModeFromStageBinary(
+	questID, runMode, questSetupDecoded := decodeQuestRunModeFromStageBinary(
 		pkt.StageID,
 		pkt.BinaryType0,
 		pkt.BinaryType1,
 		pkt.RawDataPayload,
 	)
-	if s.server.erupeConfig.RealClientMode != cfg.ZZ {
-		runModeDecoded = false
-	}
+	runModeDecoded := questSetupDecoded && s.server.erupeConfig.RealClientMode == cfg.ZZ
 	if s.server.erupeConfig.DebugOptions.QuestTools {
 		fields := []zap.Field{
 			zap.Uint32("charID", uint32(s.charID)),
@@ -666,7 +701,7 @@ func handleMsgSysSetStageBinary(s *Session, p mhfpacket.MHFPacket) {
 		stored := replacing || len(stage.rawBinaryData) < maxStageBinaryEntries
 		if stored {
 			stage.rawBinaryData[key] = append([]byte(nil), pkt.RawDataPayload...)
-			if runModeDecoded && stageKind(pkt.StageID) == "Qs" {
+			if questSetupDecoded && stageKind(pkt.StageID) == "Qs" {
 				questClients = make([]*Session, 0, len(stage.clients))
 				for session := range stage.clients {
 					questClients = append(questClients, session)
@@ -674,8 +709,28 @@ func handleMsgSysSetStageBinary(s *Session, p mhfpacket.MHFPacket) {
 			}
 		}
 		stage.Unlock()
+		type pendingWeaponDeparture struct {
+			session    *Session
+			generation uint64
+		}
+		pendingWeaponDepartures := make([]pendingWeaponDeparture, 0, len(questClients))
+		// Arm every participant before any repository call. A slow query for the
+		// first hunter must not leave the remaining hunters' departures exposed
+		// to a concurrent town transfer or result packet.
 		for _, session := range questClients {
-			s.server.recordRavienteQuestParticipant(questID, session)
+			if generation, pending := session.armPendingQuestWeaponDeparture(pkt.StageID, questID); pending {
+				pendingWeaponDepartures = append(pendingWeaponDepartures, pendingWeaponDeparture{
+					session: session, generation: generation,
+				})
+			}
+		}
+		for _, session := range questClients {
+			if runModeDecoded {
+				s.server.recordRavienteQuestParticipant(questID, session)
+			}
+		}
+		for _, departure := range pendingWeaponDepartures {
+			departure.session.recordArmedQuestWeaponDeparture(questID, departure.generation)
 		}
 		if !stored {
 			s.logger.Warn("Stage binary entry limit reached", zap.String("StageID", pkt.StageID))

@@ -67,20 +67,20 @@ button,input{font:inherit}
     font-weight:800
 }
 .table-wrap{overflow-x:auto}
-#online-content table{min-width:560px}
-/* Rank, channel and elapsed time hold short fixed-shape values, so shrink them
-   to their contents and give the space back to the quest title. */
+#online-content table{min-width:440px}
+/* Rank, weapon and channel hold short fixed-shape values, so shrink them to
+   their contents and leave the remaining width to the hunter name. */
 #online-content th:nth-child(2),#online-content td:nth-child(2),
 #online-content th:nth-child(3),#online-content td:nth-child(3),
-#online-content th:nth-child(5),#online-content td:nth-child(5){
+#online-content th:nth-child(4),#online-content td:nth-child(4){
     width:1%;
     padding-left:10px;
     padding-right:10px;
     white-space:nowrap
 }
-.quest-elapsed{color:var(--accent-soft);font-variant-numeric:tabular-nums;white-space:nowrap}
-/* The quest title is never truncated: the table grows and .table-wrap scrolls. */
-.quest-title{color:#d9dfda;white-space:nowrap}
+.online-weapon{padding-top:7px !important;padding-bottom:7px !important;text-align:center}
+.online-weapon-icon{display:block;width:30px;height:30px;margin:0 auto;object-fit:contain}
+.online-weapon-empty{color:#66716c;text-align:center}
 table{width:100%;border-collapse:collapse}
 th{
     padding:11px 18px;
@@ -188,9 +188,9 @@ tbody tr:last-child td{border-bottom:0}
 .monster-time-icon{width:38px;height:38px;flex:0 0 38px;object-fit:contain}
 .monster-time-heading-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .monster-time-table-scroll{width:100%;overflow-x:auto;scrollbar-color:#53605a #101513}
-.monster-time-table{width:100%;min-width:594px;table-layout:fixed}
+.monster-time-table{width:100%;min-width:638px;table-layout:fixed}
 .monster-time-table thead{display:block}
-.monster-time-table thead tr,.monster-time-table tbody tr{display:grid;width:100%;grid-template-columns:38px 96px 68px minmax(0,1fr)}
+.monster-time-table thead tr,.monster-time-table tbody tr{display:grid;width:100%;grid-template-columns:38px 96px 44px 68px minmax(0,1fr)}
 .monster-time-table tbody{display:block;max-height:102px;overflow-x:hidden;overflow-y:auto;scrollbar-color:#53605a #101513}
 .monster-time-table th,.monster-time-table td{padding:8px 7px;font-size:.67rem}
 .monster-time-table th:nth-child(1),.monster-time-table td:nth-child(1){text-align:center}
@@ -199,6 +199,9 @@ tbody tr:last-child td{border-bottom:0}
 .monster-time-rank{color:#66716c;font-family:Georgia,"Times New Roman",serif;font-variant-numeric:tabular-nums}
 .monster-time-name,.monster-time-quest{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .monster-time-name{color:var(--text);font-weight:750}
+.monster-time-weapon{display:flex;align-items:center;justify-content:center;padding-top:4px !important;padding-bottom:4px !important}
+.monster-time-weapon-icon{display:block;width:26px;height:26px;object-fit:contain}
+.monster-time-weapon-empty{color:#66716c;text-align:center}
 .monster-time-value{color:var(--accent-soft);font-variant-numeric:tabular-nums;white-space:nowrap}
 .monster-time-quest{color:var(--muted)}
 .monster-time-empty{width:100%;padding:28px;color:var(--muted);font-size:.78rem;text-align:center}
@@ -237,16 +240,18 @@ tbody tr:last-child td{border-bottom:0}
 .raviente-participant-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));max-height:220px;margin:0;padding:8px 12px;overflow-y:auto;list-style:none;scrollbar-color:#53605a #171e1b}
 .raviente-participant-list li{min-width:0;padding:4px 5px;overflow-wrap:anywhere;color:#d9dfda;font-size:.71rem}
 .raviente-participant-empty{padding:16px 12px;color:var(--muted);font-size:.71rem;text-align:center}
-.ranking-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr))}
+.ranking-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.ranking-grid>.ranking-block:nth-child(3n){border-right:0}
+.ranking-grid>.ranking-block:nth-child(n+4){border-top:1px solid var(--line)}
 .ranking-block{min-width:0;padding:18px;border-right:1px solid var(--line)}
 .ranking-block:last-child{border-right:0}
 .ranking-heading{margin:0 0 14px;color:var(--accent-soft);font-size:.78rem;font-weight:800}
 .ranking-list{list-style:none;margin:0;padding:0}
 .ranking-item{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:8px;min-height:37px;border-bottom:1px solid var(--line-soft);font-size:.78rem}
 .ranking-item:last-child{border-bottom:0}
-/* Quest titles are long and there are up to 50 of them, so this list scrolls in
-   both directions instead of stretching the section or truncating the name. */
-.quest-ranking-scroll{max-height:222px;overflow:auto;scrollbar-color:#53605a var(--surface)}
+/* Quest titles stay intact; each ranking list scrolls horizontally when a title
+   is wider than its ranking card. */
+.quest-ranking-scroll{overflow-x:auto;scrollbar-color:#53605a var(--surface)}
 .quest-ranking{width:max-content;min-width:100%}
 .quest-ranking .ranking-item{gap:12px}
 .quest-ranking .ranking-name{overflow:visible;text-overflow:clip}
@@ -267,19 +272,14 @@ tbody tr:last-child td{border-bottom:0}
 }
 @media (max-width:1050px){
     .monster-time-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
-    /* Five columns only fit the full desktop width; below it the quest titles
-       have no room left, so drop to a 3+2 layout before the mobile stack. */
-    .ranking-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
-    .ranking-block:nth-child(3n){border-right:0}
-    .ranking-block:nth-child(-n+3){border-bottom:1px solid var(--line)}
 }
 @media (max-width:900px){
     .shell{width:min(calc(100% - 24px),var(--max-width));padding-top:14px}
     .layout{grid-template-columns:1fr}
     .raviente-run-stack{grid-template-columns:repeat(2,minmax(0,1fr))}
     .ranking-grid{grid-template-columns:1fr}
-    .ranking-block{border-right:0;border-bottom:1px solid var(--line)}
-    .ranking-block:last-child{border-bottom:0}
+    .ranking-grid>.ranking-block{border-top:0;border-right:0;border-bottom:1px solid var(--line)}
+    .ranking-grid>.ranking-block:last-child{border-bottom:0}
     .chat-form{grid-template-columns:120px minmax(0,1fr)}
     .chat-submit{grid-column:1 / -1}
     .footer{flex-direction:column;gap:5px}
@@ -290,7 +290,6 @@ tbody tr:last-child td{border-bottom:0}
 }
 @media (max-width:520px){
     th,td{padding-left:13px;padding-right:13px}
-    #online-content th:nth-child(3),#online-content td:nth-child(3){display:none}
     .chat-line{grid-template-columns:48px 38px 82px minmax(0,1fr);gap:7px}
     .chat-form{grid-template-columns:1fr}
     .chat-submit{grid-column:auto}
@@ -398,6 +397,10 @@ tbody tr:last-child td{border-bottom:0}
                     <ol class="ranking-list quest-ranking" id="quest-fail-ranking"></ol>
                 </div>
             </article>
+            <article class="ranking-block">
+                <h3 class="ranking-heading">가장 많이 사용한 무기</h3>
+                <ol class="ranking-list" id="weapon-most-ranking" aria-label="가장 많이 사용한 무기와 사용 횟수"></ol>
+            </article>
         </div>
     </section>
 
@@ -458,6 +461,7 @@ tbody tr:last-child td{border-bottom:0}
 
     var lastUpdated = null;
     var numberFormatter = new Intl.NumberFormat("ko-KR");
+    var onlineSignature = "";
     var monsterTimesSignature = "";
 	var ravienteRunsSignature = "";
 	var participantNameCollator = new Intl.Collator("en", {numeric: true, sensitivity: "base"});
@@ -560,27 +564,52 @@ tbody tr:last-child td{border-bottom:0}
         return land > 1 ? name + " · " + land + "채널" : name;
     }
 
-    // Quest runs are capped at 50 minutes, so mm:ss is always enough.
-    function questElapsedLabel(elapsedMs) {
-        var totalSeconds = Math.floor((Number(elapsedMs) || 0) / 1000);
-        if (totalSeconds <= 0) return "";
-        var minutes = Math.floor(totalSeconds / 60);
-        var seconds = totalSeconds % 60;
-        return String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
+    function buildWeaponIconCell(entry, cellClass, iconClass, emptyClass) {
+        var cell = document.createElement("td");
+        var rawType = entry.weaponType;
+        var weaponType = Number(rawType);
+        if (rawType === null || rawType === undefined || rawType === "" ||
+            !Number.isInteger(weaponType) || weaponType < 0 || weaponType > 13) {
+            cell.className = emptyClass;
+            cell.textContent = "—";
+            cell.setAttribute("aria-label", "무기 기록 없음");
+            return cell;
+        }
+
+        var weaponName = entry.weaponName || ("무기 #" + weaponType);
+        cell.className = cellClass;
+        cell.title = weaponName;
+        cell.setAttribute("aria-label", weaponName);
+        var icon = document.createElement("img");
+        icon.className = iconClass;
+        icon.src = "/dashboard/assets/weapon_" + weaponType + ".png";
+        icon.alt = weaponName;
+        icon.title = weaponName;
+        icon.loading = "lazy";
+        icon.decoding = "async";
+        cell.appendChild(icon);
+        return cell;
     }
 
     function renderOnline(players) {
         var container = byId("online-content");
         byId("online-count").textContent = players.length;
+        var signature = JSON.stringify(players.map(function (player) {
+            return [player.name, player.hr, player.gr, player.weaponType, player.weaponName, player.channel, player.land];
+        }));
+        if (signature === onlineSignature) return;
+        var scrollLeft = container.scrollLeft;
+        var scrollTop = container.scrollTop;
         if (!players.length) {
             container.replaceChildren(text("div", "empty", "현재 접속 중인 헌터가 없습니다."));
+            onlineSignature = signature;
             return;
         }
 
         var table = document.createElement("table");
         var thead = document.createElement("thead");
         var headRow = document.createElement("tr");
-        ["헌터", "랭크", "접속 채널", "위치", "경과시간", "퀘스트명"].forEach(function (label) {
+        ["헌터", "랭크", "무기", "접속 채널"].forEach(function (label) {
             headRow.appendChild(text("th", "", label));
         });
         thead.appendChild(headRow);
@@ -590,18 +619,17 @@ tbody tr:last-child td{border-bottom:0}
             var row = document.createElement("tr");
             row.appendChild(text("td", "hunter-name", player.name));
             row.appendChild(text("td", "rank-mark", hunterRank(player.hr, player.gr)));
+            row.appendChild(buildWeaponIconCell(player, "online-weapon", "online-weapon-icon", "online-weapon-empty"));
             row.appendChild(text("td", "channel-name", channelLabel(player.channel, player.land)));
-            row.appendChild(text("td", "location-mark", player.location || "접속 중"));
-            // Both quest cells stay blank outside a quest, so a hunter in town
-            // reads as empty rather than showing a stale run.
-            row.appendChild(text("td", "quest-elapsed", questElapsedLabel(player.questElapsedMs)));
-            row.appendChild(text("td", "quest-title", player.questName || ""));
             tbody.appendChild(row);
         });
 
         table.appendChild(thead);
         table.appendChild(tbody);
         container.replaceChildren(table);
+        container.scrollLeft = scrollLeft;
+        container.scrollTop = scrollTop;
+        onlineSignature = signature;
     }
 
 
@@ -729,7 +757,27 @@ tbody tr:last-child td{border-bottom:0}
     }
 
     // Quest rows fall back to the ID when the server never resolved a name.
-    function renderQuestRanking(targetId, entries) {
+    function renderQuestRanking(targetId, entries, limit) {
+        var list = byId(targetId);
+        var visibleEntries = entries.slice(0, Math.max(0, limit));
+        if (!visibleEntries.length) {
+            list.replaceChildren(text("li", "ranking-empty", "표시할 기록이 없습니다."));
+            return;
+        }
+
+        var fragment = document.createDocumentFragment();
+        visibleEntries.forEach(function (entry, index) {
+            var item = document.createElement("li");
+            item.className = "ranking-item";
+            item.appendChild(text("span", "ranking-number", String(index + 1).padStart(2, "0")));
+            item.appendChild(text("span", "ranking-name", entry.questName || ("퀘스트 " + entry.questId)));
+            item.appendChild(text("span", "ranking-score", numberFormatter.format(entry.count) + "회"));
+            fragment.appendChild(item);
+        });
+        list.replaceChildren(fragment);
+    }
+
+    function renderWeaponRanking(targetId, entries) {
         var list = byId(targetId);
         if (!entries.length) {
             list.replaceChildren(text("li", "ranking-empty", "표시할 기록이 없습니다."));
@@ -741,8 +789,8 @@ tbody tr:last-child td{border-bottom:0}
             var item = document.createElement("li");
             item.className = "ranking-item";
             item.appendChild(text("span", "ranking-number", String(index + 1).padStart(2, "0")));
-            item.appendChild(text("span", "ranking-name", entry.questName || ("퀘스트 " + entry.questId)));
-            item.appendChild(text("span", "ranking-score", numberFormatter.format(entry.count) + "회"));
+            item.appendChild(text("span", "ranking-name", entry.weaponName || ("무기 #" + entry.weaponType)));
+            item.appendChild(text("span", "ranking-score", numberFormatter.format(entry.uses) + "회"));
             fragment.appendChild(item);
         });
         list.replaceChildren(fragment);
@@ -758,6 +806,10 @@ tbody tr:last-child td{border-bottom:0}
         if (variantKind === "challenge" || variantKind.indexOf("extreme_") === 0) return "challenge";
         if (variantKind === "upper_shiten") return "upper_shiten";
         return "other";
+    }
+
+    function buildMonsterTimeWeaponCell(entry) {
+        return buildWeaponIconCell(entry, "monster-time-weapon", "monster-time-weapon-icon", "monster-time-weapon-empty");
     }
 
     function buildMonsterTimeCard(monster, entries) {
@@ -782,7 +834,7 @@ tbody tr:last-child td{border-bottom:0}
         table.className = "monster-time-table";
         var thead = document.createElement("thead");
         var head = document.createElement("tr");
-        ["#", "캐릭터이름", "시간", "퀘스트명"].forEach(function (label) {
+        ["#", "캐릭터이름", "무기", "시간", "퀘스트명"].forEach(function (label) {
             head.appendChild(text("th", "", label));
         });
         thead.appendChild(head);
@@ -794,6 +846,7 @@ tbody tr:last-child td{border-bottom:0}
             var name = text("td", "monster-time-name", entry.name);
             name.title = entry.name;
             row.appendChild(name);
+            row.appendChild(buildMonsterTimeWeaponCell(entry));
             row.appendChild(text("td", "monster-time-value", huntTimeLabel(entry.frames)));
             var questName = entry.questName || (entry.questId ? "퀘스트 #" + entry.questId : "퀘스트 번호 없음");
             var quest = text("td", "monster-time-quest", questName);
@@ -1100,8 +1153,10 @@ tbody tr:last-child td{border-bottom:0}
         renderRanking("guild-ranking", rankings.guilds || [], function (entry) {
             return numberFormatter.format(entry.rp) + " RP";
         });
-        renderQuestRanking("quest-clear-ranking", rankings.questClears || []);
-        renderQuestRanking("quest-fail-ranking", rankings.questFails || []);
+        var mostUsedWeapons = rankings.mostUsedWeapons || [];
+        renderQuestRanking("quest-clear-ranking", rankings.questClears || [], mostUsedWeapons.length);
+        renderQuestRanking("quest-fail-ranking", rankings.questFails || [], mostUsedWeapons.length);
+        renderWeaponRanking("weapon-most-ranking", mostUsedWeapons);
         renderRanking("playtime-ranking", rankings.playtime || [], function (entry) {
             return playtimeLabel(entry.seconds);
         });

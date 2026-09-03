@@ -29,6 +29,7 @@ type HuntRecordUpsert struct {
 	RankBand       uint16
 	StatTable1     uint32
 	StatTable2     uint8
+	WeaponType     *uint8
 	BestTimeFrames uint32
 	RecordedAt     time.Time
 }
@@ -46,8 +47,8 @@ func (r *HuntRecordRepository) UpsertPersonalBest(record HuntRecordUpsert) error
 		INSERT INTO monster_hunt_records
 			(character_id, monster_id, quest_id, quest_name, rank_kind, variant_kind,
 			 quest_variant1, quest_variant2, quest_variant3, quest_variant4,
-			 rank_band, stat_table1, stat_table2, best_time_frames, recorded_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+			 rank_band, stat_table1, stat_table2, weapon_type, best_time_frames, recorded_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		ON CONFLICT (character_id, monster_id, quest_id, rank_kind, variant_kind) DO UPDATE
 		SET quest_name = EXCLUDED.quest_name,
 			quest_variant1 = EXCLUDED.quest_variant1,
@@ -57,6 +58,7 @@ func (r *HuntRecordRepository) UpsertPersonalBest(record HuntRecordUpsert) error
 			rank_band = EXCLUDED.rank_band,
 			stat_table1 = EXCLUDED.stat_table1,
 			stat_table2 = EXCLUDED.stat_table2,
+			weapon_type = EXCLUDED.weapon_type,
 			best_time_frames = EXCLUDED.best_time_frames,
 			recorded_at = EXCLUDED.recorded_at
 		WHERE EXCLUDED.best_time_frames < monster_hunt_records.best_time_frames
@@ -74,6 +76,7 @@ func (r *HuntRecordRepository) UpsertPersonalBest(record HuntRecordUpsert) error
 		record.RankBand,
 		record.StatTable1,
 		record.StatTable2,
+		record.WeaponType,
 		record.BestTimeFrames,
 		record.RecordedAt,
 	)

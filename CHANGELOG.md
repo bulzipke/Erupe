@@ -9,11 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Dashboard weapon-class usage rankings now count each human quest departure and list all weapon classes, online hunter rows show the latest saved weapon icon, and new personal-best hunt records retain the weapon used for icon display.
 - Generated, language-independent Ferias item metadata catalog containing ItemID, rarity, raw `M`/`X` suffix, and pouch limit, plus a deterministic regeneration tool.
 - Best-effort append-only security audit observations, with configurable startup cleanup, for server-authoritative authorization decisions.
 
 ### Changed
 
+- Dashboard world rankings now use two three-column rows, show up to fourteen clear/failure quest entries beside the fourteen weapon classes, and omit the least-used-weapon card and weapon column labels.
 - Login, API, and BBS capability tokens now use a cryptographically secure generator; login tokens use a configurable sliding idle expiry and stale unbound rows are cleaned automatically.
 
 ### Fixed

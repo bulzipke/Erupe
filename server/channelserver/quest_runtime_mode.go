@@ -167,6 +167,131 @@ func (s *Session) endQuestRun() {
 	s.activeQuestName.Store("")
 }
 
+// recordQuestWeaponDeparture counts one authenticated hunter entering a quest
+// and snapshots the weapon class for a later personal-best result.  Companion
+// NPCs never own a Session and therefore cannot reach this path.
+func (s *Session) recordQuestWeaponDeparture(questID uint16, generation uint64) {
+	if s.server == nil || s.server.weaponUsageRepo == nil {
+		return
+	}
+	s.armQuestWeaponDeparture(questID, generation)
+	s.recordArmedQuestWeaponDeparture(questID, generation)
+}
+
+// armQuestWeaponDeparture marks a validated attempt before any database work.
+// Results may arrive on another session's handler while the host is processing
+// a late stage binary, so every participant must be armed first.
+func (s *Session) armQuestWeaponDeparture(questID uint16, generation uint64) bool {
+	if questID == 0 {
+		return false
+	}
+	marker := uint32(questID) << 8
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	if s.questWeaponGeneration != generation {
+		return false
+	}
+	s.questWeaponState.Store(marker)
+	return true
+}
+
+// recordArmedQuestWeaponDeparture performs the aggregate increment after the
+// attempt marker has been published. It still counts a real older departure if
+// a newer generation supersedes it while the database work is queued.
+func (s *Session) recordArmedQuestWeaponDeparture(questID uint16, generation uint64) {
+	marker := uint32(questID) << 8
+	clearMarker := func() {
+		if questID == 0 {
+			return
+		}
+		s.lifecycleMu.Lock()
+		if s.questWeaponGeneration == generation && s.questWeaponState.Load() == marker {
+			s.questWeaponState.Store(0)
+		}
+		s.lifecycleMu.Unlock()
+	}
+	if s.server == nil || s.server.weaponUsageRepo == nil {
+		clearMarker()
+		return
+	}
+	weaponType, ok, err := s.server.weaponUsageRepo.RecordQuestDeparture(s.charID)
+	if err != nil {
+		clearMarker()
+		s.logger.Warn("Failed to record quest-departure weapon usage",
+			zap.Uint32("charID", s.charID),
+			zap.Uint16("questID", questID),
+			zap.Error(err))
+		return
+	}
+	if !ok {
+		clearMarker()
+		s.logger.Warn("Quest departure has no valid persisted weapon type",
+			zap.Uint32("charID", s.charID),
+			zap.Uint16("questID", questID))
+		return
+	}
+	// Personal hunt records and validated departure setup decoding are ZZ-only,
+	// so an aggregate call without a quest ID must not retain a snapshot.
+	if questID == 0 {
+		return
+	}
+	// Serialize the final write with new departures. The database operation may
+	// have taken long enough for this session to enter another quest or for the
+	// matching result packet to consume the in-flight marker.
+	s.lifecycleMu.Lock()
+	if s.questWeaponGeneration == generation && s.questWeaponState.Load() == marker {
+		// Adding one makes weapon type 0 distinguishable from an unknown state.
+		s.questWeaponState.Store(marker | uint32(weaponType+1))
+	}
+	s.lifecycleMu.Unlock()
+}
+
+// armPendingQuestWeaponDeparture consumes and arms a pending first entry only
+// for the stage whose validated setup just arrived. lifecycleMu makes the two
+// state changes atomic with transfers and result processing.
+func (s *Session) armPendingQuestWeaponDeparture(stageID string, questID uint16) (uint64, bool) {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	if s.closed.Load() || s.questWeaponPendingStage != stageID {
+		return 0, false
+	}
+	generation := s.questWeaponPendingGeneration
+	s.questWeaponPendingStage = ""
+	s.questWeaponPendingGeneration = 0
+	if questID != 0 && s.questWeaponGeneration == generation {
+		s.questWeaponState.Store(uint32(questID) << 8)
+	}
+	return generation, true
+}
+
+// questWeaponForResult returns the weapon captured for this exact quest. A
+// delayed result from an older quest must not borrow a newer attempt's weapon.
+func (s *Session) questWeaponForResult(questID uint16) (uint8, bool) {
+	state := s.questWeaponState.Load()
+	if uint16(state>>8) != questID {
+		return 0, false
+	}
+	encodedType := uint8(state)
+	if encodedType == 0 || encodedType > 14 {
+		return 0, false
+	}
+	return encodedType - 1, true
+}
+
+// clearQuestWeaponForResult clears only the matching attempt, preserving a
+// newer departure if an older result packet arrives late.
+func (s *Session) clearQuestWeaponForResult(questID uint16) {
+	for {
+		state := s.questWeaponState.Load()
+		if state == 0 || uint16(state>>8) != questID {
+			return
+		}
+		if s.questWeaponState.CompareAndSwap(state, 0) {
+			return
+		}
+	}
+}
+
 // activeQuestRun returns the quest this session is currently in. ok is false
 // when the session is not in a quest.
 func (s *Session) activeQuestRun() (questID uint16, name string, startedAt time.Time, ok bool) {

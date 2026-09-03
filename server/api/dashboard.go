@@ -26,7 +26,7 @@ import (
 //go:embed dashboard.html
 var dashboardHTML string
 
-//go:embed dashboard_assets/namu_*
+//go:embed dashboard_assets/namu_* dashboard_assets/weapon_*
 var dashboardMonsterIconFS embed.FS
 
 var dashboardTmpl = template.Must(template.New("dashboard").Parse(dashboardHTML))
@@ -237,13 +237,15 @@ func (s *APIServer) dashboardConfiguredChannels() map[int]dashboardConfiguredCha
 // OnlineCharacter is a currently connected character from sign_sessions,
 // enriched with its live in-process channel stage when available.
 type OnlineCharacter struct {
-	CharID   uint32 `db:"character_id" json:"-"`
-	Name     string `db:"character_name" json:"name"`
-	HR       int    `db:"hr" json:"hr"`
-	GR       int    `db:"gr" json:"gr"`
-	Channel  string `db:"channel_name" json:"channel"`
-	Land     int    `db:"land" json:"land"`
-	Location string `json:"location"`
+	CharID     uint32 `db:"character_id" json:"-"`
+	Name       string `db:"character_name" json:"name"`
+	HR         int    `db:"hr" json:"hr"`
+	GR         int    `db:"gr" json:"gr"`
+	Channel    string `db:"channel_name" json:"channel"`
+	Land       int    `db:"land" json:"land"`
+	Location   string `json:"location"`
+	WeaponType *int   `db:"weapon_type" json:"weaponType,omitempty"`
+	WeaponName string `json:"weaponName,omitempty"`
 	// Quest fields are empty unless the character is inside a quest.
 	QuestName      string `json:"questName"`
 	QuestElapsedMs int64  `json:"questElapsedMs"`
@@ -349,6 +351,8 @@ type MonsterTimeRankEntry struct {
 	MonsterName   string `json:"monsterName"`
 	Icon          string `json:"icon,omitempty"`
 	Name          string `db:"character_name" json:"name"`
+	WeaponType    *int   `db:"weapon_type" json:"weaponType,omitempty"`
+	WeaponName    string `json:"weaponName,omitempty"`
 	QuestID       int    `db:"quest_id" json:"questId"`
 	QuestName     string `db:"quest_name" json:"questName"`
 	Frames        int64  `db:"best_time_frames" json:"frames"`
@@ -374,15 +378,49 @@ type QuestResultRankEntry struct {
 	Count     int64  `db:"result_count" json:"count"`
 }
 
+// WeaponUsageRankEntry describes how many authenticated hunters departed on a
+// quest with one weapon class. WeaponType follows the client's 0..13 enum.
+type WeaponUsageRankEntry struct {
+	WeaponType int    `db:"weapon_type" json:"weaponType"`
+	WeaponName string `json:"weaponName"`
+	Uses       int64  `db:"usage_count" json:"uses"`
+}
+
+var dashboardWeaponNames = [...]string{
+	"대검",
+	"헤비보우건",
+	"해머",
+	"랜스",
+	"한손검",
+	"라이트보우건",
+	"쌍검",
+	"태도",
+	"수렵피리",
+	"건랜스",
+	"활",
+	"천룡곤",
+	"슬래시액스F",
+	"마그넷스파이크",
+}
+
+func dashboardWeaponDisplayName(weaponType int) string {
+	if weaponType < 0 || weaponType >= len(dashboardWeaponNames) {
+		return ""
+	}
+	return dashboardWeaponNames[weaponType]
+}
+
 // DashboardRankings contains the read-only rankings shown on the dashboard.
 type DashboardRankings struct {
-	MonsterHunts []MonsterHuntRankEntry `json:"monsterHunts"`
-	Guilds       []GuildRankEntry       `json:"guilds"`
-	Playtime     []PlaytimeRankEntry    `json:"playtime"`
-	MonsterTimes []MonsterTimeRankEntry `json:"monsterTimes"`
-	RavienteRuns []RavienteRunRankEntry `json:"ravienteRuns"`
-	QuestClears  []QuestResultRankEntry `json:"questClears"`
-	QuestFails   []QuestResultRankEntry `json:"questFails"`
+	MonsterHunts     []MonsterHuntRankEntry `json:"monsterHunts"`
+	Guilds           []GuildRankEntry       `json:"guilds"`
+	Playtime         []PlaytimeRankEntry    `json:"playtime"`
+	MostUsedWeapons  []WeaponUsageRankEntry `json:"mostUsedWeapons"`
+	LeastUsedWeapons []WeaponUsageRankEntry `json:"leastUsedWeapons"`
+	MonsterTimes     []MonsterTimeRankEntry `json:"monsterTimes"`
+	RavienteRuns     []RavienteRunRankEntry `json:"ravienteRuns"`
+	QuestClears      []QuestResultRankEntry `json:"questClears"`
+	QuestFails       []QuestResultRankEntry `json:"questFails"`
 }
 
 const dashboardRankingTTL = time.Minute
@@ -402,9 +440,21 @@ func dashboardQuestResultQuery(column string) string {
 		FROM quest_result_stats
 		WHERE ` + column + ` > 0
 		ORDER BY ` + column + ` DESC, quest_id ASC
-		LIMIT 50
+		LIMIT 14
 	`
 }
+
+const dashboardMostUsedWeaponsQuery = `
+	SELECT weapon_type, usage_count
+	FROM weapon_usage_stats
+	ORDER BY usage_count DESC, weapon_type ASC
+`
+
+const dashboardLeastUsedWeaponsQuery = `
+	SELECT weapon_type, usage_count
+	FROM weapon_usage_stats
+	ORDER BY usage_count ASC, weapon_type ASC
+`
 
 const dashboardMonsterTimesQuery = `
 	WITH eligible_records AS (
@@ -414,6 +464,7 @@ const dashboardMonsterTimesQuery = `
 			COALESCE(r.rank_kind, 'unknown') AS rank_kind,
 			COALESCE(r.variant_kind, 'unknown') AS variant_kind,
 			c.name AS character_name,
+			r.weapon_type,
 			r.quest_id,
 			CASE
 				WHEN r.quest_name <> '' THEN r.quest_name
@@ -454,6 +505,7 @@ const dashboardMonsterTimesQuery = `
 			rank_kind,
 			variant_kind,
 			character_name,
+			weapon_type,
 			quest_id,
 			quest_name,
 			best_time_frames,
@@ -463,7 +515,7 @@ const dashboardMonsterTimesQuery = `
 			) AS position
 		FROM personal_bests
 	)
-	SELECT monster_id, rank_kind, variant_kind, character_name, quest_id, quest_name, best_time_frames
+	SELECT monster_id, rank_kind, variant_kind, character_name, weapon_type, quest_id, quest_name, best_time_frames
 	FROM ranked
 	WHERE position <= 10
 	ORDER BY
@@ -679,10 +731,8 @@ func (s *APIServer) DashboardStatsJSON(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *APIServer) dashboardOnlineCharacters(ctx context.Context) ([]OnlineCharacter, error) {
-	online := make([]OnlineCharacter, 0)
-	err := s.db.SelectContext(ctx, &online, `
-		SELECT character_id, character_name, hr, gr, channel_name, land
+const dashboardOnlineCharactersQuery = `
+		SELECT character_id, character_name, hr, gr, channel_name, land, weapon_type
 		FROM (
 			SELECT DISTINCT ON (c.id)
 				c.id AS character_id,
@@ -690,7 +740,11 @@ func (s *APIServer) dashboardOnlineCharacters(ctx context.Context) ([]OnlineChar
 				COALESCE(c.hr, 0)::integer AS hr,
 				COALESCE(c.gr, 0)::integer AS gr,
 				COALESCE(s.world_name, 'World') AS channel_name,
-				COALESCE(s.land, 0) AS land
+				COALESCE(s.land, 0) AS land,
+				CASE
+					WHEN c.weapon_type BETWEEN 0 AND 13 THEN c.weapon_type::integer
+					ELSE NULL
+				END AS weapon_type
 			FROM sign_sessions ss
 			INNER JOIN characters c ON c.id = ss.char_id
 			LEFT JOIN servers s ON s.server_id = ss.server_id
@@ -703,15 +757,28 @@ func (s *APIServer) dashboardOnlineCharacters(ctx context.Context) ([]OnlineChar
 			ORDER BY c.id, ss.id DESC
 		) AS connected
 		ORDER BY channel_name, land, character_name
-	`)
+`
+
+func (s *APIServer) dashboardOnlineCharacters(ctx context.Context) ([]OnlineCharacter, error) {
+	online := make([]OnlineCharacter, 0)
+	err := s.db.SelectContext(ctx, &online, dashboardOnlineCharactersQuery)
 	if err != nil {
 		return online, err
 	}
-	sessions := s.dashboardStageSnapshot()
-	now := time.Now()
+	enrichDashboardOnlineCharacters(online, s.dashboardStageSnapshot(), time.Now())
+	return online, nil
+}
+
+func enrichDashboardOnlineCharacters(online []OnlineCharacter, sessions map[uint32]DashboardSessionInfo, now time.Time) {
 	for i := range online {
 		session := sessions[online[i].CharID]
 		online[i].Location = dashboardLocationForStage(session.StageID)
+		if online[i].WeaponType != nil {
+			online[i].WeaponName = dashboardWeaponDisplayName(*online[i].WeaponType)
+			if online[i].WeaponName == "" {
+				online[i].WeaponType = nil
+			}
+		}
 		// Quest columns stay empty unless the character is actually in one, so a
 		// hunter standing in town shows blanks rather than a stale last quest.
 		if !session.QuestStartedAt.IsZero() {
@@ -721,18 +788,19 @@ func (s *APIServer) dashboardOnlineCharacters(ctx context.Context) ([]OnlineChar
 			}
 		}
 	}
-	return online, err
 }
 
 func emptyDashboardRankings() DashboardRankings {
 	return DashboardRankings{
-		MonsterHunts: make([]MonsterHuntRankEntry, 0),
-		Guilds:       make([]GuildRankEntry, 0),
-		Playtime:     make([]PlaytimeRankEntry, 0),
-		MonsterTimes: make([]MonsterTimeRankEntry, 0),
-		RavienteRuns: make([]RavienteRunRankEntry, 0),
-		QuestClears:  make([]QuestResultRankEntry, 0),
-		QuestFails:   make([]QuestResultRankEntry, 0),
+		MonsterHunts:     make([]MonsterHuntRankEntry, 0),
+		Guilds:           make([]GuildRankEntry, 0),
+		Playtime:         make([]PlaytimeRankEntry, 0),
+		MostUsedWeapons:  make([]WeaponUsageRankEntry, 0),
+		LeastUsedWeapons: make([]WeaponUsageRankEntry, 0),
+		MonsterTimes:     make([]MonsterTimeRankEntry, 0),
+		RavienteRuns:     make([]RavienteRunRankEntry, 0),
+		QuestClears:      make([]QuestResultRankEntry, 0),
+		QuestFails:       make([]QuestResultRankEntry, 0),
 	}
 }
 
@@ -794,6 +862,21 @@ func (s *APIServer) getDashboardRankings(ctx context.Context) DashboardRankings 
 		return s.dashboardRankings
 	}
 
+	if err := s.db.SelectContext(ctx, &rankings.MostUsedWeapons, dashboardMostUsedWeaponsQuery); err != nil {
+		s.logger.Warn("Dashboard: failed to query most-used weapon rankings", zap.Error(err))
+		return s.dashboardRankings
+	}
+	if err := s.db.SelectContext(ctx, &rankings.LeastUsedWeapons, dashboardLeastUsedWeaponsQuery); err != nil {
+		s.logger.Warn("Dashboard: failed to query least-used weapon rankings", zap.Error(err))
+		return s.dashboardRankings
+	}
+	for i := range rankings.MostUsedWeapons {
+		rankings.MostUsedWeapons[i].WeaponName = dashboardWeaponDisplayName(rankings.MostUsedWeapons[i].WeaponType)
+	}
+	for i := range rankings.LeastUsedWeapons {
+		rankings.LeastUsedWeapons[i].WeaponName = dashboardWeaponDisplayName(rankings.LeastUsedWeapons[i].WeaponType)
+	}
+
 	if err := s.db.SelectContext(ctx, &rankings.QuestClears, dashboardQuestResultQuery("cleared")); err != nil {
 		s.logger.Warn("Dashboard: failed to query quest clear rankings", zap.Error(err))
 		return s.dashboardRankings
@@ -831,6 +914,9 @@ func (s *APIServer) getDashboardRankings(ctx context.Context) DashboardRankings 
 		entry.RankingKey = fmt.Sprintf("%d:%s:%s", monsterID, entry.RankKind, entry.VariantKind)
 		entry.MonsterName = dashboardMonsterDisplayName(monsterID, entry.VariantKind, entry.RankKind)
 		entry.Icon = dashboardMonsterIcon(monsterID, entry.VariantKind)
+		if entry.WeaponType != nil {
+			entry.WeaponName = dashboardWeaponDisplayName(*entry.WeaponType)
+		}
 		if entry.Icon == "" {
 			entry.Icon = dashboardMonsterIcon(monsterID, "normal")
 		}

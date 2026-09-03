@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"database/sql"
 	"testing"
 	"time"
 )
@@ -13,6 +14,7 @@ func TestHuntRecordRepositoryKeepsPersonalBest(t *testing.T) {
 	charID := CreateTestCharacter(t, db, userID, "HuntRecordHunter")
 	repo := NewHuntRecordRepository(db)
 	now := time.Now().UTC()
+	bestWeapon := uint8(3)
 	best := HuntRecordUpsert{
 		CharacterID:    charID,
 		MonsterID:      6,
@@ -27,6 +29,7 @@ func TestHuntRecordRepositoryKeepsPersonalBest(t *testing.T) {
 		RankBand:       5,
 		StatTable1:     6,
 		StatTable2:     7,
+		WeaponType:     &bestWeapon,
 		BestTimeFrames: 3_000,
 		RecordedAt:     now,
 	}
@@ -43,6 +46,8 @@ func TestHuntRecordRepositoryKeepsPersonalBest(t *testing.T) {
 	slower.RankBand = 15
 	slower.StatTable1 = 16
 	slower.StatTable2 = 17
+	slowerWeapon := uint8(4)
+	slower.WeaponType = &slowerWeapon
 	slower.BestTimeFrames = 3_600
 	slower.RecordedAt = now.Add(time.Minute)
 	if err := repo.UpsertPersonalBest(slower); err != nil {
@@ -57,6 +62,8 @@ func TestHuntRecordRepositoryKeepsPersonalBest(t *testing.T) {
 	faster.RankBand = ^uint16(0)
 	faster.StatTable1 = ^uint32(0)
 	faster.StatTable2 = ^uint8(0)
+	fasterWeapon := uint8(12)
+	faster.WeaponType = &fasterWeapon
 	faster.BestTimeFrames = 2_400
 	faster.RecordedAt = now.Add(2 * time.Minute)
 	if err := repo.UpsertPersonalBest(faster); err != nil {
@@ -65,6 +72,8 @@ func TestHuntRecordRepositoryKeepsPersonalBest(t *testing.T) {
 	equal := faster
 	equal.QuestName = "같은 시간 기록"
 	equal.QuestVariant1 = 31
+	equalWeapon := uint8(13)
+	equal.WeaponType = &equalWeapon
 	equal.RecordedAt = now.Add(3 * time.Minute)
 	if err := repo.UpsertPersonalBest(equal); err != nil {
 		t.Fatalf("write equal time: %v", err)
@@ -76,10 +85,11 @@ func TestHuntRecordRepositoryKeepsPersonalBest(t *testing.T) {
 	var rankBand uint16
 	var statTable1 uint32
 	var statTable2 uint8
+	var weaponType uint8
 	var recordedAt time.Time
 	if err := db.QueryRow(`
 		SELECT quest_name, quest_variant1, quest_variant2, quest_variant3, quest_variant4,
-		       rank_band, stat_table1, stat_table2, best_time_frames, recorded_at
+		       rank_band, stat_table1, stat_table2, weapon_type, best_time_frames, recorded_at
 		FROM monster_hunt_records
 		WHERE character_id=$1 AND monster_id=$2 AND quest_id=$3
 		  AND rank_kind=$4 AND variant_kind=$5
@@ -92,6 +102,7 @@ func TestHuntRecordRepositoryKeepsPersonalBest(t *testing.T) {
 		&rankBand,
 		&statTable1,
 		&statTable2,
+		&weaponType,
 		&frames,
 		&recordedAt,
 	); err != nil {
@@ -108,6 +119,9 @@ func TestHuntRecordRepositoryKeepsPersonalBest(t *testing.T) {
 	}
 	if rankBand != ^uint16(0) || statTable1 != ^uint32(0) || statTable2 != ^uint8(0) {
 		t.Errorf("raw quest metadata = rank_band %d, stat_table1 %d, stat_table2 %d", rankBand, statTable1, statTable2)
+	}
+	if weaponType != fasterWeapon {
+		t.Errorf("weapon type = %d, want faster PB weapon %d", weaponType, fasterWeapon)
 	}
 	if !recordedAt.Equal(now.Add(2 * time.Minute)) {
 		t.Errorf("recorded_at = %v, want %v", recordedAt, now.Add(2*time.Minute))
@@ -163,5 +177,24 @@ func TestHuntRecordRepositoryKeepsPersonalBest(t *testing.T) {
 	}
 	if records != 5 {
 		t.Errorf("stored quest/rank/variant rows = %d, want 5", records)
+	}
+
+	unknownWeapon := best
+	unknownWeapon.QuestID = 201
+	unknownWeapon.QuestName = "기존 무기 미상 기록"
+	unknownWeapon.WeaponType = nil
+	if err := repo.UpsertPersonalBest(unknownWeapon); err != nil {
+		t.Fatalf("insert record without weapon: %v", err)
+	}
+	var nullableWeapon sql.NullInt16
+	if err := db.QueryRow(`
+		SELECT weapon_type FROM monster_hunt_records
+		WHERE character_id=$1 AND monster_id=$2 AND quest_id=$3
+		  AND rank_kind=$4 AND variant_kind=$5
+	`, charID, 6, 201, "hr", "normal").Scan(&nullableWeapon); err != nil {
+		t.Fatalf("query nullable weapon: %v", err)
+	}
+	if nullableWeapon.Valid {
+		t.Fatalf("record without a captured departure weapon stored %d, want NULL", nullableWeapon.Int16)
 	}
 }

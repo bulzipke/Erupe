@@ -747,6 +747,10 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 		recordRunMode := decodeQuestRunModeFromRecordLog(pkt.Data)
 		validRecordTime := elapsedFrames > 0 && elapsedFrames <= maxRankedQuestDurationFrames
 		hadParty := s.questHadParty.Load()
+		var questWeaponType *uint8
+		if weaponType, ok := s.questWeaponForResult(questID); ok {
+			questWeaponType = &weaponType
+		}
 		recordedAt := TimeAdjusted()
 		questName := ""
 		questMetadata := mhfquest.HuntQuestMetadata{RankKind: mhfquest.HuntRankUnknown}
@@ -801,6 +805,7 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 						RankBand:       questMetadata.RankBand,
 						StatTable1:     questMetadata.StatTable1,
 						StatTable2:     questMetadata.StatTable2,
+						WeaponType:     questWeaponType,
 						BestTimeFrames: elapsedFrames,
 						RecordedAt:     recordedAt,
 					}
@@ -838,6 +843,10 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 				zap.Uint32("elapsedFrames", elapsedFrames),
 			)
 		}
+		// The client has already returned to town before sending this result.
+		// Clear here, not in endQuestRun, so the personal best above can still use
+		// the weapon captured at departure.
+		s.clearQuestWeaponForResult(questID)
 	}
 	// Remove a client returning to town from reserved slots to make sure the
 	// stage is hidden from the board.
