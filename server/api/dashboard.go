@@ -813,6 +813,17 @@ func emptyDashboardRankings() DashboardRankings {
 	}
 }
 
+// dashboardRankingsAfterQueryError keeps the last complete cache once one
+// exists. During the first load there is no cache to fall back to, so return
+// the sections already queried successfully instead of blanking the entire
+// dashboard because one later ranking query failed.
+func dashboardRankingsAfterQueryError(cached DashboardRankings, cachedAt time.Time, partial DashboardRankings) DashboardRankings {
+	if cachedAt.IsZero() {
+		return partial
+	}
+	return cached
+}
+
 func (s *APIServer) getDashboardRankings(ctx context.Context) DashboardRankings {
 	s.dashboardMu.Lock()
 	defer s.dashboardMu.Unlock()
@@ -837,7 +848,7 @@ func (s *APIServer) getDashboardRankings(ctx context.Context) DashboardRankings 
 		LIMIT 5
 	`); err != nil {
 		s.logger.Warn("Dashboard: failed to query monster hunt rankings", zap.Error(err))
-		return s.dashboardRankings
+		return dashboardRankingsAfterQueryError(s.dashboardRankings, s.dashboardRankingsAt, rankings)
 	}
 
 	if err := s.db.SelectContext(ctx, &rankings.Guilds, `
@@ -851,7 +862,7 @@ func (s *APIServer) getDashboardRankings(ctx context.Context) DashboardRankings 
 		LIMIT 5
 	`); err != nil {
 		s.logger.Warn("Dashboard: failed to query guild rankings", zap.Error(err))
-		return s.dashboardRankings
+		return dashboardRankingsAfterQueryError(s.dashboardRankings, s.dashboardRankingsAt, rankings)
 	}
 
 	if err := s.db.SelectContext(ctx, &rankings.Playtime, `
@@ -868,16 +879,16 @@ func (s *APIServer) getDashboardRankings(ctx context.Context) DashboardRankings 
 		LIMIT 5
 	`); err != nil {
 		s.logger.Warn("Dashboard: failed to query playtime rankings", zap.Error(err))
-		return s.dashboardRankings
+		return dashboardRankingsAfterQueryError(s.dashboardRankings, s.dashboardRankingsAt, rankings)
 	}
 
 	if err := s.db.SelectContext(ctx, &rankings.MostUsedWeapons, dashboardMostUsedWeaponsQuery); err != nil {
 		s.logger.Warn("Dashboard: failed to query most-used weapon rankings", zap.Error(err))
-		return s.dashboardRankings
+		return dashboardRankingsAfterQueryError(s.dashboardRankings, s.dashboardRankingsAt, rankings)
 	}
 	if err := s.db.SelectContext(ctx, &rankings.LeastUsedWeapons, dashboardLeastUsedWeaponsQuery); err != nil {
 		s.logger.Warn("Dashboard: failed to query least-used weapon rankings", zap.Error(err))
-		return s.dashboardRankings
+		return dashboardRankingsAfterQueryError(s.dashboardRankings, s.dashboardRankingsAt, rankings)
 	}
 	for i := range rankings.MostUsedWeapons {
 		rankings.MostUsedWeapons[i].WeaponName = dashboardWeaponDisplayName(rankings.MostUsedWeapons[i].WeaponType)
@@ -888,21 +899,21 @@ func (s *APIServer) getDashboardRankings(ctx context.Context) DashboardRankings 
 
 	if err := s.db.SelectContext(ctx, &rankings.QuestClears, dashboardQuestResultQuery("cleared")); err != nil {
 		s.logger.Warn("Dashboard: failed to query quest clear rankings", zap.Error(err))
-		return s.dashboardRankings
+		return dashboardRankingsAfterQueryError(s.dashboardRankings, s.dashboardRankingsAt, rankings)
 	}
 
 	if err := s.db.SelectContext(ctx, &rankings.QuestFails, dashboardQuestResultQuery("failed")); err != nil {
 		s.logger.Warn("Dashboard: failed to query quest failure rankings", zap.Error(err))
-		return s.dashboardRankings
+		return dashboardRankingsAfterQueryError(s.dashboardRankings, s.dashboardRankingsAt, rankings)
 	}
 
 	if err := s.db.SelectContext(ctx, &rankings.MonsterTimes, dashboardMonsterTimesQuery); err != nil {
 		s.logger.Warn("Dashboard: failed to query monster time rankings", zap.Error(err))
-		return s.dashboardRankings
+		return dashboardRankingsAfterQueryError(s.dashboardRankings, s.dashboardRankingsAt, rankings)
 	}
 	if err := s.db.SelectContext(ctx, &rankings.RavienteRuns, dashboardRavienteRunsQuery); err != nil {
 		s.logger.Warn("Dashboard: failed to query Raviente run rankings", zap.Error(err))
-		return s.dashboardRankings
+		return dashboardRankingsAfterQueryError(s.dashboardRankings, s.dashboardRankingsAt, rankings)
 	}
 	for i := range rankings.RavienteRuns {
 		entry := &rankings.RavienteRuns[i]

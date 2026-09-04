@@ -797,6 +797,20 @@ func TestEmptyDashboardRankingsIncludesOptionalRankings(t *testing.T) {
 	}
 }
 
+func TestDashboardRankingsAfterQueryErrorUsesPartialOnlyWithoutCache(t *testing.T) {
+	partial := emptyDashboardRankings()
+	partial.MonsterHunts = []MonsterHuntRankEntry{{Name: "partial", Kills: 3}}
+	cached := emptyDashboardRankings()
+	cached.MonsterHunts = []MonsterHuntRankEntry{{Name: "cached", Kills: 7}}
+
+	if got := dashboardRankingsAfterQueryError(cached, time.Time{}, partial); len(got.MonsterHunts) != 1 || got.MonsterHunts[0].Name != "partial" {
+		t.Fatalf("cold-start fallback = %+v, want partial rankings", got.MonsterHunts)
+	}
+	if got := dashboardRankingsAfterQueryError(cached, time.Now(), partial); len(got.MonsterHunts) != 1 || got.MonsterHunts[0].Name != "cached" {
+		t.Fatalf("warm-cache fallback = %+v, want cached rankings", got.MonsterHunts)
+	}
+}
+
 func TestDashboardLocationForStage(t *testing.T) {
 	tests := []struct {
 		stageID string
