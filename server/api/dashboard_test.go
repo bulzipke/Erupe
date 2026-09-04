@@ -219,10 +219,6 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 		"대형 몬스터 토벌",
 		"대형 몬스터별 최단 토벌",
 		"라비엔테 맹광기는 완료된 대토벌 전체 소요 시간과 참가 인원을 별도로 표시합니다.",
-		"초난관·무쌍·극한 · 상급 지천 · 천이종 · 라비엔테 맹광기는 기본 표시",
-		"기타 기록은 접어서 표시합니다.",
-		"기타 (펼침)",
-		"기타 (접기)",
 		"각 랭킹의 상위 10개 중 3위 이후는 내부에서 세로로 스크롤할 수 있습니다.",
 		"id=\"monster-time-zenith\"",
 		"id=\"monster-time-challenge\"",
@@ -231,12 +227,10 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 		"id=\"raviente-runs-berserk\"",
 		"id=\"raviente-runs-extreme\"",
 		"id=\"raviente-runs-small\"",
-		"id=\"monster-time-other-details\"",
+		"id=\"monster-time-other-section\"",
+		"id=\"monster-time-other-heading\">기타",
 		"id=\"monster-time-other\"",
-		"detailsOpen",
 		"scrollState",
-		"캐릭터이름",
-		"퀘스트명",
 		"참가 인원",
 		"전체 시간",
 		"완료 일시",
@@ -244,7 +238,6 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 		"가장 많이 사용한 무기",
 		"id=\"weapon-most-ranking\"",
 		"monster-time-weapon-icon",
-		`["#", "캐릭터이름", "무기", "시간", "퀘스트명"]`,
 		`renderWeaponRanking("weapon-most-ranking", mostUsedWeapons);`,
 		"/api/dashboard/stats",
 		"/api/dashboard/chat",
@@ -267,6 +260,17 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 		`<span>무기</span><span>사용횟수</span>`,
 		`id="weapon-least-ranking"`,
 		"가장 적게 사용한 무기",
+		"초난관·무쌍·극한 · 상급 지천 · 천이종 · 라비엔테 맹광기는 기본 표시",
+		"기타 기록은 접어서 표시합니다.",
+		"기타 (펼침)",
+		"기타 (접기)",
+		`class="monster-time-details"`,
+		`id="monster-time-other-details"`,
+		"detailsOpen",
+		"캐릭터이름",
+		"퀘스트명",
+		`["#", "캐릭터이름", "무기", "시간", "퀘스트명"]`,
+		".monster-time-table thead",
 	} {
 		if strings.Contains(body, removed) {
 			t.Errorf("Dashboard still contains removed summary element %q", removed)
@@ -277,7 +281,7 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 	}
 	for _, marker := range []string{
 		".monster-time-table-scroll{width:100%;overflow-x:auto;",
-		".monster-time-table thead tr,.monster-time-table tbody tr{display:grid;",
+		".monster-time-table tbody tr{display:grid;",
 		".monster-time-table tbody{display:block;max-height:102px;overflow-x:hidden;overflow-y:auto;",
 		".monster-time-weapon-icon{display:block;width:26px;height:26px;object-fit:contain}",
 		".ranking-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}",
@@ -300,14 +304,11 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 			t.Errorf("Monster time table scrolling CSS missing %q", marker)
 		}
 	}
-	if strings.Contains(body, "<details class=\"monster-time-details\" id=\"monster-time-other-details\" open") {
-		t.Error("Other G-rank records should be collapsed by default")
-	}
 	zenithIndex := strings.Index(body, "id=\"monster-time-zenith\"")
 	challengeIndex := strings.Index(body, "id=\"monster-time-challenge\"")
 	upperShitenIndex := strings.Index(body, "id=\"monster-time-upper-shiten\"")
 	ravienteIndex := strings.Index(body, "id=\"raviente-run-section\"")
-	otherIndex := strings.Index(body, "id=\"monster-time-other-details\"")
+	otherIndex := strings.Index(body, "id=\"monster-time-other-section\"")
 	if zenithIndex == -1 || challengeIndex == -1 || upperShitenIndex == -1 || ravienteIndex == -1 || otherIndex == -1 ||
 		!(challengeIndex < upperShitenIndex && upperShitenIndex < zenithIndex && zenithIndex < ravienteIndex && ravienteIndex < otherIndex) {
 		t.Error("Monster time groups are not ordered challenge, upper Shiten, Zenith, Raviente, other")

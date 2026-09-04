@@ -175,13 +175,6 @@ tbody tr:last-child td{border-bottom:0}
 .monster-time-group+.monster-time-group{margin-top:18px}
 .monster-time-group-heading{display:flex;align-items:baseline;gap:9px;margin:0 0 9px;color:var(--text);font-size:.82rem;font-weight:850}
 .monster-time-group-heading::before{width:4px;height:14px;background:var(--accent);content:""}
-.monster-time-details{margin-top:18px;border-top:1px solid var(--line);padding-top:12px}
-.monster-time-details summary{display:inline-flex;align-items:center;gap:7px;color:var(--text);cursor:pointer;font-size:.82rem;font-weight:850;list-style-position:inside}
-.monster-time-details[open] summary{margin-bottom:11px}
-.monster-time-details-label-open{display:none}
-.monster-time-details[open] .monster-time-details-label-closed{display:none}
-.monster-time-details[open] .monster-time-details-label-open{display:inline}
-.monster-time-details .monster-time-grid{margin-top:0}
 .monster-time-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));align-items:stretch;gap:12px;width:100%}
 .monster-time-card{display:flex;min-width:0;height:100%;flex-direction:column;border:1px solid var(--line);background:#101513}
 .monster-time-heading{display:flex;align-items:center;gap:9px;min-height:60px;margin:0;padding:10px 12px;border-bottom:1px solid var(--line);color:var(--accent-soft);font-size:.78rem;font-weight:800}
@@ -189,11 +182,10 @@ tbody tr:last-child td{border-bottom:0}
 .monster-time-heading-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .monster-time-table-scroll{width:100%;overflow-x:auto;scrollbar-color:#53605a #101513}
 .monster-time-table{width:100%;min-width:638px;table-layout:fixed}
-.monster-time-table thead{display:block}
-.monster-time-table thead tr,.monster-time-table tbody tr{display:grid;width:100%;grid-template-columns:38px 96px 44px 68px minmax(0,1fr)}
+.monster-time-table tbody tr{display:grid;width:100%;grid-template-columns:38px 96px 44px 68px minmax(0,1fr)}
 .monster-time-table tbody{display:block;max-height:102px;overflow-x:hidden;overflow-y:auto;scrollbar-color:#53605a #101513}
-.monster-time-table th,.monster-time-table td{padding:8px 7px;font-size:.67rem}
-.monster-time-table th:nth-child(1),.monster-time-table td:nth-child(1){text-align:center}
+.monster-time-table td{padding:8px 7px;font-size:.67rem}
+.monster-time-table td:nth-child(1){text-align:center}
 /* Times are always MM:SS.ss and capped at 45 minutes, so this only has to fit
    eight tabular digits plus the cell padding. */
 .monster-time-rank{color:#66716c;font-family:Georgia,"Times New Roman",serif;font-variant-numeric:tabular-nums}
@@ -407,7 +399,7 @@ tbody tr:last-child td{border-bottom:0}
     <section class="rankings">
         <div class="rankings-header">
             <h2>대형 몬스터별 최단 토벌</h2>
-            <p>토벌 시간은 개인 기록을 원칙으로 합니다. 라비엔테 맹광기는 완료된 대토벌 전체 소요 시간과 참가 인원을 별도로 표시합니다. 초난관·무쌍·극한 · 상급 지천 · 천이종 · 라비엔테 맹광기는 기본 표시하며, 기타 기록은 접어서 표시합니다. 각 랭킹의 상위 10개 중 3위 이후는 내부에서 세로로 스크롤할 수 있습니다.</p>
+            <p>토벌 시간은 개인 기록을 원칙으로 합니다. 라비엔테 맹광기는 완료된 대토벌 전체 소요 시간과 참가 인원을 별도로 표시합니다. 각 랭킹의 상위 10개 중 3위 이후는 내부에서 세로로 스크롤할 수 있습니다.</p>
         </div>
         <div class="monster-time-scroll" id="monster-time-ranking" aria-label="대형 몬스터별 최단 토벌 기록">
             <section class="monster-time-group" aria-labelledby="monster-time-challenge-heading">
@@ -439,13 +431,10 @@ tbody tr:last-child td{border-bottom:0}
                     </article>
                 </div>
             </section>
-            <details class="monster-time-details" id="monster-time-other-details">
-                <summary>
-                    <span class="monster-time-details-label-closed">기타 (펼침)</span>
-                    <span class="monster-time-details-label-open">기타 (접기)</span>
-                </summary>
+            <section class="monster-time-group" id="monster-time-other-section" aria-labelledby="monster-time-other-heading">
+                <h3 class="monster-time-group-heading" id="monster-time-other-heading">기타</h3>
                 <div class="monster-time-grid" id="monster-time-other"></div>
-            </details>
+            </section>
         </div>
     </section>
 
@@ -832,13 +821,6 @@ tbody tr:last-child td{border-bottom:0}
 
         var table = document.createElement("table");
         table.className = "monster-time-table";
-        var thead = document.createElement("thead");
-        var head = document.createElement("tr");
-        ["#", "캐릭터이름", "무기", "시간", "퀘스트명"].forEach(function (label) {
-            head.appendChild(text("th", "", label));
-        });
-        thead.appendChild(head);
-
         var tbody = document.createElement("tbody");
         entries.slice(0, 10).forEach(function (entry, index) {
             var row = document.createElement("tr");
@@ -854,7 +836,6 @@ tbody tr:last-child td{border-bottom:0}
             row.appendChild(quest);
             tbody.appendChild(row);
         });
-        table.appendChild(thead);
         table.appendChild(tbody);
         var tableScroll = document.createElement("div");
         tableScroll.className = "monster-time-table-scroll";
@@ -876,8 +857,6 @@ tbody tr:last-child td{border-bottom:0}
         var groups = Object.create(null);
         var scrollState = Object.create(null);
         var focusedMonster = "";
-        var details = byId("monster-time-other-details");
-        var detailsOpen = details ? details.open : false;
 
         groupNames.forEach(function (groupName) {
             groups[groupName] = {monsters: [], entries: Object.create(null)};
@@ -923,9 +902,6 @@ tbody tr:last-child td{border-bottom:0}
             });
             grid.replaceChildren(fragment);
         });
-        if (details) {
-            details.open = detailsOpen;
-        }
         monsterTimesSignature = signature;
 
         container.querySelectorAll(".monster-time-card[data-ranking-key]").forEach(function (card) {
