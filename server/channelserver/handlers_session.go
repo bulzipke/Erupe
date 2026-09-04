@@ -725,6 +725,7 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 				fields = append(fields,
 					zap.String("stageRunMode", s.peekQuestRunMode(questID).String()),
 					zap.String("recordRunMode", decodeQuestRunModeFromRecordLog(pkt.Data).String()),
+					zap.Uint16("conquestLevel", s.peekQuestConquestLevel(questID)),
 				)
 			}
 		}
@@ -744,6 +745,7 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 		// only Raviente quest_type 40/50/51.
 		s.server.recordRavienteQuestParticipant(questID, s)
 		stageRunMode := s.peekQuestRunMode(questID)
+		questConquestLevel := s.peekQuestConquestLevel(questID)
 		recordRunMode := decodeQuestRunModeFromRecordLog(pkt.Data)
 		validRecordTime := elapsedFrames > 0 && elapsedFrames <= maxRankedQuestDurationFrames
 		hadParty := s.questHadParty.Load()
@@ -791,6 +793,10 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 						}
 						continue
 					}
+					conquestLevel := uint16(0)
+					if monsterVariant == mhfquest.HuntVariantConquest {
+						conquestLevel = questConquestLevel
+					}
 					record := HuntRecordUpsert{
 						CharacterID:    s.charID,
 						MonsterID:      i,
@@ -798,6 +804,7 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 						QuestName:      questName,
 						RankKind:       string(questMetadata.RankKind),
 						VariantKind:    string(monsterVariant),
+						ConquestLevel:  conquestLevel,
 						QuestVariant1:  questMetadata.Variant1,
 						QuestVariant2:  questMetadata.Variant2,
 						QuestVariant3:  questMetadata.Variant3,
@@ -825,6 +832,7 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 		// A result packet ends this quest run. Clear only matching setup state so
 		// a delayed result from another quest cannot erase a newer selection.
 		s.clearQuestRunMode(questID)
+		s.clearQuestConquestLevel(questID)
 
 		// The record log arrives after the client is already back in town and
 		// carries the outcome, so the whole result is decided here.

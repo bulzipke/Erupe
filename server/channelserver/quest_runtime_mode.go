@@ -23,8 +23,10 @@ const (
 	questRunStageBinaryPayloadSize   = 144
 	questRunStageQuestIDOffset       = 0x24
 	questRunStageHardcoreFlagsOffset = 0x54
+	questRunStageConquestLevelOffset = 0x62
 	questRunStageQuestIDMirrorOffset = 0x68
 	questRunStageHardcoreFlag        = uint8(0x08)
+	questRunConquestLevelMax         = uint16(9999)
 
 	questRunRecordPayloadSize        = 1196
 	questRunRecordHardcoreModeOffset = 0x3c4
@@ -48,23 +50,35 @@ func (m questRunMode) String() string {
 // Requiring the exact structure size and matching duplicated quest IDs keeps
 // unrelated stage binary payloads from becoming ranking state.
 func decodeQuestRunModeFromStageBinary(stageID string, binaryType0, binaryType1 uint8, payload []byte) (uint16, questRunMode, bool) {
+	questID, mode, _, ok := decodeQuestRunSetupFromStageBinary(stageID, binaryType0, binaryType1, payload)
+	return questID, mode, ok
+}
+
+// decodeQuestRunSetupFromStageBinary also captures the runtime Conquest level
+// selected by the host. The level is meaningful only for a quest later
+// classified as Conquest; all other hunt records must store zero.
+func decodeQuestRunSetupFromStageBinary(stageID string, binaryType0, binaryType1 uint8, payload []byte) (uint16, questRunMode, uint16, bool) {
 	if stageKind(stageID) != "Qs" ||
 		binaryType0 != questRunStageBinaryType0 ||
 		binaryType1 != questRunStageBinaryType1 ||
 		len(payload) != questRunStageBinaryPayloadSize {
-		return 0, questRunModeUnknown, false
+		return 0, questRunModeUnknown, 0, false
 	}
 
 	questID := binary.LittleEndian.Uint16(payload[questRunStageQuestIDOffset : questRunStageQuestIDOffset+2])
 	mirroredQuestID := binary.LittleEndian.Uint16(payload[questRunStageQuestIDMirrorOffset : questRunStageQuestIDMirrorOffset+2])
 	if questID == 0 || mirroredQuestID != questID {
-		return 0, questRunModeUnknown, false
+		return 0, questRunModeUnknown, 0, false
+	}
+	conquestLevel := binary.LittleEndian.Uint16(payload[questRunStageConquestLevelOffset : questRunStageConquestLevelOffset+2])
+	if conquestLevel == 0 || conquestLevel > questRunConquestLevelMax {
+		conquestLevel = 0
 	}
 
 	if payload[questRunStageHardcoreFlagsOffset]&questRunStageHardcoreFlag != 0 {
-		return questID, questRunModeHardcore, true
+		return questID, questRunModeHardcore, conquestLevel, true
 	}
-	return questID, questRunModeNormal, true
+	return questID, questRunModeNormal, conquestLevel, true
 }
 
 // decodeQuestRunModeFromRecordLog is a corroborating signal from the ZZ quest
@@ -110,6 +124,40 @@ func (s *Session) clearQuestRunMode(questID uint16) {
 			return
 		}
 		if s.questRunState.CompareAndSwap(state, 0) {
+			return
+		}
+	}
+}
+
+func (s *Session) storeQuestConquestLevel(questID, level uint16) {
+	if questID == 0 {
+		return
+	}
+	if level > questRunConquestLevelMax {
+		level = 0
+	}
+	s.questConquestLevelState.Store(uint32(questID)<<16 | uint32(level))
+}
+
+func (s *Session) peekQuestConquestLevel(questID uint16) uint16 {
+	state := s.questConquestLevelState.Load()
+	if uint16(state>>16) != questID {
+		return 0
+	}
+	level := uint16(state)
+	if level == 0 || level > questRunConquestLevelMax {
+		return 0
+	}
+	return level
+}
+
+func (s *Session) clearQuestConquestLevel(questID uint16) {
+	for {
+		state := s.questConquestLevelState.Load()
+		if state == 0 || (questID != 0 && uint16(state>>16) != questID) {
+			return
+		}
+		if s.questConquestLevelState.CompareAndSwap(state, 0) {
 			return
 		}
 	}

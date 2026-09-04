@@ -161,13 +161,18 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	var weaponGeneration uint64
 	recordWeaponDeparture := false
 	if stageKind(stageID) == "Qs" {
+		if !alreadyClient {
+			// A fresh quest entry must not inherit the result snapshot of an
+			// abandoned earlier attempt. A validated setup below repopulates it.
+			s.clearQuestConquestLevel(0)
+		}
 		// Guests do not necessarily send SET_STAGE_BINARY themselves.  Decode
 		// the host's stored quest setup when they actually enter the quest so
 		// Raviente participation reflects real combat/support-stage entry.
 		stage.RLock()
 		questSetup := append([]byte(nil), stage.rawBinaryData[stageBinaryKey{1, 3}]...)
 		stage.RUnlock()
-		questID, runMode, decoded := decodeQuestRunModeFromStageBinary(stageID, 1, 3, questSetup)
+		questID, runMode, conquestLevel, decoded := decodeQuestRunSetupFromStageBinary(stageID, 1, 3, questSetup)
 		if decoded {
 			// Weapon usage is independent of client mode. Keeping the decoded ID
 			// lets a later ZZ result attach the departure weapon to its exact run.
@@ -175,6 +180,7 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 		}
 		if s.server.erupeConfig.RealClientMode == cfg.ZZ && decoded {
 			s.storeQuestRunMode(questID, runMode)
+			s.storeQuestConquestLevel(questID, conquestLevel)
 			ravienteQuestID = questID
 		}
 		s.beginQuestRun()
@@ -663,7 +669,7 @@ func handleMsgSysSetStagePass(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgSysSetStageBinary(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgSysSetStageBinary)
-	questID, runMode, questSetupDecoded := decodeQuestRunModeFromStageBinary(
+	questID, runMode, conquestLevel, questSetupDecoded := decodeQuestRunSetupFromStageBinary(
 		pkt.StageID,
 		pkt.BinaryType0,
 		pkt.BinaryType1,
@@ -684,6 +690,7 @@ func handleMsgSysSetStageBinary(s *Session, p mhfpacket.MHFPacket) {
 			fields = append(fields,
 				zap.Uint16("questID", questID),
 				zap.String("runMode", runMode.String()),
+				zap.Uint16("conquestLevel", conquestLevel),
 			)
 		}
 		s.logger.Debug("QuestStageBinaryDiagnostic", fields...)
@@ -692,6 +699,7 @@ func handleMsgSysSetStageBinary(s *Session, p mhfpacket.MHFPacket) {
 	if exists {
 		if runModeDecoded {
 			s.storeQuestRunMode(questID, runMode)
+			s.storeQuestConquestLevel(questID, conquestLevel)
 		}
 		const maxStageBinaryEntries = 256
 		key := stageBinaryKey{pkt.BinaryType0, pkt.BinaryType1}
@@ -726,6 +734,7 @@ func handleMsgSysSetStageBinary(s *Session, p mhfpacket.MHFPacket) {
 		}
 		for _, session := range questClients {
 			if runModeDecoded {
+				session.storeQuestConquestLevel(questID, conquestLevel)
 				s.server.recordRavienteQuestParticipant(questID, session)
 			}
 		}

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -238,6 +239,7 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 		"가장 많이 사용한 무기",
 		"id=\"weapon-most-ranking\"",
 		"monster-time-weapon-icon",
+		"fallbackKey.push(entry.conquestLevel || 0)",
 		`renderWeaponRanking("weapon-most-ranking", mostUsedWeapons);`,
 		"/api/dashboard/stats",
 		"/api/dashboard/chat",
@@ -475,6 +477,21 @@ func TestDashboardMonsterDisplayNameSeparatesForms(t *testing.T) {
 			}
 		})
 	}
+	for _, level := range []int{1, 200, 9999} {
+		want := fmt.Sprintf("극정 Lv.%d 디스피로아", level)
+		if got := dashboardMonsterDisplayNameWithConquestLevel(107, "conquest", level, "hr"); got != want {
+			t.Errorf("Conquest level %d display name = %q, want %q", level, got, want)
+		}
+	}
+}
+
+func TestDashboardMonsterRankingKeySeparatesConquestLevels(t *testing.T) {
+	if got := dashboardMonsterRankingKey(107, "hr", "conquest", 200); got != "107:hr:conquest:200" {
+		t.Fatalf("Conquest ranking key = %q", got)
+	}
+	if got := dashboardMonsterRankingKey(6, "g", "normal", 0); got != "6:g:normal" {
+		t.Fatalf("normal ranking key = %q", got)
+	}
 }
 
 func TestDashboardMonsterFeaturedGroup(t *testing.T) {
@@ -612,12 +629,13 @@ func TestDashboardQuestResultQueriesLimitToWeaponClassCount(t *testing.T) {
 func TestDashboardMonsterTimeRankingQuerySelectsPersonalBestBeforeTopTen(t *testing.T) {
 	query := strings.Join(strings.Fields(dashboardMonsterTimesQuery), " ")
 	for _, marker := range []string{
-		"PARTITION BY r.character_id, r.monster_id, COALESCE(r.rank_kind, 'unknown'), COALESCE(r.variant_kind, 'unknown')",
+		"PARTITION BY r.character_id, r.monster_id, COALESCE(r.rank_kind, 'unknown'), COALESCE(r.variant_kind, 'unknown'), r.conquest_level",
 		"WHERE personal_position = 1",
-		"PARTITION BY monster_id, rank_kind, variant_kind",
+		"PARTITION BY monster_id, rank_kind, variant_kind, conquest_level",
 		"WHERE position <= 10",
 		"r.weapon_type",
 		"character_name, weapon_type, quest_id",
+		"variant_kind, conquest_level, character_name",
 		"COALESCE(r.variant_kind, '') = 'zenith'",
 		"COALESCE(r.variant_kind, '') = 'challenge'",
 		`COALESCE(r.variant_kind, '') LIKE 'extreme\_%' ESCAPE '\'`,
@@ -627,6 +645,7 @@ func TestDashboardMonsterTimeRankingQuerySelectsPersonalBestBeforeTopTen(t *test
 		"WHEN variant_kind = 'upper_shiten' THEN 1",
 		"WHEN variant_kind = 'zenith' THEN 2",
 		"r.monster_id NOT IN (93, 149)",
+		"COALESCE(r.variant_kind, '') <> 'conquest' OR r.conquest_level = 9999",
 		"r.monster_id IN (7, 50, 55, 58, 60, 119, 120)",
 	} {
 		if !strings.Contains(query, marker) {
@@ -695,6 +714,24 @@ func TestMonsterTimeRankEntryJSONIncludesClassification(t *testing.T) {
 	}
 	if raw["weaponType"] != float64(12) || raw["weaponName"] != "슬래시액스F" {
 		t.Fatalf("weapon fields missing from JSON: %s", data)
+	}
+}
+
+func TestMonsterTimeRankEntryJSONIncludesConquestLevel(t *testing.T) {
+	data, err := json.Marshal(MonsterTimeRankEntry{
+		RankKind:      "g",
+		VariantKind:   "conquest",
+		ConquestLevel: 200,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["conquestLevel"] != float64(200) {
+		t.Fatalf("conquest level missing from JSON: %s", data)
 	}
 }
 

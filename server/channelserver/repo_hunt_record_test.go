@@ -179,6 +179,53 @@ func TestHuntRecordRepositoryKeepsPersonalBest(t *testing.T) {
 		t.Errorf("stored quest/rank/variant rows = %d, want 5", records)
 	}
 
+	conquest := best
+	conquest.MonsterID = 107
+	conquest.QuestID = 300
+	conquest.RankKind = "g"
+	conquest.VariantKind = "conquest"
+	conquest.ConquestLevel = 1
+	conquest.BestTimeFrames = 4_000
+	if err := repo.UpsertPersonalBest(conquest); err != nil {
+		t.Fatalf("insert level-1 Conquest best: %v", err)
+	}
+	level200 := conquest
+	level200.ConquestLevel = 200
+	level200.BestTimeFrames = 5_000
+	if err := repo.UpsertPersonalBest(level200); err != nil {
+		t.Fatalf("insert level-200 Conquest best: %v", err)
+	}
+	slowerLevel1 := conquest
+	slowerLevel1.BestTimeFrames = 4_500
+	if err := repo.UpsertPersonalBest(slowerLevel1); err != nil {
+		t.Fatalf("write slower level-1 Conquest time: %v", err)
+	}
+	var conquestRows []struct {
+		Level  uint16 `db:"conquest_level"`
+		Frames uint32 `db:"best_time_frames"`
+	}
+	if err := db.Select(&conquestRows, `
+		SELECT conquest_level, best_time_frames
+		FROM monster_hunt_records
+		WHERE character_id=$1 AND monster_id=$2 AND quest_id=$3
+		  AND rank_kind='g' AND variant_kind='conquest'
+		ORDER BY conquest_level
+	`, charID, 107, 300); err != nil {
+		t.Fatalf("query Conquest personal bests: %v", err)
+	}
+	if len(conquestRows) != 2 ||
+		conquestRows[0].Level != 1 || conquestRows[0].Frames != 4_000 ||
+		conquestRows[1].Level != 200 || conquestRows[1].Frames != 5_000 {
+		t.Fatalf("Conquest rows = %+v, want levels 1/200 with independent bests", conquestRows)
+	}
+
+	invalidLevelCategory := best
+	invalidLevelCategory.QuestID = 301
+	invalidLevelCategory.ConquestLevel = 1
+	if err := repo.UpsertPersonalBest(invalidLevelCategory); err == nil {
+		t.Fatal("non-Conquest record with a Conquest level was accepted")
+	}
+
 	unknownWeapon := best
 	unknownWeapon.QuestID = 201
 	unknownWeapon.QuestName = "기존 무기 미상 기록"

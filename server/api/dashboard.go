@@ -346,6 +346,7 @@ type MonsterTimeRankEntry struct {
 	MonsterID     int    `db:"monster_id" json:"monsterId"`
 	RankKind      string `db:"rank_kind" json:"rankKind"`
 	VariantKind   string `db:"variant_kind" json:"variantKind"`
+	ConquestLevel int    `db:"conquest_level" json:"conquestLevel,omitempty"`
 	RankingKey    string `json:"rankingKey"`
 	FeaturedGroup string `json:"featuredGroup"`
 	MonsterName   string `json:"monsterName"`
@@ -463,6 +464,7 @@ const dashboardMonsterTimesQuery = `
 			r.monster_id,
 			COALESCE(r.rank_kind, 'unknown') AS rank_kind,
 			COALESCE(r.variant_kind, 'unknown') AS variant_kind,
+			r.conquest_level,
 			c.name AS character_name,
 			r.weapon_type,
 			r.quest_id,
@@ -477,7 +479,8 @@ const dashboardMonsterTimesQuery = `
 					r.character_id,
 					r.monster_id,
 					COALESCE(r.rank_kind, 'unknown'),
-					COALESCE(r.variant_kind, 'unknown')
+					COALESCE(r.variant_kind, 'unknown'),
+					r.conquest_level
 				ORDER BY r.best_time_frames ASC, r.quest_id ASC
 			) AS personal_position
 		FROM monster_hunt_records r
@@ -487,6 +490,10 @@ const dashboardMonsterTimesQuery = `
 		  AND c.name IS NOT NULL
 		  AND c.name <> ''
 		  AND r.monster_id NOT IN (93, 149)
+		  AND (
+			COALESCE(r.variant_kind, '') <> 'conquest'
+			OR r.conquest_level = 9999
+		  )
 		  AND (
 			COALESCE(r.variant_kind, '') = 'zenith'
 			OR COALESCE(r.variant_kind, '') = 'challenge'
@@ -504,18 +511,19 @@ const dashboardMonsterTimesQuery = `
 			monster_id,
 			rank_kind,
 			variant_kind,
+			conquest_level,
 			character_name,
 			weapon_type,
 			quest_id,
 			quest_name,
 			best_time_frames,
 			ROW_NUMBER() OVER (
-				PARTITION BY monster_id, rank_kind, variant_kind
+				PARTITION BY monster_id, rank_kind, variant_kind, conquest_level
 				ORDER BY best_time_frames ASC, character_id ASC
 			) AS position
 		FROM personal_bests
 	)
-	SELECT monster_id, rank_kind, variant_kind, character_name, weapon_type, quest_id, quest_name, best_time_frames
+	SELECT monster_id, rank_kind, variant_kind, conquest_level, character_name, weapon_type, quest_id, quest_name, best_time_frames
 	FROM ranked
 	WHERE position <= 10
 	ORDER BY
@@ -528,6 +536,7 @@ const dashboardMonsterTimesQuery = `
 		monster_id ASC,
 		rank_kind ASC,
 		variant_kind ASC,
+		conquest_level ASC,
 		position ASC
 `
 
@@ -911,8 +920,8 @@ func (s *APIServer) getDashboardRankings(ctx context.Context) DashboardRankings 
 		entry := &rankings.MonsterTimes[i]
 		monsterID := entry.MonsterID
 		entry.FeaturedGroup = dashboardMonsterFeaturedGroup(monsterID, entry.RankKind, entry.VariantKind)
-		entry.RankingKey = fmt.Sprintf("%d:%s:%s", monsterID, entry.RankKind, entry.VariantKind)
-		entry.MonsterName = dashboardMonsterDisplayName(monsterID, entry.VariantKind, entry.RankKind)
+		entry.RankingKey = dashboardMonsterRankingKey(monsterID, entry.RankKind, entry.VariantKind, entry.ConquestLevel)
+		entry.MonsterName = dashboardMonsterDisplayNameWithConquestLevel(monsterID, entry.VariantKind, entry.ConquestLevel, entry.RankKind)
 		entry.Icon = dashboardMonsterIcon(monsterID, entry.VariantKind)
 		if entry.WeaponType != nil {
 			entry.WeaponName = dashboardWeaponDisplayName(*entry.WeaponType)
@@ -967,7 +976,19 @@ func dashboardMonsterExceptionRecord(monsterID int) bool {
 	}
 }
 
+func dashboardMonsterRankingKey(monsterID int, rankKind, variantKind string, conquestLevel int) string {
+	key := fmt.Sprintf("%d:%s:%s", monsterID, rankKind, variantKind)
+	if strings.EqualFold(strings.TrimSpace(variantKind), "conquest") {
+		return fmt.Sprintf("%s:%d", key, conquestLevel)
+	}
+	return key
+}
+
 func dashboardMonsterDisplayName(monsterID int, variantKind string, rankKinds ...string) string {
+	return dashboardMonsterDisplayNameWithConquestLevel(monsterID, variantKind, 0, rankKinds...)
+}
+
+func dashboardMonsterDisplayNameWithConquestLevel(monsterID int, variantKind string, conquestLevel int, rankKinds ...string) string {
 	// These four extreme forms have their own raw IDs, so their identity is
 	// definitive even when the quest-wide flags look normal or hardcore.
 	switch monsterID {
@@ -1017,6 +1038,9 @@ func dashboardMonsterDisplayName(monsterID int, variantKind string, rankKinds ..
 	case "zenith":
 		return "천이종 " + base
 	case "conquest":
+		if conquestLevel > 0 {
+			return fmt.Sprintf("극정 Lv.%d %s", conquestLevel, base)
+		}
 		return "극정(레벨 미확정) " + base
 	case "shiten":
 		return "지천 " + base

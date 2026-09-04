@@ -876,7 +876,11 @@ tbody tr:last-child td{border-bottom:0}
 
         entries.forEach(function (entry) {
             var groupName = monsterTimeGroup(entry);
-            var key = entry.rankingKey || [entry.monsterId, entry.rankKind || "unknown", entry.variantKind || "unknown"].join(":");
+            var fallbackKey = [entry.monsterId, entry.rankKind || "unknown", entry.variantKind || "unknown"];
+            if (String(entry.variantKind || "").toLowerCase() === "conquest") {
+                fallbackKey.push(entry.conquestLevel || 0);
+            }
+            var key = entry.rankingKey || fallbackKey.join(":");
             var group = groups[groupName];
             if (!group.entries[key]) {
                 group.entries[key] = [];

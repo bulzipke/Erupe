@@ -22,6 +22,7 @@ type HuntRecordUpsert struct {
 	QuestName      string
 	RankKind       string
 	VariantKind    string
+	ConquestLevel  uint16
 	QuestVariant1  uint8
 	QuestVariant2  uint8
 	QuestVariant3  uint8
@@ -45,11 +46,11 @@ func NewHuntRecordRepository(db *sqlx.DB) *HuntRecordRepository {
 func (r *HuntRecordRepository) UpsertPersonalBest(record HuntRecordUpsert) error {
 	_, err := r.db.Exec(`
 		INSERT INTO monster_hunt_records
-			(character_id, monster_id, quest_id, quest_name, rank_kind, variant_kind,
+			(character_id, monster_id, quest_id, quest_name, rank_kind, variant_kind, conquest_level,
 			 quest_variant1, quest_variant2, quest_variant3, quest_variant4,
 			 rank_band, stat_table1, stat_table2, weapon_type, best_time_frames, recorded_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-		ON CONFLICT (character_id, monster_id, quest_id, rank_kind, variant_kind) DO UPDATE
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		ON CONFLICT (character_id, monster_id, quest_id, rank_kind, variant_kind, conquest_level) DO UPDATE
 		SET quest_name = EXCLUDED.quest_name,
 			quest_variant1 = EXCLUDED.quest_variant1,
 			quest_variant2 = EXCLUDED.quest_variant2,
@@ -69,6 +70,7 @@ func (r *HuntRecordRepository) UpsertPersonalBest(record HuntRecordUpsert) error
 		record.QuestName,
 		record.RankKind,
 		record.VariantKind,
+		record.ConquestLevel,
 		record.QuestVariant1,
 		record.QuestVariant2,
 		record.QuestVariant3,
