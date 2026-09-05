@@ -214,8 +214,13 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 	body := rec.Body.String()
 	for _, marker := range []string{
 		"접속 중인 헌터",
-		`["헌터", "랭크", "무기", "접속 채널"]`,
+		`["헌터", "랭크", "무기", "접속 채널 / 상태"]`,
 		"online-weapon-icon",
+		"buildOnlineChannelCell",
+		`location === "퀘스트 중"`,
+		"player.questElapsedMs",
+		`if (player.questName) detail += " · " + player.questName;`,
+		".table-wrap{overflow-x:auto}",
 		"월드 채팅",
 		"대형 몬스터 토벌",
 		"대형 몬스터별 최단 토벌",

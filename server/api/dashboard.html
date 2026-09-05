@@ -68,16 +68,17 @@ button,input{font:inherit}
 }
 .table-wrap{overflow-x:auto}
 #online-content table{min-width:440px}
-/* Rank, weapon and channel hold short fixed-shape values, so shrink them to
-   their contents and leave the remaining width to the hunter name. */
+/* Hunter, rank and weapon are compact columns. The channel/status column gets
+   the remaining width so the rank does not drift to the far edge of the card. */
+#online-content th:nth-child(1),#online-content td:nth-child(1),
 #online-content th:nth-child(2),#online-content td:nth-child(2),
-#online-content th:nth-child(3),#online-content td:nth-child(3),
-#online-content th:nth-child(4),#online-content td:nth-child(4){
+#online-content th:nth-child(3),#online-content td:nth-child(3){
     width:1%;
     padding-left:10px;
     padding-right:10px;
     white-space:nowrap
 }
+#online-content th:nth-child(4),#online-content td:nth-child(4){padding-left:14px;padding-right:14px}
 .online-weapon{padding-top:7px !important;padding-bottom:7px !important;text-align:center}
 .online-weapon-icon{display:block;width:30px;height:30px;margin:0 auto;object-fit:contain}
 .online-weapon-empty{color:#66716c;text-align:center}
@@ -94,7 +95,16 @@ td{padding:13px 18px;border-bottom:1px solid var(--line-soft);font-size:.84rem}
 tbody tr:last-child td{border-bottom:0}
 .hunter-name{font-weight:750;color:var(--text);white-space:nowrap}
 .rank-mark{color:var(--accent-soft);font-variant-numeric:tabular-nums;white-space:nowrap}
-.channel-name{color:var(--muted);white-space:nowrap}
+.channel-name{min-width:0;color:var(--muted)}
+.online-channel-label{white-space:nowrap}
+.online-location{
+    margin-top:2px;
+    color:#9da8a2;
+    font-size:.69rem;
+    line-height:1.35;
+    white-space:nowrap
+}
+.online-location.is-quest{color:var(--live);font-weight:750}
 .location-mark{color:#d5c58d;white-space:nowrap}
 .empty{
     display:flex;
@@ -553,6 +563,38 @@ tbody tr:last-child td{border-bottom:0}
         return land > 1 ? name + " · " + land + "채널" : name;
     }
 
+    // Quest runs are capped at 50 minutes, so mm:ss is sufficient here.
+    function questElapsedLabel(elapsedMs) {
+        var totalSeconds = Math.max(0, Math.floor((Number(elapsedMs) || 0) / 1000));
+        var minutes = Math.floor(totalSeconds / 60);
+        var seconds = totalSeconds % 60;
+        return String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
+    }
+
+    function buildOnlineChannelCell(player) {
+        var cell = document.createElement("td");
+        cell.className = "channel-name";
+        cell.appendChild(text("div", "online-channel-label", channelLabel(player.channel, player.land)));
+
+        var location = player.location || "접속 중";
+        var inQuest = location === "퀘스트 중";
+        var detail = location;
+        if (inQuest) {
+            if ((Number(player.questElapsedMs) || 0) > 0) {
+                detail += " · " + questElapsedLabel(player.questElapsedMs);
+            }
+            if (player.questName) detail += " · " + player.questName;
+        }
+
+        var locationNode = text("div", "online-location" + (inQuest ? " is-quest" : ""), detail);
+        if (player.questName) {
+            locationNode.title = player.questName;
+            locationNode.setAttribute("aria-label", detail);
+        }
+        cell.appendChild(locationNode);
+        return cell;
+    }
+
     function buildWeaponIconCell(entry, cellClass, iconClass, emptyClass) {
         var cell = document.createElement("td");
         var rawType = entry.weaponType;
@@ -584,7 +626,9 @@ tbody tr:last-child td{border-bottom:0}
         var container = byId("online-content");
         byId("online-count").textContent = players.length;
         var signature = JSON.stringify(players.map(function (player) {
-            return [player.name, player.hr, player.gr, player.weaponType, player.weaponName, player.channel, player.land];
+            return [player.name, player.hr, player.gr, player.weaponType, player.weaponName,
+                player.channel, player.land, player.location, player.questName,
+                Math.floor((Number(player.questElapsedMs) || 0) / 1000)];
         }));
         if (signature === onlineSignature) return;
         var scrollLeft = container.scrollLeft;
@@ -598,7 +642,7 @@ tbody tr:last-child td{border-bottom:0}
         var table = document.createElement("table");
         var thead = document.createElement("thead");
         var headRow = document.createElement("tr");
-        ["헌터", "랭크", "무기", "접속 채널"].forEach(function (label) {
+        ["헌터", "랭크", "무기", "접속 채널 / 상태"].forEach(function (label) {
             headRow.appendChild(text("th", "", label));
         });
         thead.appendChild(headRow);
@@ -609,7 +653,7 @@ tbody tr:last-child td{border-bottom:0}
             row.appendChild(text("td", "hunter-name", player.name));
             row.appendChild(text("td", "rank-mark", hunterRank(player.hr, player.gr)));
             row.appendChild(buildWeaponIconCell(player, "online-weapon", "online-weapon-icon", "online-weapon-empty"));
-            row.appendChild(text("td", "channel-name", channelLabel(player.channel, player.land)));
+            row.appendChild(buildOnlineChannelCell(player));
             tbody.appendChild(row);
         });
 
