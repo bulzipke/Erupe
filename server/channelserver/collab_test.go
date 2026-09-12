@@ -1,13 +1,84 @@
 package channelserver
 
 import (
+	"fmt"
 	"testing"
 
 	cfg "erupe-ce/config"
 )
 
+func TestCollabQuestDeliveryByWorldType(t *testing.T) {
+	worlds := []struct {
+		typ  uint8
+		want bool
+	}{{0, false}, {1, true}, {2, false}, {3, true}, {4, false}, {5, true}, {6, false}, {255, false}}
+	for _, world := range worlds {
+		for _, mode := range []string{collabKaiji, collabHiganjima, collabNier, collabRandom, ""} {
+			for _, selected := range collabEvents {
+				t.Run(fmt.Sprintf("world%d/%s/%s", world.typ, mode, selected), func(t *testing.T) {
+					s := &Session{
+						server: &Server{
+							worldType: world.typ, collabEvent: mode,
+							erupeConfig: &cfg.Config{GameplayOptions: cfg.GameplayOptions{
+								EnableKaijiEvent: true, EnableHiganjimaEvent: true, EnableNierEvent: true,
+							}},
+						},
+						collabEvent: selected,
+					}
+					isActive := func(event string) bool {
+						return mode == "" || mode == event || (mode == collabRandom && selected == event)
+					}
+					wantCount := 0
+					for _, quest := range builtInCollabQuests {
+						want := world.want && isActive(quest.event)
+						if want {
+							wantCount++
+						}
+						// Both explicitly scoped rows and unscoped DB overrides of
+						// known quest IDs must follow the same delivery restriction.
+						for _, scope := range []string{quest.event, ""} {
+							if got := s.allowsCollabQuest(EventQuest{QuestID: quest.questID, CollabScope: scope}); got != want {
+								t.Errorf("quest %d scope %q = %t, want %t", quest.questID, scope, got, want)
+							}
+						}
+					}
+					ordinary := EventQuest{ID: 10, QuestID: 50000}
+					if !s.allowsCollabQuest(ordinary) {
+						t.Fatal("ordinary event quest was blocked")
+					}
+					if got := s.appendBuiltInCollabQuests([]EventQuest{ordinary}); len(got) != 1+wantCount {
+						t.Errorf("list count = %d, want %d", len(got), 1+wantCount)
+					}
+					if got := s.allowsCollabQuest(EventQuest{QuestID: 59999, CollabScope: collabHiganjima}); got != (world.want && isActive(collabHiganjima)) {
+						t.Error("additional scoped DB quest did not follow world restriction")
+					}
+					// This change restricts quest delivery, not NPC tune flags.
+					wantTunes := 1
+					if mode == "" {
+						wantTunes = 3
+					}
+					if got := s.appendCollabTuneValues(nil); len(got) != wantTunes {
+						t.Errorf("NPC tune count = %d, want %d", len(got), wantTunes)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestUnscopedBuiltInCollabQuestRequiresActiveEvent(t *testing.T) {
+	for _, mode := range []string{collabNone, collabRandom} {
+		s := &Session{server: &Server{worldType: 1, collabEvent: mode}}
+		for _, quest := range builtInCollabQuests {
+			if s.allowsCollabQuest(EventQuest{QuestID: quest.questID}) {
+				t.Errorf("mode %q exposed inactive quest %d", mode, quest.questID)
+			}
+		}
+	}
+}
+
 func TestExplicitCollabEventOverridesLegacyFlags(t *testing.T) {
-	s := &Session{server: &Server{
+	s := &Session{server: &Server{worldType: 1,
 		collabEvent: collabHiganjima,
 		erupeConfig: &cfg.Config{GameplayOptions: cfg.GameplayOptions{
 			EnableKaijiEvent:     true,
@@ -16,22 +87,22 @@ func TestExplicitCollabEventOverridesLegacyFlags(t *testing.T) {
 		}},
 	}}
 
-	if s.allowsCollabQuest(collabKaiji) {
+	if s.allowsCollabQuest(EventQuest{CollabScope: collabKaiji}) {
 		t.Error("Kaiji quest should be hidden by explicit Higanjima world")
 	}
-	if !s.allowsCollabQuest(collabHiganjima) {
+	if !s.allowsCollabQuest(EventQuest{CollabScope: collabHiganjima}) {
 		t.Error("Higanjima quest should be visible in its explicit world")
 	}
-	if s.allowsCollabQuest(collabNier) {
+	if s.allowsCollabQuest(EventQuest{CollabScope: collabNier}) {
 		t.Error("NieR quest should be hidden by explicit Higanjima world")
 	}
-	if !s.allowsCollabQuest("") {
+	if !s.allowsCollabQuest(EventQuest{CollabScope: ""}) {
 		t.Error("Unscoped event quest should remain visible")
 	}
 }
 
 func TestNoneCollabEventHidesScopedQuestsAndTuneValues(t *testing.T) {
-	s := &Session{server: &Server{
+	s := &Session{server: &Server{worldType: 1,
 		collabEvent: collabNone,
 		erupeConfig: &cfg.Config{GameplayOptions: cfg.GameplayOptions{
 			EnableKaijiEvent:     true,
@@ -40,7 +111,7 @@ func TestNoneCollabEventHidesScopedQuestsAndTuneValues(t *testing.T) {
 		}},
 	}}
 
-	if s.allowsCollabQuest(collabKaiji) || s.allowsCollabQuest(collabHiganjima) || s.allowsCollabQuest(collabNier) {
+	if s.allowsCollabQuest(EventQuest{CollabScope: collabKaiji}) || s.allowsCollabQuest(EventQuest{CollabScope: collabHiganjima}) || s.allowsCollabQuest(EventQuest{CollabScope: collabNier}) {
 		t.Error("none world should hide every scoped collaboration quest")
 	}
 	if got := s.appendCollabTuneValues(nil); len(got) != 0 {
@@ -49,14 +120,14 @@ func TestNoneCollabEventHidesScopedQuestsAndTuneValues(t *testing.T) {
 }
 
 func TestLegacyCollabFlagsRemainSupported(t *testing.T) {
-	s := &Session{server: &Server{
+	s := &Session{server: &Server{worldType: 1,
 		erupeConfig: &cfg.Config{GameplayOptions: cfg.GameplayOptions{
 			EnableKaijiEvent: true,
 			EnableNierEvent:  true,
 		}},
 	}}
 
-	if !s.allowsCollabQuest(collabKaiji) || s.allowsCollabQuest(collabHiganjima) || !s.allowsCollabQuest(collabNier) {
+	if !s.allowsCollabQuest(EventQuest{CollabScope: collabKaiji}) || s.allowsCollabQuest(EventQuest{CollabScope: collabHiganjima}) || !s.allowsCollabQuest(EventQuest{CollabScope: collabNier}) {
 		t.Error("legacy flags should determine visibility when no per-world mode is configured")
 	}
 	got := s.appendCollabTuneValues(nil)
@@ -67,7 +138,7 @@ func TestLegacyCollabFlagsRemainSupported(t *testing.T) {
 
 func TestRandomHiganjimaAddsBuiltInQuestWithoutDatabaseRow(t *testing.T) {
 	s := &Session{
-		server:      &Server{collabEvent: collabRandom},
+		server:      &Server{worldType: 1, collabEvent: collabRandom},
 		collabEvent: collabHiganjima,
 	}
 	existing := []EventQuest{{ID: 10, QuestID: 50000}}
@@ -96,7 +167,7 @@ func TestBuiltInCollabQuestsFollowActiveNPC(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.event, func(t *testing.T) {
-			s := &Session{server: &Server{collabEvent: tt.event}}
+			s := &Session{server: &Server{worldType: 1, collabEvent: tt.event}}
 			quests := s.appendBuiltInCollabQuests(nil)
 			if len(quests) != len(tt.want) {
 				t.Fatalf("quest count = %d, want %d", len(quests), len(tt.want))
@@ -112,7 +183,7 @@ func TestBuiltInCollabQuestsFollowActiveNPC(t *testing.T) {
 }
 
 func TestDatabaseCollabQuestOverridesBuiltInQuest(t *testing.T) {
-	s := &Session{server: &Server{collabEvent: collabHiganjima}}
+	s := &Session{server: &Server{worldType: 1, collabEvent: collabHiganjima}}
 	existing := []EventQuest{{
 		ID:           77,
 		MaxPlayers:   2,
@@ -169,15 +240,15 @@ func TestRandomCollabRotationKeepsEventUntilLastSessionLeaves(t *testing.T) {
 
 func TestRandomCollabRotationIsSharedAcrossWorldChannels(t *testing.T) {
 	rotation := newCollabRotation(func() string { return collabHiganjima })
-	first := &Session{server: &Server{collabEvent: collabRandom, collabRotation: rotation}}
-	second := &Session{server: &Server{collabEvent: collabRandom, collabRotation: rotation}}
+	first := &Session{server: &Server{worldType: 1, collabEvent: collabRandom, collabRotation: rotation}}
+	second := &Session{server: &Server{worldType: 1, collabEvent: collabRandom, collabRotation: rotation}}
 
 	first.acquireCollabEvent()
 	second.acquireCollabEvent()
 	if first.effectiveCollabEvent() != collabHiganjima || second.effectiveCollabEvent() != collabHiganjima {
 		t.Fatalf("sessions received different events: first=%q second=%q", first.effectiveCollabEvent(), second.effectiveCollabEvent())
 	}
-	if !first.allowsCollabQuest(collabHiganjima) || first.allowsCollabQuest(collabKaiji) {
+	if !first.allowsCollabQuest(EventQuest{CollabScope: collabHiganjima}) || first.allowsCollabQuest(EventQuest{CollabScope: collabKaiji}) {
 		t.Fatal("random session quest filtering did not match the selected event")
 	}
 

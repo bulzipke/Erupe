@@ -35,6 +35,7 @@ type Config struct {
 	Name           string
 	Enable         bool
 	CollabEvent    string
+	WorldType      uint8
 	CollabRotation *CollabRotation
 }
 
@@ -97,6 +98,7 @@ type Server struct {
 	festaService       *FestaService
 	erupeConfig        *cfg.Config
 	collabEvent        string
+	worldType          uint8
 	collabRotation     *CollabRotation
 	acceptConns        chan net.Conn
 	deleteConns        chan net.Conn
@@ -168,6 +170,7 @@ func NewServer(config *Config) *Server {
 		db:             config.DB,
 		erupeConfig:    config.ErupeConfig,
 		collabEvent:    config.CollabEvent,
+		worldType:      config.WorldType,
 		collabRotation: collabRotation,
 		acceptConns:    make(chan net.Conn),
 		deleteConns:    make(chan net.Conn),

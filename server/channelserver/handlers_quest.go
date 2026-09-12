@@ -456,7 +456,7 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 		var updates []EventQuestUpdate
 
 		for i, eq := range quests {
-			if !s.allowsCollabQuest(eq.CollabScope) {
+			if !s.allowsCollabQuest(eq) {
 				continue
 			}
 

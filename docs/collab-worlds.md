@@ -6,10 +6,9 @@ flags from being delivered together.
 
 ```json
 "Entries": [
-  { "Name": "입문", "CollabEvent": "random", "Channels": [ ... ] },
-  { "Name": "자유", "CollabEvent": "kaiji", "Channels": [ ... ] },
-  { "Name": "달인", "CollabEvent": "higanjima", "Channels": [ ... ] },
-  { "Name": "구인", "CollabEvent": "nier", "Channels": [ ... ] }
+  { "Name": "입문", "Type": 3, "CollabEvent": "random", "Channels": [ ... ] },
+  { "Name": "자유", "Type": 1, "CollabEvent": "kaiji", "Channels": [ ... ] },
+  { "Name": "복귀", "Type": 5, "CollabEvent": "nier", "Channels": [ ... ] }
 ]
 ```
 
@@ -22,10 +21,21 @@ authenticated-player count changes from zero to one. Every channel under the
 same entrance entry shares that choice. The event remains fixed while anyone
 is connected, is cleared after the final logout, and is selected again on the
 next zero-to-one transition. NPC tune flags and scoped event quests always use
-the same selection.
+the same selection in worlds that allow collaboration quest delivery.
+
+Collaboration quests are delivered only to open (`Type: 1`), newbie (`Type: 3`),
+and return (`Type: 5`) worlds. This applies to explicit modes, `random`, and the
+legacy global flags. Other world types receive no collaboration quest entries;
+their NPC tune flags and random selection behavior are unchanged. This is a
+world-type rule, independent of the configured display name.
+
+The built-in Kaiji (40215), Higanjima (40217), and NieR (40221, 40223–40227)
+quests are added without requiring database rows. Database overrides for these
+IDs follow the same restrictions even when their `collab_scope` is empty.
 
 The `0026_event_quest_collab_scope.sql` migration adds `collab_scope` to
-`event_quests`. Empty scope is a normal event quest and is visible everywhere.
+`event_quests`. Except for the built-in IDs above, an empty scope is a normal
+event quest and is unaffected by the collaboration world restriction.
 Tag each collaboration quest after identifying it from your client data:
 
 ```sql
@@ -42,6 +52,6 @@ SET collab_scope = 'nier'
 WHERE quest_id IN (...);
 ```
 
-Only matching scoped quests are included in that world's event-quest list.
-The server does not guess quest IDs: incorrectly labeling a quest would hide
-valid content or expose a quest with the wrong NPC layout.
+Only matching scoped quests are included in an eligible world's event-quest
+list. Beyond the built-in IDs above, the server does not guess which unscoped
+quests are collaborations: tag any additional collaboration quests explicitly.

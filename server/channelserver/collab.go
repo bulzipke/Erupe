@@ -179,13 +179,37 @@ func (s *Session) enabledCollabEvents() map[string]bool {
 	}
 }
 
-// allowsCollabQuest reports whether an event quest is visible to this player.
-// Empty scopes are ordinary event quests and remain available everywhere.
-func (s *Session) allowsCollabQuest(scope string) bool {
+// allowsCollabQuestWorld limits quest delivery to open, newbie and return
+// worlds. NPC tune flags and the world's random rotation are independent.
+func (s *Session) allowsCollabQuestWorld() bool {
+	if s.server == nil {
+		return false
+	}
+	switch s.server.worldType {
+	case 1, 3, 5: // Open, newbie, return.
+		return true
+	default:
+		return false
+	}
+}
+
+// allowsCollabQuest applies both world-type and active-event restrictions.
+// Known built-in IDs remain collaboration quests even if a DB override has
+// an empty scope. Other unscoped quests remain ordinary event quests.
+func (s *Session) allowsCollabQuest(quest EventQuest) bool {
+	scope := quest.CollabScope
+	if scope == "" {
+		for _, builtIn := range builtInCollabQuests {
+			if quest.QuestID == builtIn.questID {
+				scope = builtIn.event
+				break
+			}
+		}
+	}
 	if scope == "" {
 		return true
 	}
-	return s.enabledCollabEvents()[scope]
+	return s.allowsCollabQuestWorld() && s.enabledCollabEvents()[scope]
 }
 
 // appendBuiltInCollabQuests adds collaboration quests that belong to the
@@ -193,6 +217,9 @@ func (s *Session) allowsCollabQuest(scope string) bool {
 // database ID so they remain unique and look like ordinary event quest rows
 // to the client.
 func (s *Session) appendBuiltInCollabQuests(quests []EventQuest) []EventQuest {
+	if !s.allowsCollabQuestWorld() {
+		return quests
+	}
 	enabled := s.enabledCollabEvents()
 	seenQuestIDs := make(map[int]struct{}, len(quests))
 	var nextID uint32

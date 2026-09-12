@@ -403,6 +403,7 @@ func main() {
 					DB:             db,
 					DiscordBot:     discordBot,
 					CollabEvent:    ee.CollabEvent,
+					WorldType:      ee.Type,
 					CollabRotation: collabRotation,
 				})
 				if ee.IP == "" {
