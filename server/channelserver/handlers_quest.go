@@ -451,6 +451,7 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 
 	quests, err := s.server.eventRepo.GetEventQuests()
 	if err == nil {
+		quests = s.appendBuiltInCollabQuests(quests)
 		currentTime := time.Now()
 		var updates []EventQuestUpdate
 
@@ -522,44 +523,44 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 		{ID: 67, Value: 1},
 		{ID: 80, Value: 1},
 		{ID: 94, Value: 1},
-		{ID: 1001, Value: 100},   // get_hrp_rate
-		{ID: 1010, Value: 300},   // get_hrp_rate_netcafe
-		{ID: 1011, Value: 300},   // get_zeny_rate_netcafe
-		{ID: 1012, Value: 300},   // get_hrp_rate_ncource
-		{ID: 1013, Value: 300},   // get_zeny_rate_ncource
-		{ID: 1014, Value: 200},   // get_hrp_rate_premium
-		{ID: 1015, Value: 200},   // get_zeny_rate_premium
-		{ID: 1021, Value: 400},   // get_gcp_rate_assist
-		{ID: 1023, Value: 8},     // unused?
-		{ID: 1024, Value: 150},   // get_hrp_rate_ptbonus
-		{ID: 1025, Value: 1},     // isValid_stampcard
-		{ID: 1026, Value: 999},   // get_grank_cap
-		{ID: 1027, Value: 100},   // get_exchange_rate_festa
-		{ID: 1028, Value: 100},   // get_exchange_rate_cafe
-		{ID: 1030, Value: 8},     // get_gquest_cap
-		{ID: 1031, Value: 100},   // get_exchange_rate_guild (GCP)
-		{ID: 1032, Value: 0},     // isValid_partner
-		{ID: 1044, Value: 200},   // get_rate_tload_time_out
-		{ID: 1045, Value: 0},     // get_rate_tower_treasure_preset
-		{ID: 1046, Value: 99},    // get_hunter_life_cap
-		{ID: 1048, Value: 0},     // get_rate_tower_hint_sec
-		{ID: 1049, Value: 10},    // get_rate_tower_gem_max
-		{ID: 1050, Value: 1},     // get_rate_tower_gem_set
-		{ID: 1051, Value: 200},   // get_pallone_score_rate_premium
-		{ID: 1052, Value: 200},   // get_trp_rate_premium
-		{ID: 1063, Value: 50000}, // get_nboost_quest_point_from_hrank
-		{ID: 1064, Value: 50000}, // get_nboost_quest_point_from_srank
-		{ID: 1065, Value: 25000}, // get_nboost_quest_point_from_grank
-		{ID: 1066, Value: 25000}, // get_nboost_quest_point_from_gsrank
-		{ID: 1067, Value: 90},    // get_lobby_member_upper_for_making_room Lv1?
-		{ID: 1068, Value: 80},    // get_lobby_member_upper_for_making_room Lv2?
-		{ID: 1069, Value: 70},    // get_lobby_member_upper_for_making_room Lv3?
+		{ID: 1001, Value: 100},                // get_hrp_rate
+		{ID: 1010, Value: 300},                // get_hrp_rate_netcafe
+		{ID: 1011, Value: 300},                // get_zeny_rate_netcafe
+		{ID: 1012, Value: 300},                // get_hrp_rate_ncource
+		{ID: 1013, Value: 300},                // get_zeny_rate_ncource
+		{ID: 1014, Value: 200},                // get_hrp_rate_premium
+		{ID: 1015, Value: 200},                // get_zeny_rate_premium
+		{ID: 1021, Value: 400},                // get_gcp_rate_assist
+		{ID: 1023, Value: 8},                  // unused?
+		{ID: 1024, Value: 150},                // get_hrp_rate_ptbonus
+		{ID: 1025, Value: 1},                  // isValid_stampcard
+		{ID: 1026, Value: 999},                // get_grank_cap
+		{ID: 1027, Value: 100},                // get_exchange_rate_festa
+		{ID: 1028, Value: 100},                // get_exchange_rate_cafe
+		{ID: 1030, Value: 8},                  // get_gquest_cap
+		{ID: 1031, Value: 100},                // get_exchange_rate_guild (GCP)
+		{ID: 1032, Value: 0},                  // isValid_partner
+		{ID: 1044, Value: 200},                // get_rate_tload_time_out
+		{ID: 1045, Value: 0},                  // get_rate_tower_treasure_preset
+		{ID: 1046, Value: 99},                 // get_hunter_life_cap
+		{ID: 1048, Value: 0},                  // get_rate_tower_hint_sec
+		{ID: 1049, Value: 10},                 // get_rate_tower_gem_max
+		{ID: 1050, Value: 1},                  // get_rate_tower_gem_set
+		{ID: 1051, Value: 200},                // get_pallone_score_rate_premium
+		{ID: 1052, Value: 200},                // get_trp_rate_premium
+		{ID: 1063, Value: 50000},              // get_nboost_quest_point_from_hrank
+		{ID: 1064, Value: 50000},              // get_nboost_quest_point_from_srank
+		{ID: 1065, Value: 25000},              // get_nboost_quest_point_from_grank
+		{ID: 1066, Value: 25000},              // get_nboost_quest_point_from_gsrank
+		{ID: 1067, Value: 90},                 // get_lobby_member_upper_for_making_room Lv1?
+		{ID: 1068, Value: 80},                 // get_lobby_member_upper_for_making_room Lv2?
+		{ID: 1069, Value: 70},                 // get_lobby_member_upper_for_making_room Lv3?
 		{ID: 1072, Value: premiumRaviOrbRate}, // get_rate_premium_ravi_tama
 		{ID: 1073, Value: premiumRaviOrbRate}, // get_rate_premium_ravi_ax_tama
 		{ID: 1074, Value: premiumRaviOrbRate}, // get_rate_premium_ravi_g_tama
-		{ID: 1078, Value: 0},     // isCapped_tenrou_irai
-		{ID: 1079, Value: 1},     // get_add_tower_level_assist
-		{ID: 1080, Value: 1},     // get_tune_add_tower_level_w_assist_nboost
+		{ID: 1078, Value: 0},                  // isCapped_tenrou_irai
+		{ID: 1079, Value: 1},                  // get_add_tower_level_assist
+		{ID: 1080, Value: 1},                  // get_tune_add_tower_level_w_assist_nboost
 
 		// get_tune_secret_book_item
 		{ID: 1081, Value: 1},
@@ -587,13 +588,13 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 		{ID: 1103, Value: 2},
 		{ID: 1104, Value: 10},
 
-		{ID: 1145, Value: 200},  // get_ud_point_rate_premium
-		{ID: 1146, Value: 0},    // isTower_invisible
-		{ID: 1147, Value: 0},    // isVenom_playable
-		{ID: 1149, Value: 20},   // get_ud_break_parts_point
-		{ID: 1152, Value: 1130}, // unused?
-		{ID: 1154, Value: 0},    // isDisabled_object_season
-		{ID: 1158, Value: 1},    // isDelivery_venom_ult_quest
+		{ID: 1145, Value: 200},                // get_ud_point_rate_premium
+		{ID: 1146, Value: 0},                  // isTower_invisible
+		{ID: 1147, Value: 0},                  // isVenom_playable
+		{ID: 1149, Value: 20},                 // get_ud_break_parts_point
+		{ID: 1152, Value: 1130},               // unused?
+		{ID: 1154, Value: 0},                  // isDisabled_object_season
+		{ID: 1158, Value: 1},                  // isDelivery_venom_ult_quest
 		{ID: 1160, Value: premiumRaviOrbRate}, // get_rate_premium_ravi_g_enhance_tama
 
 		// unknown

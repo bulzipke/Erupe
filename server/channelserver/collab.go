@@ -2,6 +2,7 @@ package channelserver
 
 import (
 	"math/rand/v2"
+	"sort"
 	"sync"
 
 	"go.uber.org/zap"
@@ -24,6 +25,25 @@ var collabTuneValues = []struct {
 	{event: collabKaiji, tuneID: 1106},
 	{event: collabHiganjima, tuneID: 1144},
 	{event: collabNier, tuneID: 1153},
+}
+
+// builtInCollabQuests are delivered with the matching collaboration NPC even
+// when the quest is not registered in event_quests. A database row with the
+// same quest ID overrides the built-in entry, which keeps custom scheduling
+// and metadata possible without producing duplicates.
+var builtInCollabQuests = []struct {
+	event      string
+	questID    int
+	maxPlayers uint8
+}{
+	{event: collabKaiji, questID: 40215, maxPlayers: 1},
+	{event: collabHiganjima, questID: 40217, maxPlayers: 4},
+	{event: collabNier, questID: 40221, maxPlayers: 4},
+	{event: collabNier, questID: 40223, maxPlayers: 4},
+	{event: collabNier, questID: 40224, maxPlayers: 4},
+	{event: collabNier, questID: 40225, maxPlayers: 4},
+	{event: collabNier, questID: 40226, maxPlayers: 4},
+	{event: collabNier, questID: 40227, maxPlayers: 4},
 }
 
 // CollabRotation keeps one randomly selected collaboration active while at
@@ -166,6 +186,49 @@ func (s *Session) allowsCollabQuest(scope string) bool {
 		return true
 	}
 	return s.enabledCollabEvents()[scope]
+}
+
+// appendBuiltInCollabQuests adds collaboration quests that belong to the
+// currently visible NPC layout. Synthetic list IDs follow the largest
+// database ID so they remain unique and look like ordinary event quest rows
+// to the client.
+func (s *Session) appendBuiltInCollabQuests(quests []EventQuest) []EventQuest {
+	enabled := s.enabledCollabEvents()
+	seenQuestIDs := make(map[int]struct{}, len(quests))
+	var nextID uint32
+	for _, quest := range quests {
+		seenQuestIDs[quest.QuestID] = struct{}{}
+		if quest.ID > nextID {
+			nextID = quest.ID
+		}
+	}
+
+	for _, builtIn := range builtInCollabQuests {
+		if !enabled[builtIn.event] {
+			continue
+		}
+		if _, exists := seenQuestIDs[builtIn.questID]; exists {
+			continue
+		}
+
+		nextID++
+		quest := EventQuest{
+			ID:          nextID,
+			MaxPlayers:  builtIn.maxPlayers,
+			QuestType:   18,
+			QuestID:     builtIn.questID,
+			Mark:        1,
+			Flags:       -1,
+			CollabScope: builtIn.event,
+		}
+		quests = append(quests, quest)
+		seenQuestIDs[quest.QuestID] = struct{}{}
+	}
+
+	sort.SliceStable(quests, func(i, j int) bool {
+		return quests[i].QuestID < quests[j].QuestID
+	})
+	return quests
 }
 
 func (s *Session) appendCollabTuneValues(values []tuneValue) []tuneValue {

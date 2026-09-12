@@ -65,6 +65,71 @@ func TestLegacyCollabFlagsRemainSupported(t *testing.T) {
 	}
 }
 
+func TestRandomHiganjimaAddsBuiltInQuestWithoutDatabaseRow(t *testing.T) {
+	s := &Session{
+		server:      &Server{collabEvent: collabRandom},
+		collabEvent: collabHiganjima,
+	}
+	existing := []EventQuest{{ID: 10, QuestID: 50000}}
+
+	quests := s.appendBuiltInCollabQuests(existing)
+	if len(quests) != 2 {
+		t.Fatalf("built-in quest count = %d, want 2", len(quests))
+	}
+	got := quests[0]
+	if got.ID != 11 || got.QuestID != 40217 || got.MaxPlayers != 4 || got.QuestType != 18 || got.Mark != 1 || got.Flags != -1 || got.CollabScope != collabHiganjima {
+		t.Fatalf("built-in Higanjima quest = %#v", got)
+	}
+}
+
+func TestBuiltInCollabQuestsFollowActiveNPC(t *testing.T) {
+	tests := []struct {
+		event      string
+		maxPlayers uint8
+		want       []int
+	}{
+		{event: collabKaiji, maxPlayers: 1, want: []int{40215}},
+		{event: collabHiganjima, maxPlayers: 4, want: []int{40217}},
+		{event: collabNier, maxPlayers: 4, want: []int{40221, 40223, 40224, 40225, 40226, 40227}},
+		{event: collabNone},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.event, func(t *testing.T) {
+			s := &Session{server: &Server{collabEvent: tt.event}}
+			quests := s.appendBuiltInCollabQuests(nil)
+			if len(quests) != len(tt.want) {
+				t.Fatalf("quest count = %d, want %d", len(quests), len(tt.want))
+			}
+			for i, wantID := range tt.want {
+				got := quests[i]
+				if got.QuestID != wantID || got.MaxPlayers != tt.maxPlayers || got.QuestType != 18 || got.Mark != 1 || got.Flags != -1 || got.CollabScope != tt.event {
+					t.Fatalf("quest[%d] = %#v, want ID %d scoped to %q", i, got, wantID, tt.event)
+				}
+			}
+		})
+	}
+}
+
+func TestDatabaseCollabQuestOverridesBuiltInQuest(t *testing.T) {
+	s := &Session{server: &Server{collabEvent: collabHiganjima}}
+	existing := []EventQuest{{
+		ID:           77,
+		MaxPlayers:   2,
+		QuestType:    18,
+		QuestID:      40217,
+		Mark:         9,
+		CollabScope:  collabHiganjima,
+		ActiveDays:   7,
+		InactiveDays: 3,
+	}}
+
+	quests := s.appendBuiltInCollabQuests(existing)
+	if len(quests) != 1 || quests[0].ID != 77 || quests[0].MaxPlayers != 2 || quests[0].Mark != 9 {
+		t.Fatalf("database quest was not preserved: %#v", quests)
+	}
+}
+
 func TestRandomCollabRotationKeepsEventUntilLastSessionLeaves(t *testing.T) {
 	choices := []string{collabKaiji, collabNier}
 	next := 0
