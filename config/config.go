@@ -258,6 +258,7 @@ type GameplayOptions struct {
 	EnableKaijiEvent               bool    // Enables the Kaiji event in the Rasta Bar
 	EnableHiganjimaEvent           bool    // Enables the Higanjima event in the Rasta Bar
 	EnableNierEvent                bool    // Enables the Nier event in the Rasta Bar
+	EnableEvangelionEvent          bool    // Enables Evangelion quests and custom client tune 1156 in open worlds.
 	DisableRoad                    bool    // Disables the Hunting Road
 	SeasonOverride                 bool    // Overrides the Quest Season with the current Mezeporta Season
 
@@ -409,8 +410,8 @@ type EntranceServerInfo struct {
 	Name        string // Server name, 66 byte null terminated Shift-JIS(JP) or Big5(TW).
 	Description string // Server description
 	// CollabEvent limits Rasta Bar collaboration NPCs and event quests for this
-	// world. Valid values are "none", "random", "kaiji", "higanjima", and
-	// "nier". Random selects one event when the world goes from zero to one
+	// world. Valid values are "none", "random", "kaiji", "higanjima", "nier",
+	// and "evangelion". Random selects one event when the world goes from zero to one
 	// authenticated player and keeps it until every player leaves. An empty
 	// value preserves the legacy global GameplayOptions flags.
 	CollabEvent string
@@ -426,7 +427,7 @@ type EntranceServerInfo struct {
 // with the global GameplayOptions.Enable*Event flags.
 func IsValidCollabEvent(value string) bool {
 	switch value {
-	case "", "none", "random", "kaiji", "higanjima", "nier":
+	case "", "none", "random", "kaiji", "higanjima", "nier", "evangelion":
 		return true
 	default:
 		return false
@@ -713,7 +714,7 @@ func LoadConfig() (*Config, error) {
 
 	for _, entry := range c.Entrance.Entries {
 		if !IsValidCollabEvent(entry.CollabEvent) {
-			return nil, fmt.Errorf("invalid Entrance.Entries[%q].CollabEvent %q (expected none, random, kaiji, higanjima, nier, or empty)", entry.Name, entry.CollabEvent)
+			return nil, fmt.Errorf("invalid Entrance.Entries[%q].CollabEvent %q (expected none, random, kaiji, higanjima, nier, evangelion, or empty)", entry.Name, entry.CollabEvent)
 		}
 	}
 	if hour := c.DebugOptions.InGameTimeOverrideHour; hour != nil && (*hour < 0 || *hour > 23) {

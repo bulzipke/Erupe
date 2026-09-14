@@ -883,6 +883,35 @@ func TestSingleFieldOverride(t *testing.T) {
 	}
 }
 
+func TestEvangelionConfigLoad(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+	dir := t.TempDir()
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(origDir) }()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	writeMinimalConfig(t, dir, `{
+		"Database": {"Password": "test"},
+		"Entrance": {"Entries": [{"Name": "Open", "Type": 1, "CollabEvent": "evangelion"}]},
+		"GameplayOptions": {"EnableEvangelionEvent": true}
+	}`)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error: %v", err)
+	}
+	if len(cfg.Entrance.Entries) != 1 || cfg.Entrance.Entries[0].CollabEvent != "evangelion" {
+		t.Fatalf("Evangelion world setting not loaded: %#v", cfg.Entrance.Entries)
+	}
+	if !cfg.GameplayOptions.EnableEvangelionEvent {
+		t.Fatal("EnableEvangelionEvent not loaded")
+	}
+}
+
 func TestExtraRewardSlotsConfigLoad(t *testing.T) {
 	viper.Reset()
 	dir := t.TempDir()

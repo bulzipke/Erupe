@@ -13,7 +13,7 @@ func TestCollabQuestDeliveryByWorldType(t *testing.T) {
 		want bool
 	}{{0, false}, {1, true}, {2, false}, {3, false}, {4, false}, {5, false}, {6, false}, {255, false}}
 	for _, world := range worlds {
-		for _, mode := range []string{collabKaiji, collabHiganjima, collabNier, collabRandom, ""} {
+		for _, mode := range []string{collabKaiji, collabHiganjima, collabNier, collabEvangelion, collabRandom, collabNone, ""} {
 			for _, selected := range collabEvents {
 				t.Run(fmt.Sprintf("world%d/%s/%s", world.typ, mode, selected), func(t *testing.T) {
 					s := &Session{
@@ -21,6 +21,7 @@ func TestCollabQuestDeliveryByWorldType(t *testing.T) {
 							worldType: world.typ, collabEvent: mode,
 							erupeConfig: &cfg.Config{GameplayOptions: cfg.GameplayOptions{
 								EnableKaijiEvent: true, EnableHiganjimaEvent: true, EnableNierEvent: true,
+								EnableEvangelionEvent: true,
 							}},
 						},
 						collabEvent: selected,
@@ -52,13 +53,29 @@ func TestCollabQuestDeliveryByWorldType(t *testing.T) {
 					if got := s.allowsCollabQuest(EventQuest{QuestID: 59999, CollabScope: collabHiganjima}); got != (world.want && isActive(collabHiganjima)) {
 						t.Error("additional scoped DB quest did not follow world restriction")
 					}
-					// This change restricts quest delivery, not NPC tune flags.
-					wantTunes := 1
-					if mode == "" {
-						wantTunes = 3
+					// Only collaboration tunes are gated; preserve unrelated tunes.
+					base := tuneValue{ID: 1000, Value: 7}
+					gotTunes := s.appendCollabTuneValues([]tuneValue{base})
+					if len(gotTunes) == 0 || gotTunes[0] != base {
+						t.Fatal("unrelated tune was modified")
 					}
-					if got := s.appendCollabTuneValues(nil); len(got) != wantTunes {
-						t.Errorf("NPC tune count = %d, want %d", len(got), wantTunes)
+					wantIDs := map[uint16]bool{}
+					for event, id := range map[string]uint16{collabKaiji: 1106, collabHiganjima: 1144, collabNier: 1153, collabEvangelion: 1156} {
+						if world.want && isActive(event) {
+							wantIDs[id] = true
+						}
+					}
+					if len(gotTunes) != 1+len(wantIDs) {
+						t.Errorf("tune count = %d, want %d", len(gotTunes), 1+len(wantIDs))
+					}
+					for _, got := range gotTunes[1:] {
+						if !wantIDs[got.ID] || got.Value != 1 {
+							t.Errorf("unexpected collaboration tune: %#v", got)
+						}
+						delete(wantIDs, got.ID)
+					}
+					if len(wantIDs) != 0 {
+						t.Errorf("missing collaboration tunes: %v", wantIDs)
 					}
 				})
 			}
@@ -153,7 +170,7 @@ func TestRandomHiganjimaAddsBuiltInQuestWithoutDatabaseRow(t *testing.T) {
 	}
 }
 
-func TestBuiltInCollabQuestsFollowActiveNPC(t *testing.T) {
+func TestBuiltInCollabQuestsFollowActiveEvent(t *testing.T) {
 	tests := []struct {
 		event      string
 		maxPlayers uint8
@@ -162,6 +179,7 @@ func TestBuiltInCollabQuestsFollowActiveNPC(t *testing.T) {
 		{event: collabKaiji, maxPlayers: 1, want: []int{40215}},
 		{event: collabHiganjima, maxPlayers: 4, want: []int{40217}},
 		{event: collabNier, maxPlayers: 4, want: []int{40221, 40223, 40224, 40225, 40226, 40227}},
+		{event: collabEvangelion, maxPlayers: 4, want: []int{40211, 40212, 40213, 40214}},
 		{event: collabNone},
 	}
 
@@ -179,6 +197,63 @@ func TestBuiltInCollabQuestsFollowActiveNPC(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestEvangelionLegacyFlagAndWorldOverride(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		mode string
+		flag bool
+		want bool
+	}{
+		{"default-disabled", "", false, false},
+		{"legacy-enabled", "", true, true},
+		{"explicit-overrides-disabled-flag", collabEvangelion, false, true},
+		{"none-overrides-enabled-flag", collabNone, true, false},
+		{"other-event-overrides-enabled-flag", collabNier, true, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Session{server: &Server{
+				worldType: 1, collabEvent: tt.mode,
+				erupeConfig: &cfg.Config{GameplayOptions: cfg.GameplayOptions{EnableEvangelionEvent: tt.flag}},
+			}}
+			for _, id := range []int{40211, 40212, 40213, 40214} {
+				if got := s.allowsCollabQuest(EventQuest{QuestID: id}); got != tt.want {
+					t.Errorf("quest %d visible = %t, want %t", id, got, tt.want)
+				}
+			}
+		})
+	}
+}
+
+func TestRandomEvangelionDeliveryPreservesDatabaseOverride(t *testing.T) {
+	rotation := newCollabRotation(func() string { return collabEvangelion })
+	s := &Session{server: &Server{worldType: 1, collabEvent: collabRandom, collabRotation: rotation}}
+	s.acquireCollabEvent()
+	defer s.releaseCollabEvent()
+	// Empty scope on a known ID still uses the event gate. Preserve DB metadata.
+	override := EventQuest{ID: 77, QuestID: 40212, MaxPlayers: 2, Mark: 9, ActiveDays: 7, InactiveDays: 3}
+	quests := s.appendBuiltInCollabQuests([]EventQuest{override})
+	if len(quests) != 4 {
+		t.Fatalf("quest count = %d, want 4 without duplicates", len(quests))
+	}
+	seen := map[uint32]bool{}
+	for i, quest := range quests {
+		if quest.QuestID != 40211+i || !s.allowsCollabQuest(quest) {
+			t.Errorf("unexpected or hidden quest: %#v", quest)
+		}
+		if seen[quest.ID] {
+			t.Errorf("duplicate list ID %d", quest.ID)
+		}
+		seen[quest.ID] = true
+	}
+	got := quests[1]
+	if got.ID != override.ID || got.MaxPlayers != 2 || got.Mark != 9 || got.ActiveDays != 7 || got.InactiveDays != 3 || got.CollabScope != "" {
+		t.Fatalf("DB override was modified: %#v", got)
+	}
+	if got := s.appendCollabTuneValues(nil); len(got) != 1 || got[0].ID != 1156 || got[0].Value != 1 {
+		t.Fatalf("Evangelion tunes = %#v, want only 1156=1", got)
 	}
 }
 

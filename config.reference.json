@@ -126,6 +126,7 @@
     "EnableKaijiEvent": false,
     "EnableHiganjimaEvent": false,
     "EnableNierEvent": false,
+    "EnableEvangelionEvent": false,
     "DisableRoad": false,
     "SeasonOverride": false
   },

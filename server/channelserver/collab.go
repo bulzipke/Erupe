@@ -9,14 +9,15 @@ import (
 )
 
 const (
-	collabNone      = "none"
-	collabRandom    = "random"
-	collabKaiji     = "kaiji"
-	collabHiganjima = "higanjima"
-	collabNier      = "nier"
+	collabNone       = "none"
+	collabRandom     = "random"
+	collabKaiji      = "kaiji"
+	collabHiganjima  = "higanjima"
+	collabNier       = "nier"
+	collabEvangelion = "evangelion"
 )
 
-var collabEvents = []string{collabKaiji, collabHiganjima, collabNier}
+var collabEvents = []string{collabKaiji, collabHiganjima, collabNier, collabEvangelion}
 
 var collabTuneValues = []struct {
 	event  string
@@ -25,9 +26,11 @@ var collabTuneValues = []struct {
 	{event: collabKaiji, tuneID: 1106},
 	{event: collabHiganjima, tuneID: 1144},
 	{event: collabNier, tuneID: 1153},
+	// Custom client contract; not a verified original Evangelion NPC flag.
+	{event: collabEvangelion, tuneID: 1156},
 }
 
-// builtInCollabQuests are delivered with the matching collaboration NPC even
+// builtInCollabQuests are delivered with the matching collaboration event even
 // when the quest is not registered in event_quests. A database row with the
 // same quest ID overrides the built-in entry, which keeps custom scheduling
 // and metadata possible without producing duplicates.
@@ -36,6 +39,10 @@ var builtInCollabQuests = []struct {
 	questID    int
 	maxPlayers uint8
 }{
+	{event: collabEvangelion, questID: 40211, maxPlayers: 4},
+	{event: collabEvangelion, questID: 40212, maxPlayers: 4},
+	{event: collabEvangelion, questID: 40213, maxPlayers: 4},
+	{event: collabEvangelion, questID: 40214, maxPlayers: 4},
 	{event: collabKaiji, questID: 40215, maxPlayers: 1},
 	{event: collabHiganjima, questID: 40217, maxPlayers: 4},
 	{event: collabNier, questID: 40221, maxPlayers: 4},
@@ -173,14 +180,15 @@ func (s *Session) enabledCollabEvents() map[string]bool {
 
 	options := s.server.erupeConfig.GameplayOptions
 	return map[string]bool{
-		collabKaiji:     options.EnableKaijiEvent,
-		collabHiganjima: options.EnableHiganjimaEvent,
-		collabNier:      options.EnableNierEvent,
+		collabKaiji:      options.EnableKaijiEvent,
+		collabHiganjima:  options.EnableHiganjimaEvent,
+		collabNier:       options.EnableNierEvent,
+		collabEvangelion: options.EnableEvangelionEvent,
 	}
 }
 
-// allowsCollabQuestWorld limits quest delivery to open worlds only.
-// NPC tune flags and the world's random rotation are independent.
+// allowsCollabQuestWorld limits collaboration quests and tune flags to open
+// worlds only. The world's random rotation lifecycle remains independent.
 func (s *Session) allowsCollabQuestWorld() bool {
 	if s.server == nil {
 		return false
@@ -213,7 +221,7 @@ func (s *Session) allowsCollabQuest(quest EventQuest) bool {
 }
 
 // appendBuiltInCollabQuests adds collaboration quests that belong to the
-// currently visible NPC layout. Synthetic list IDs follow the largest
+// currently selected event. Synthetic list IDs follow the largest
 // database ID so they remain unique and look like ordinary event quest rows
 // to the client.
 func (s *Session) appendBuiltInCollabQuests(quests []EventQuest) []EventQuest {
@@ -259,6 +267,9 @@ func (s *Session) appendBuiltInCollabQuests(quests []EventQuest) []EventQuest {
 }
 
 func (s *Session) appendCollabTuneValues(values []tuneValue) []tuneValue {
+	if !s.allowsCollabQuestWorld() {
+		return values
+	}
 	enabled := s.enabledCollabEvents()
 	for _, value := range collabTuneValues {
 		if enabled[value.event] {
