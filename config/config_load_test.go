@@ -912,6 +912,32 @@ func TestEvangelionConfigLoad(t *testing.T) {
 	}
 }
 
+func TestPSO2ConfigLoad(t *testing.T) {
+	viper.Reset()
+	defer viper.Reset()
+	dir := t.TempDir()
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(origDir) }()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	writeMinimalConfig(t, dir, `{
+		"Database": {"Password": "test"},
+		"Entrance": {"Entries": [{"Name": "Open", "Type": 1, "CollabEvent": "pso2"}]},
+		"GameplayOptions": {"EnablePSO2Event": true}
+	}`)
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig() error: %v", err)
+	}
+	if len(cfg.Entrance.Entries) != 1 || cfg.Entrance.Entries[0].CollabEvent != "pso2" || !cfg.GameplayOptions.EnablePSO2Event {
+		t.Fatal("PSO2 configuration was not loaded")
+	}
+}
+
 func TestExtraRewardSlotsConfigLoad(t *testing.T) {
 	viper.Reset()
 	dir := t.TempDir()

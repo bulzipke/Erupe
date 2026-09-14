@@ -12,11 +12,11 @@ flags from being delivered together.
 ]
 ```
 
-Allowed values are `none`, `random`, `kaiji`, `higanjima`, `nier`, and `evangelion`. Omit the
+Allowed values are `none`, `random`, `kaiji`, `higanjima`, `nier`, `evangelion`, and `pso2`. Omit the
 setting only to retain the old global `GameplayOptions.Enable*Event` behavior.
 To avoid NPC collisions, set an explicit value on every world.
 
-`random` selects one of Kaiji, Higanjima, NieR, and Evangelion with equal probability when the world's
+`random` selects one of Kaiji, Higanjima, NieR, Evangelion, and PSO2 with equal probability when the world's
 authenticated-player count changes from zero to one. Every channel under the
 same entrance entry shares that choice. The event remains fixed while anyone
 is connected, is cleared after the final logout, and is selected again on the
@@ -29,7 +29,7 @@ legacy global flags. Other world types receive neither collaboration quest entri
 nor collaboration tune flags; random selection behavior is unchanged. This is a
 world-type rule, independent of the configured display name.
 
-The built-in Kaiji (40215), Higanjima (40217), NieR (40221, 40223–40227), and Evangelion (40211–40214)
+The built-in Kaiji (40215), Higanjima (40217), NieR (40221, 40223–40227), Evangelion (40211–40214), and PSO2 (40239)
 quests are added without requiring database rows. Database overrides for these
 IDs follow the same restrictions even when their `collab_scope` is empty.
 
@@ -81,8 +81,8 @@ Source event headers specify four players, type 18, and mark 1 for all four.
 Quest binaries, item requirements, rewards, and other eligibility rules remain unchanged.
 Required quest files must exist under the configured quest path.
 
-Collaboration tune IDs are Kaiji `1106`, Higanjima `1144`, NieR `1153`, and
-Evangelion `1156`. The active event's flag is sent with value `1` in the existing
+Collaboration tune IDs are Kaiji `1106`, Higanjima `1144`, NieR `1153`,
+Evangelion `1156`, and PSO2 `1130`. The active event's flag is sent with value `1` in the existing
 quest-list response. Inactive flags are omitted (not explicitly sent as `0`);
 the client must reset its collaboration state when refreshing the list or changing
 worlds. No collaboration flags are sent outside open worlds.
@@ -96,3 +96,34 @@ constraint to accept `collab_scope = 'evangelion'` for optional manual overrides
 or additional verified quests. It inserts no event-quest rows. The four built-in
 IDs require no DB registration; matching DB rows retain their own metadata and
 scheduling without generating duplicate list entries.
+
+## Phantasy Star Online 2 (PSO2)
+
+Use `"CollabEvent": "pso2"` for a fixed selection, or `"CollabEvent": "random"`
+to include it in the five-event rotation. The legacy global option is
+`GameplayOptions.EnablePSO2Event` (default `false`); an explicit world mode
+overrides it. Only open worlds (`Type: 1`) receive quest `40239` and tune `1130=1`.
+Inactive/other-world flags are omitted, following the client reset contract above.
+
+The confirmed quest is **40239 — 랏피와 놀자 (ラッピーとあそぼう)**.
+The live NAS binary identifies the Rappies main objective and delivery of one
+yellow feather as Sub A. Its original event header specifies four players,
+type 18, mark 1; the current binary's event-list entry is 733 bytes and has
+no required entry item (`requiredItemType=0`, `requiredItemCount=0`). All other
+original quest rules and rewards remain unchanged.
+
+The [official PSO2 collaboration announcement](https://blog.ja.playstation.com/2018/10/31/20181031-mhfz/)
+confirms this quest title and Rappies gameplay. Searching the audited 9,162-ID
+server inventory and checking the original `Collab/40239_Rappies.json` found
+no additional confirmed PSO2 quests. The similarly named `밀림의 판타지스타`
+(23320/54446) concerns Gypceros subspecies, not this collaboration, and is excluded.
+
+The built-in entry requires no DB registration. Migration
+`0040_event_quest_pso2_scope.sql` allows `collab_scope='pso2'` on optional DB
+overrides/additional verified quests, without inserting any rows. Existing
+40239 rows retain their metadata and schedule and cannot bypass the event/world
+gate even with an empty scope.
+
+Tune `1130` is the agreed client contract. This server change sends the flag
+and quest listing; it does not implement or verify client-side NPC, A.I.S,
+object, or music behavior and does not distribute items separately.

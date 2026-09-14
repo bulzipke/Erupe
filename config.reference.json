@@ -127,6 +127,7 @@
     "EnableHiganjimaEvent": false,
     "EnableNierEvent": false,
     "EnableEvangelionEvent": false,
+    "EnablePSO2Event": false,
     "DisableRoad": false,
     "SeasonOverride": false
   },

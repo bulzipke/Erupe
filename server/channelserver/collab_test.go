@@ -13,7 +13,7 @@ func TestCollabQuestDeliveryByWorldType(t *testing.T) {
 		want bool
 	}{{0, false}, {1, true}, {2, false}, {3, false}, {4, false}, {5, false}, {6, false}, {255, false}}
 	for _, world := range worlds {
-		for _, mode := range []string{collabKaiji, collabHiganjima, collabNier, collabEvangelion, collabRandom, collabNone, ""} {
+		for _, mode := range []string{collabKaiji, collabHiganjima, collabNier, collabEvangelion, collabPSO2, collabRandom, collabNone, ""} {
 			for _, selected := range collabEvents {
 				t.Run(fmt.Sprintf("world%d/%s/%s", world.typ, mode, selected), func(t *testing.T) {
 					s := &Session{
@@ -22,6 +22,7 @@ func TestCollabQuestDeliveryByWorldType(t *testing.T) {
 							erupeConfig: &cfg.Config{GameplayOptions: cfg.GameplayOptions{
 								EnableKaijiEvent: true, EnableHiganjimaEvent: true, EnableNierEvent: true,
 								EnableEvangelionEvent: true,
+								EnablePSO2Event:       true,
 							}},
 						},
 						collabEvent: selected,
@@ -60,7 +61,7 @@ func TestCollabQuestDeliveryByWorldType(t *testing.T) {
 						t.Fatal("unrelated tune was modified")
 					}
 					wantIDs := map[uint16]bool{}
-					for event, id := range map[string]uint16{collabKaiji: 1106, collabHiganjima: 1144, collabNier: 1153, collabEvangelion: 1156} {
+					for event, id := range map[string]uint16{collabKaiji: 1106, collabHiganjima: 1144, collabNier: 1153, collabEvangelion: 1156, collabPSO2: 1130} {
 						if world.want && isActive(event) {
 							wantIDs[id] = true
 						}
@@ -180,6 +181,7 @@ func TestBuiltInCollabQuestsFollowActiveEvent(t *testing.T) {
 		{event: collabHiganjima, maxPlayers: 4, want: []int{40217}},
 		{event: collabNier, maxPlayers: 4, want: []int{40221, 40223, 40224, 40225, 40226, 40227}},
 		{event: collabEvangelion, maxPlayers: 4, want: []int{40211, 40212, 40213, 40214}},
+		{event: collabPSO2, maxPlayers: 4, want: []int{40239}},
 		{event: collabNone},
 	}
 

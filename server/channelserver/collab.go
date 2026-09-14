@@ -15,9 +15,10 @@ const (
 	collabHiganjima  = "higanjima"
 	collabNier       = "nier"
 	collabEvangelion = "evangelion"
+	collabPSO2       = "pso2"
 )
 
-var collabEvents = []string{collabKaiji, collabHiganjima, collabNier, collabEvangelion}
+var collabEvents = []string{collabKaiji, collabHiganjima, collabNier, collabEvangelion, collabPSO2}
 
 var collabTuneValues = []struct {
 	event  string
@@ -28,6 +29,8 @@ var collabTuneValues = []struct {
 	{event: collabNier, tuneID: 1153},
 	// Custom client contract; not a verified original Evangelion NPC flag.
 	{event: collabEvangelion, tuneID: 1156},
+	// Agreed PSO2 client flag; client-side behavior is implemented separately.
+	{event: collabPSO2, tuneID: 1130},
 }
 
 // builtInCollabQuests are delivered with the matching collaboration event even
@@ -51,6 +54,7 @@ var builtInCollabQuests = []struct {
 	{event: collabNier, questID: 40225, maxPlayers: 4},
 	{event: collabNier, questID: 40226, maxPlayers: 4},
 	{event: collabNier, questID: 40227, maxPlayers: 4},
+	{event: collabPSO2, questID: 40239, maxPlayers: 4},
 }
 
 // CollabRotation keeps one randomly selected collaboration active while at
@@ -184,6 +188,7 @@ func (s *Session) enabledCollabEvents() map[string]bool {
 		collabHiganjima:  options.EnableHiganjimaEvent,
 		collabNier:       options.EnableNierEvent,
 		collabEvangelion: options.EnableEvangelionEvent,
+		collabPSO2:       options.EnablePSO2Event,
 	}
 }
 
