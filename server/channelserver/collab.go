@@ -179,14 +179,14 @@ func (s *Session) enabledCollabEvents() map[string]bool {
 	}
 }
 
-// allowsCollabQuestWorld limits quest delivery to open, newbie and return
-// worlds. NPC tune flags and the world's random rotation are independent.
+// allowsCollabQuestWorld limits quest delivery to open worlds only.
+// NPC tune flags and the world's random rotation are independent.
 func (s *Session) allowsCollabQuestWorld() bool {
 	if s.server == nil {
 		return false
 	}
 	switch s.server.worldType {
-	case 1, 3, 5: // Open, newbie, return.
+	case 1: // Open (자유).
 		return true
 	default:
 		return false

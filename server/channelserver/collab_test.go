@@ -11,7 +11,7 @@ func TestCollabQuestDeliveryByWorldType(t *testing.T) {
 	worlds := []struct {
 		typ  uint8
 		want bool
-	}{{0, false}, {1, true}, {2, false}, {3, true}, {4, false}, {5, true}, {6, false}, {255, false}}
+	}{{0, false}, {1, true}, {2, false}, {3, false}, {4, false}, {5, false}, {6, false}, {255, false}}
 	for _, world := range worlds {
 		for _, mode := range []string{collabKaiji, collabHiganjima, collabNier, collabRandom, ""} {
 			for _, selected := range collabEvents {

@@ -6,9 +6,9 @@ flags from being delivered together.
 
 ```json
 "Entries": [
-  { "Name": "입문", "Type": 3, "CollabEvent": "random", "Channels": [ ... ] },
-  { "Name": "자유", "Type": 1, "CollabEvent": "kaiji", "Channels": [ ... ] },
-  { "Name": "복귀", "Type": 5, "CollabEvent": "nier", "Channels": [ ... ] }
+  { "Name": "입문", "Type": 3, "CollabEvent": "none", "Channels": [ ... ] },
+  { "Name": "자유", "Type": 1, "CollabEvent": "random", "Channels": [ ... ] },
+  { "Name": "복귀", "Type": 5, "CollabEvent": "none", "Channels": [ ... ] }
 ]
 ```
 
@@ -23,8 +23,8 @@ is connected, is cleared after the final logout, and is selected again on the
 next zero-to-one transition. NPC tune flags and scoped event quests always use
 the same selection in worlds that allow collaboration quest delivery.
 
-Collaboration quests are delivered only to open (`Type: 1`), newbie (`Type: 3`),
-and return (`Type: 5`) worlds. This applies to explicit modes, `random`, and the
+Collaboration quests are delivered only to open (`Type: 1`, 자유) worlds.
+This applies to explicit modes, `random`, and the
 legacy global flags. Other world types receive no collaboration quest entries;
 their NPC tune flags and random selection behavior are unchanged. This is a
 world-type rule, independent of the configured display name.
