@@ -2,7 +2,9 @@ package channelserver
 
 import (
 	"encoding/hex"
+	cfg "erupe-ce/config"
 	"fmt"
+	"sort"
 	"strconv"
 
 	"erupe-ce/common/byteframe"
@@ -13,6 +15,10 @@ import (
 func handleMsgMhfGetUdTacticsPoint(s *Session, p mhfpacket.MHFPacket) {
 	// Diva defense interception points
 	pkt := p.(*mhfpacket.MsgMhfGetUdTacticsPoint)
+	if s.server.erupeConfig.RealClientMode == cfg.ZZ {
+		handleDivaTacticsPoint(s, pkt)
+		return
+	}
 
 	pointsMap, err := s.server.divaRepo.GetCharacterInterceptionPoints(s.charID)
 	if err != nil {
@@ -64,6 +70,10 @@ const (
 
 func handleMsgMhfAddUdTacticsPoint(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfAddUdTacticsPoint)
+	if s.server.erupeConfig.RealClientMode == cfg.ZZ {
+		handleDivaTacticsAdd(s, pkt)
+		return
+	}
 	questFileID := int(pkt.QuestID)
 	points := int(pkt.TacticsPoints)
 
@@ -131,10 +141,28 @@ func handleMsgMhfGetUdTacticsRewardList(s *Session, p mhfpacket.MHFPacket) {
 	personal, err := s.server.divaRepo.GetPersonalPrizes()
 	if err != nil {
 		s.logger.Warn("Failed to get personal prizes", zap.Error(err))
+		doAckBufFail(s, pkt.AckHandle, nil)
+		return
+	}
+	if s.server.erupeConfig.RealClientMode == cfg.ZZ {
+		ranks, ok := s.server.divaRepo.(DivaRewardRankRepository)
+		if !ok {
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
+		hr, gr, err := ranks.GetDivaRewardRanks(s.charID)
+		if err != nil {
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
+		personal = append(append([]DivaPrize(nil), personal...), divaHRInterceptionDisplay(hr, gr)...)
+		sort.SliceStable(personal, func(i, j int) bool { return personal[i].PointsReq < personal[j].PointsReq })
 	}
 	guild, err := s.server.divaRepo.GetGuildPrizes()
 	if err != nil {
 		s.logger.Warn("Failed to get guild prizes", zap.Error(err))
+		doAckBufFail(s, pkt.AckHandle, nil)
+		return
 	}
 
 	bf := byteframe.NewByteFrame()
@@ -191,9 +219,9 @@ func handleMsgMhfGetUdTacticsRemainingPoint(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfGetUdTacticsRanking(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetUdTacticsRanking)
-	// Temporary canned response
-	data, _ := hex.DecodeString("00000515000005150000CEB4000003CE000003CE0000CEB44D49444E494748542D414E47454C0000000000000000000000")
-	doAckBufSucceed(s, pkt.AckHandle, data)
+	// Map/area progress is not implemented; never rank unrelated quest points
+	// as cleared areas, and clear any cached fake rows from older servers.
+	doAckBufSucceed(s, pkt.AckHandle, divaEmptyTacticsRankingPayload())
 }
 
 func handleMsgMhfSetUdTacticsFollower(s *Session, p mhfpacket.MHFPacket) {} // stub: unimplemented

@@ -2,6 +2,7 @@ package channelserver
 
 import (
 	"erupe-ce/common/byteframe"
+	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
 )
 
@@ -16,12 +17,12 @@ func handleMsgMhfGetAdditionalBeatReward(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfGetUdRankingRewardList(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetUdRankingRewardList)
-	// RankingRewardList: u16 count + count × 14-byte entries.
-	// Entry: u8 rank_type, u16 rank_from, u16 rank_to, u8 item_type,
-	//        u32 item_id, u32 quantity. No padding gaps.
-	bf := byteframe.NewByteFrame()
-	bf.WriteUint16(0) // count = 0 (no entries configured)
-	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
+	// ZZ: item kind/id/quantity, personal-or-guild, rank upper/lower.
+	var rewards []DivaRewardCatalogEntry
+	if s.server.erupeConfig.RealClientMode == cfg.ZZ {
+		rewards = divaSongRewardCatalog()
+	}
+	doAckBufSucceed(s, pkt.AckHandle, divaRankingRewardPayload(rewards))
 }
 
 func handleMsgMhfGetRewardSong(s *Session, p mhfpacket.MHFPacket) {

@@ -611,7 +611,7 @@ func TestBatchParseMultiField(t *testing.T) {
 	t.Run("MsgMhfSetKiju", func(t *testing.T) {
 		bf := byteframe.NewByteFrame()
 		bf.WriteUint32(1) // AckHandle
-		bf.WriteUint16(5) // Unk1
+		bf.WriteUint8(1)  // Color ID: one byte, not u16.
 		_, _ = bf.Seek(0, io.SeekStart)
 		pkt := &MsgMhfSetKiju{}
 		if err := pkt.Parse(bf, ctx); err != nil {
@@ -2173,7 +2173,7 @@ func TestBatchParseAdditionalMultiField(t *testing.T) {
 	t.Run("MsgMhfAcquireUdItem", func(t *testing.T) {
 		bf := byteframe.NewByteFrame()
 		bf.WriteUint32(1) // AckHandle
-		bf.WriteUint8(1)  // Unk0
+		bf.WriteUint8(0)  // Claim (queries do not carry reward IDs)
 		bf.WriteUint8(2)  // RewardType
 		bf.WriteUint8(2)  // Unk2 (count)
 		bf.WriteUint32(10)

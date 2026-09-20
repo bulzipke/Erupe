@@ -10,12 +10,13 @@ import (
 //
 // Sent by the client after completing a Diva Defense quest to report earned points.
 // RE'd from ZZ DLL putAdd_ud_point (FUN_114fd490): the client sums 11 point
-// category accumulators into QuestPoints, and computes BonusPoints from the
-// kiju prayer song multiplier applied to the base categories.
+// category accumulators into QuestPoints, INCLUDING the bonus-target addition.
+// BonusPoints is the separate Premium-course addition (FUN_103a1fd0, mask 0x40).
+// The server must not multiply QuestPoints by the target multiplier again.
 type MsgMhfAddUdPoint struct {
 	AckHandle   uint32
 	QuestPoints uint32 // Total points earned from the quest (sum of all categories)
-	BonusPoints uint32 // Extra points from kiju/prayer song multiplier
+	BonusPoints uint32 // Extra points from the Premium course
 }
 
 // Opcode returns the ID associated with this packet type.

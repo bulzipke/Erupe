@@ -764,31 +764,3 @@ func getTuneValueRange(start uint16, value uint16) []tuneValue {
 	}
 	return tv
 }
-
-func handleMsgMhfGetUdBonusQuestInfo(s *Session, p mhfpacket.MHFPacket) {
-	pkt := p.(*mhfpacket.MsgMhfGetUdBonusQuestInfo)
-
-	udBonusQuestInfos := []struct {
-		Unk0      uint8
-		Unk1      uint8
-		StartTime uint32 // Unix timestamp (seconds)
-		EndTime   uint32 // Unix timestamp (seconds)
-		Unk4      uint32
-		Unk5      uint8
-		Unk6      uint8
-	}{} // Blank stub array.
-
-	resp := byteframe.NewByteFrame()
-	resp.WriteUint8(uint8(len(udBonusQuestInfos)))
-	for _, q := range udBonusQuestInfos {
-		resp.WriteUint8(q.Unk0)
-		resp.WriteUint8(q.Unk1)
-		resp.WriteUint32(q.StartTime)
-		resp.WriteUint32(q.EndTime)
-		resp.WriteUint32(q.Unk4)
-		resp.WriteUint8(q.Unk5)
-		resp.WriteUint8(q.Unk6)
-	}
-
-	doAckBufSucceed(s, pkt.AckHandle, resp.Data())
-}

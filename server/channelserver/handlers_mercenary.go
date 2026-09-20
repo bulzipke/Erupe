@@ -187,8 +187,13 @@ func handleMsgMhfCreateMercenary(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfSaveMercenary(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfSaveMercenary)
+	divaRewardIDs := s.pendingDivaRewardClaims(26)
 	if len(pkt.MercData) > 65536 {
 		s.logger.Warn("Mercenary payload too large", zap.Int("len", len(pkt.MercData)))
+		if len(divaRewardIDs) != 0 {
+			doAckSimpleFail(s, pkt.AckHandle, nil)
+			return
+		}
 		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
@@ -202,9 +207,20 @@ func handleMsgMhfSaveMercenary(s *Session, p mhfpacket.MHFPacket) {
 		}
 		if err := s.server.charRepo.SaveMercenary(s.charID, pkt.MercData, rastaID); err != nil {
 			s.logger.Error("Failed to save mercenary data", zap.Error(err))
+			if len(divaRewardIDs) != 0 {
+				doAckSimpleFail(s, pkt.AckHandle, nil)
+				return
+			}
 		}
 	}
-	if err := s.server.charRepo.UpdateGCPAndPact(s.charID, pkt.GCP, pkt.PactMercID); err != nil {
+	if len(divaRewardIDs) != 0 {
+		if err := s.server.charRepo.UpdateGCPAndPactWithDivaRewards(s.charID, pkt.GCP, pkt.PactMercID, divaRewardIDs); err != nil {
+			s.logger.Error("Failed to save GP and diva reward receipts", zap.Error(err))
+			doAckSimpleFail(s, pkt.AckHandle, nil)
+			return
+		}
+		s.completeDivaRewardClaims(26, divaRewardIDs)
+	} else if err := s.server.charRepo.UpdateGCPAndPact(s.charID, pkt.GCP, pkt.PactMercID); err != nil {
 		s.logger.Error("Failed to update GCP and pact ID", zap.Error(err))
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, []byte{0x00, 0x00, 0x00, 0x00})

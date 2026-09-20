@@ -238,6 +238,9 @@ func handleMsgMhfUpdateEquipSkinHist(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfGetUdShopCoin(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetUdShopCoin)
+	// ZZ 0x115372b0 reads a byte from the decoded simple-ACK result.
+	// Keep the balance zero until the account/event wallet and guild-room
+	// entitlement are implemented together; this is not a restored wallet.
 	bf := byteframe.NewByteFrame()
 	bf.WriteUint32(0)
 	doAckSimpleSucceed(s, pkt.AckHandle, bf.Data())
@@ -245,10 +248,11 @@ func handleMsgMhfGetUdShopCoin(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfUseUdShopCoin(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfUseUdShopCoin)
-	// TODO: full response format is not yet reverse-engineered.
-	// doAckBufFail sends a well-formed buf-type ACK with error code 1.
-	// The client's fail branch exits cleanly without reading response fields.
-	doAckBufFail(s, pkt.AckHandle, nil)
+	// ZZ 0x107bb270 calls 0x115372b0 for both GET and USE: a simple ACK.
+	// Success would grant the selected item locally, so fail closed until the
+	// shared wallet and guild-room eligibility are implemented. Cost alone is
+	// not an authenticated item ID or an idempotent purchase receipt.
+	doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 }
 
 func handleMsgMhfGetEnhancedMinidata(s *Session, p mhfpacket.MHFPacket) {

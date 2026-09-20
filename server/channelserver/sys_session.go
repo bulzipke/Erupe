@@ -81,6 +81,9 @@ type Session struct {
 	// currentBeadIndex is the bead slot selected by the player via MsgMhfSetKiju.
 	// A value of -1 means no bead is currently assigned this session.
 	currentBeadIndex int
+	// divaRewardClaims await item/GP persistence. Guarded by Session.Mutex.
+	divaRewardClaims map[uint32]DivaRewardOffer
+	divaTacticsRun   divaInterceptionRun // Guarded by lifecycleMu; survives return to town.
 
 	Name          string
 	closed        atomic.Bool

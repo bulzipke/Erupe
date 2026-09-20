@@ -11,7 +11,7 @@ import (
 // MsgMhfSetKiju represents the MSG_MHF_SET_KIJU
 type MsgMhfSetKiju struct {
 	AckHandle uint32
-	Unk1      uint16
+	Unk1      uint8 // Color ID 1..4. ZZ putSet_kiju (0x114fd370) sends one byte.
 }
 
 // Opcode returns the ID associated with this packet type.
@@ -22,8 +22,8 @@ func (m *MsgMhfSetKiju) Opcode() network.PacketID {
 // Parse parses the packet from binary
 func (m *MsgMhfSetKiju) Parse(bf *byteframe.ByteFrame, ctx *clientctx.ClientContext) error {
 	m.AckHandle = bf.ReadUint32()
-	m.Unk1 = bf.ReadUint16()
-	return nil
+	m.Unk1 = bf.ReadUint8()
+	return bf.Err()
 }
 
 // Build builds a binary packet from the current data.

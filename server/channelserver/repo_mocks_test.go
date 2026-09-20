@@ -138,6 +138,12 @@ type mockCharacterRepo struct {
 	loadBackups      []SavedataBackup
 	loadBackupsErr   error
 	saveAtomicParams []SaveAtomicParams
+	saveAtomicErr    error
+	divaGCPCharID    uint32
+	divaGCPValue     uint32
+	divaPactID       uint32
+	divaGCPRewardIDs []uint32
+	divaGCPSaveErr   error
 
 	// ReadEtcPoints mock fields
 	etcBonusQuests uint32
@@ -242,7 +248,12 @@ func (m *mockCharacterRepo) ReadGuildPostChecked(_ uint32) (time.Time, error) {
 }
 func (m *mockCharacterRepo) SaveMercenary(_ uint32, _ []byte, _ uint32) error    { return nil }
 func (m *mockCharacterRepo) UpdateGCPAndPact(_ uint32, _ uint32, _ uint32) error { return nil }
-func (m *mockCharacterRepo) FindByRastaID(_ int) (uint32, string, error)         { return 0, "", nil }
+func (m *mockCharacterRepo) UpdateGCPAndPactWithDivaRewards(charID, gcp, pactID uint32, ids []uint32) error {
+	m.divaGCPCharID, m.divaGCPValue, m.divaPactID = charID, gcp, pactID
+	m.divaGCPRewardIDs = append([]uint32(nil), ids...)
+	return m.divaGCPSaveErr
+}
+func (m *mockCharacterRepo) FindByRastaID(_ int) (uint32, string, error) { return 0, "", nil }
 func (m *mockCharacterRepo) SaveCharacterData(_ uint32, _ []byte, _, _ uint16, _ bool, _ uint8, _ uint16) error {
 	return nil
 }
@@ -254,7 +265,7 @@ func (m *mockCharacterRepo) SaveBackup(_ uint32, _ int, _ []byte) error    { ret
 func (m *mockCharacterRepo) GetLastBackupTime(_ uint32) (time.Time, error) { return time.Time{}, nil }
 func (m *mockCharacterRepo) SaveCharacterDataAtomic(params SaveAtomicParams) error {
 	m.saveAtomicParams = append(m.saveAtomicParams, params)
-	return nil
+	return m.saveAtomicErr
 }
 func (m *mockCharacterRepo) LoadSaveDataWithHash(_ uint32) (uint32, []byte, bool, string, []byte, error) {
 	return m.loadSaveDataID, m.loadSaveDataData, m.loadSaveDataNew, m.loadSaveDataName, m.loadSaveDataHash, m.loadSaveDataErr
@@ -1346,15 +1357,31 @@ type mockDivaRepo struct {
 	eventsErr error
 
 	// Point tracking for tests
-	points   map[[2]uint32][2]int64 // [charID, eventID] -> [questPoints, bonusPoints]
-	addErr   error
-	getErr   error
-	totalErr error
+	points     map[[2]uint32][2]int64 // [charID, eventID] -> [questPoints, bonusPoints]
+	addErr     error
+	getErr     error
+	totalErr   error
+	bead       int
+	beads      []int
+	beadsErr   error
+	beadExpiry time.Time
+	beadChoice divaChoice
+	days       []DivaDay
+	ranks      []DivaRank
 }
 
 func (m *mockDivaRepo) DeleteEvents() error             { return nil }
 func (m *mockDivaRepo) InsertEvent(_ uint32) error      { return nil }
 func (m *mockDivaRepo) GetEvents() ([]DivaEvent, error) { return m.events, m.eventsErr }
+func (m *mockDivaRepo) EnsureDivaSongEvent(now time.Time) (DivaEvent, error) {
+	if m.eventsErr != nil {
+		return DivaEvent{}, m.eventsErr
+	}
+	if len(m.events) == 0 {
+		m.events = []DivaEvent{{ID: 1, StartTime: uint32(now.Unix())}}
+	}
+	return m.events[len(m.events)-1], nil
+}
 
 func (m *mockDivaRepo) AddPoints(charID, eventID, questPoints, bonusPoints uint32) error {
 	if m.addErr != nil {
@@ -1396,9 +1423,31 @@ func (m *mockDivaRepo) GetTotalPoints(eventID uint32) (int64, int64, error) {
 	return tq, tb, nil
 }
 
-func (m *mockDivaRepo) GetBeads() ([]int, error)                      { return nil, nil }
-func (m *mockDivaRepo) AssignBead(_ uint32, _ int, _ time.Time) error { return nil }
-func (m *mockDivaRepo) AddBeadPoints(_ uint32, _ int, _ int) error    { return nil }
+func (m *mockDivaRepo) GetBeads() ([]int, error) { return m.beads, m.beadsErr }
+func (m *mockDivaRepo) AssignBead(_, _ uint32, bead int, now time.Time) error {
+	expiry := divaNoon(now).Add(24 * time.Hour)
+	if !m.beadExpiry.Equal(expiry) {
+		m.beadChoice = divaChoice{First: m.bead}
+	}
+	if err := m.beadChoice.selectColor(bead); err != nil {
+		return err
+	}
+	m.bead, m.beadExpiry = bead, expiry
+	return nil
+}
+func (m *mockDivaRepo) RecordDivaPoints(charID, eventID, questPoints, bonusPoints uint32, _ time.Time) error {
+	return m.AddPoints(charID, eventID, questPoints, bonusPoints)
+}
+func (m *mockDivaRepo) GetDivaDays(_, _ uint32, _ time.Time) ([]DivaDay, error) {
+	return m.days, m.getErr
+}
+func (m *mockDivaRepo) GetDivaRanking(_, _ uint32, _ time.Time) ([]DivaRank, error) {
+	return m.ranks, m.getErr
+}
+func (m *mockDivaRepo) GetDivaWinningColors(_ uint32, _, _ time.Time) ([]byte, error) {
+	return make([]byte, 8), m.getErr
+}
+func (m *mockDivaRepo) AddBeadPoints(_ uint32, _ int, _ int) error { return nil }
 func (m *mockDivaRepo) GetCharacterBeadPoints(_ uint32) (map[int]int, error) {
 	return map[int]int{}, nil
 }

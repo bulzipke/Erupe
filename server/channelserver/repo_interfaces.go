@@ -35,6 +35,7 @@ type CharacterRepo interface {
 	ReadGuildPostChecked(charID uint32) (time.Time, error)
 	SaveMercenary(charID uint32, data []byte, rastaID uint32) error
 	UpdateGCPAndPact(charID uint32, gcp uint32, pactID uint32) error
+	UpdateGCPAndPactWithDivaRewards(charID uint32, gcp uint32, pactID uint32, ids []uint32) error
 	FindByRastaID(rastaID int) (charID uint32, name string, err error)
 	SaveCharacterData(charID uint32, compSave []byte, hr, gr uint16, isFemale bool, weaponType uint8, weaponID uint16) error
 	SaveHouseData(charID uint32, houseTier []byte, houseData, bookshelf, gallery, tore, garden []byte) error
@@ -419,13 +420,18 @@ type DivaRepo interface {
 	DeleteEvents() error
 	InsertEvent(startEpoch uint32) error
 	GetEvents() ([]DivaEvent, error)
+	EnsureDivaSongEvent(now time.Time) (DivaEvent, error)
 	AddPoints(charID uint32, eventID uint32, questPoints, bonusPoints uint32) error
 	GetPoints(charID uint32, eventID uint32) (questPoints, bonusPoints int64, err error)
 	GetTotalPoints(eventID uint32) (questPoints, bonusPoints int64, err error)
 
 	// Bead management
 	GetBeads() ([]int, error)
-	AssignBead(characterID uint32, beadIndex int, expiry time.Time) error
+	AssignBead(characterID, eventID uint32, beadIndex int, now time.Time) error
+	RecordDivaPoints(charID, eventID, questPoints, bonusPoints uint32, now time.Time) error
+	GetDivaDays(charID, eventID uint32, firstDay time.Time) ([]DivaDay, error)
+	GetDivaRanking(eventID, charID uint32, cutoff time.Time) ([]DivaRank, error)
+	GetDivaWinningColors(eventID uint32, firstDay, now time.Time) ([]byte, error)
 	AddBeadPoints(characterID uint32, beadIndex int, points int) error
 	GetCharacterBeadPoints(characterID uint32) (map[int]int, error)
 	GetTotalBeadPoints() (int64, error)

@@ -1,7 +1,9 @@
 package channelserver
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -38,7 +40,7 @@ type DivaEvent struct {
 // GetEvents returns all diva events with their ID and start_time epoch.
 func (r *DivaRepository) GetEvents() ([]DivaEvent, error) {
 	var result []DivaEvent
-	err := r.db.Select(&result, "SELECT id, (EXTRACT(epoch FROM start_time)::int) as start_time FROM events WHERE event_type='diva'")
+	err := r.db.Select(&result, "SELECT id, (EXTRACT(epoch FROM start_time)::int) as start_time FROM events WHERE event_type='diva' ORDER BY start_time, id")
 	return result, err
 }
 
@@ -86,14 +88,38 @@ func (r *DivaRepository) GetBeads() ([]int, error) {
 	return types, err
 }
 
-// AssignBead inserts a bead assignment for a character, replacing any existing one for that bead slot.
-func (r *DivaRepository) AssignBead(characterID uint32, beadIndex int, expiry time.Time) error {
-	_, err := r.db.Exec(`
-		INSERT INTO diva_beads_assignment (character_id, bead_index, expiry)
-		VALUES ($1, $2, $3)
-		ON CONFLICT DO NOTHING`,
-		characterID, beadIndex, expiry)
-	return err
+var errDivaBeadLocked = errors.New("diva bead change already used until next noon")
+
+// AssignBead serializes initial selection and one daily change across channels.
+// Yesterday's active color carries forward; only the change right resets at noon.
+func (r *DivaRepository) AssignBead(characterID, eventID uint32, beadIndex int, now time.Time) error {
+	if beadIndex < 1 || beadIndex > 4 || eventID == 0 {
+		return errDivaBeadLocked
+	}
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var id uint32
+	if err = tx.Get(&id, "SELECT id FROM characters WHERE id=$1 FOR UPDATE", characterID); err != nil {
+		return err
+	}
+	day := divaNoon(now)
+	choice, err := loadDivaChoice(tx, characterID, eventID, day)
+	if err != nil {
+		return err
+	}
+	if err = choice.selectColor(beadIndex); err != nil {
+		return err
+	}
+	_, err = tx.Exec(`INSERT INTO diva_song_choices(char_id,event_id,day_start,first_color,second_color)
+		VALUES($1,$2,$3,$4,$5) ON CONFLICT(char_id,event_id,day_start)
+		DO UPDATE SET second_color=EXCLUDED.second_color`, characterID, eventID, day, choice.First, choice.Second)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // AddBeadPoints records a bead point contribution for a character.
@@ -177,7 +203,7 @@ func (r *DivaRepository) getPrizesByType(prizeType string) ([]DivaPrize, error) 
 		SELECT id, type, points_req, item_type, item_id, quantity, gr, repeatable
 		FROM diva_prizes
 		WHERE type=$1
-		ORDER BY points_req`,
+		ORDER BY points_req, id`,
 		prizeType)
 	if err != nil {
 		return nil, err
@@ -198,15 +224,18 @@ func (r *DivaRepository) getPrizesByType(prizeType string) ([]DivaPrize, error) 
 func (r *DivaRepository) GetCharacterInterceptionPoints(characterID uint32) (map[string]int, error) {
 	var raw []byte
 	err := r.db.QueryRow(
-		"SELECT interception_points FROM guild_characters WHERE char_id=$1",
+		"SELECT interception_points FROM guild_characters WHERE character_id=$1",
 		characterID).Scan(&raw)
-	if err != nil {
+	if errors.Is(err, sql.ErrNoRows) {
 		return map[string]int{}, nil
+	}
+	if err != nil {
+		return nil, err
 	}
 	result := make(map[string]int)
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &result); err != nil {
-			return map[string]int{}, nil
+			return nil, err
 		}
 	}
 	return result, nil
@@ -218,9 +247,9 @@ func (r *DivaRepository) AddInterceptionPoints(characterID uint32, questFileID i
 		UPDATE guild_characters
 		SET interception_points = interception_points || jsonb_build_object(
 			$2::text,
-			COALESCE((interception_points->>$2::text)::int, 0) + $3
+			COALESCE((interception_points->>$2::text)::bigint, 0) + $3
 		)
-		WHERE char_id=$1`,
+		WHERE character_id=$1`,
 		characterID, questFileID, points)
 	return err
 }

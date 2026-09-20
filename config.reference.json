@@ -68,6 +68,8 @@
     }
   },
   "GameplayOptions": {
+    "DivaBonusRandom": false,
+    "DivaBonusTargets": [],
     "DisableDailyGachaCoins": false,
     "MinFeatureWeapons": 0,
     "MaxFeatureWeapons": 1,

@@ -156,6 +156,15 @@ func recoverFromBackups(s *Session, base *CharacterSaveData, charID uint32) (*Ch
 }
 
 func (save *CharacterSaveData) Save(s *Session) error {
+	return save.SaveWithDivaRewards(s, nil)
+}
+
+// SaveWithDivaRewards is used only by the client's SAVEDATA handler. Server-side
+// edits must use Save: their DB-derived blob need not contain the local rewards.
+func (save *CharacterSaveData) SaveWithDivaRewards(s *Session, divaRewardIDs []uint32) error {
+	if len(divaRewardIDs) != 0 && save.CharID != s.charID {
+		return errors.New("diva reward savedata character mismatch")
+	}
 	if save.decompSave == nil {
 		s.logger.Warn("No decompressed save data, skipping save",
 			zap.Uint32("charID", save.CharID),
@@ -223,6 +232,7 @@ func (save *CharacterSaveData) Save(s *Session) error {
 		GalleryData:   save.GalleryData,
 		ToreData:      save.ToreData,
 		GardenData:    save.GardenData,
+		DivaRewardIDs: append([]uint32(nil), divaRewardIDs...),
 	}
 
 	// Time-gated rotating backup: include the previous compressed savedata
@@ -239,6 +249,7 @@ func (save *CharacterSaveData) Save(s *Session) error {
 			zap.Error(err), zap.Uint32("charID", save.CharID))
 		return fmt.Errorf("atomic save: %w", err)
 	}
+	s.completeDivaRewardClaims(7, params.DivaRewardIDs)
 
 	return nil
 }

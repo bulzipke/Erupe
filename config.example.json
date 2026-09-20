@@ -8,5 +8,8 @@
     "Database": "erupe"
   },
   "ClientMode": "ZZ",
+  "GameplayOptions": {
+    "DivaBonusRandom": false
+  },
   "AutoCreateAccount": true
 }

@@ -21,6 +21,8 @@ type SaveAtomicParams struct {
 	WeaponType uint8
 	WeaponID   uint16
 	Playtime   uint32
+	// Item receipts consumed with this savedata, not separate inventory grants.
+	DivaRewardIDs []uint32
 
 	// House data (written to user_binary)
 	HouseTier     []byte
@@ -366,6 +368,9 @@ func (r *CharacterRepository) SaveCharacterDataAtomic(params SaveAtomicParams) e
 		}
 	}
 
+	if err := commitDivaRewardReceipts(tx, params.CharID, params.DivaRewardIDs, 7); err != nil {
+		return fmt.Errorf("save diva item receipts: %w", err)
+	}
 	return tx.Commit()
 }
 

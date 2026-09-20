@@ -1,0 +1,320 @@
+{
+  "evidence_only": true,
+  "server_applied": false,
+  "event_round": 40,
+  "source_url": "http://members.mhf-z.jp/contents/regular_event/diva/change_item.html",
+  "archive_url": "https://web.archive.org/web/20191215192228id_/http://members.mhf-z.jp/contents/regular_event/diva/change_item.html",
+  "captured_at_utc": "2019-12-15T19:22:28Z",
+  "checked_on": "2026-09-21",
+  "source_table": "歌迎の調べ",
+  "unknown_fields": [
+    "item_id",
+    "item_quantity"
+  ],
+  "items": [
+    {
+      "name_ja": "ジェス剣珠GX1",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "ジェス剣珠GX2",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "ジェス剣珠GX3",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "ジェス剣珠GX4",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "ジェス剣珠GX5",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "ジェス射珠GX1",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "ジェス射珠GX2",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "ジェス射珠GX3",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "ジェス射珠GX4",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "ジェス射珠GX5",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "リアルオ剣珠GX1",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "リアルオ剣珠GX2",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "リアルオ剣珠GX3",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "リアルオ剣珠GX4",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "リアルオ剣珠GX5",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "リアルオ射珠GX1",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "リアルオ射珠GX2",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "リアルオ射珠GX3",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "リアルオ射珠GX4",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "リアルオ射珠GX5",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レウアス剣珠GX1",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レウアス剣珠GX2",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レウアス剣珠GX3",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レウアス剣珠GX4",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レウアス剣珠GX5",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レウアス射珠GX1",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レウアス射珠GX2",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レウアス射珠GX3",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レウアス射珠GX4",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レウアス射珠GX5",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レイレス剣珠GX1",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レイレス剣珠GX2",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レイレス剣珠GX3",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レイレス剣珠GX4",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レイレス剣珠GX5",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レイレス射珠GX1",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レイレス射珠GX2",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レイレス射珠GX3",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レイレス射珠GX4",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "レイレス射珠GX5",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "イーリス解放券Ｄ",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "ハーヴェ解放券Ｄ",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "メラン解放券Ｄ",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "ウルキー解放券Ｄ",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "パピメル解放券Ｄ",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "Ｏビート解放券Ｄ",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "淡桜解放券Ｄ",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "ビストロ解放券Ｄ",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "クオイズ解放券Ｄ",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "カライス解放券Ｄ",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "ルケーゼ解放券Ｄ",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "シャッセ解放券Ｄ",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "Ｏケシス解放券Ｄ",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "ブリゼ解放券Ｄ",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "カタンテ解放券Ｄ",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "リカンテ解放券Ｄ",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "メレンテ解放券Ｄ",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "ウタンテ解放券Ｄ",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "フランテ解放券D",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "歌詠解放券D",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "歌紡解放券D",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "シャンル解放券D",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "ファンル解放券D",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "ミュンル解放券D",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "キャリジ生産券D",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "シャンデ生産券D",
+      "melody_cost": 1
+    },
+    {
+      "name_ja": "カタンテシルク",
+      "melody_cost": 2
+    },
+    {
+      "name_ja": "リカンテシルク",
+      "melody_cost": 2
+    },
+    {
+      "name_ja": "メレンテシルク",
+      "melody_cost": 2
+    },
+    {
+      "name_ja": "ウタンテシルク",
+      "melody_cost": 2
+    },
+    {
+      "name_ja": "フランテシルク",
+      "melody_cost": 2
+    },
+    {
+      "name_ja": "歌詠ノ布",
+      "melody_cost": 2
+    },
+    {
+      "name_ja": "歌紡ノ布",
+      "melody_cost": 2
+    },
+    {
+      "name_ja": "シャンルシルク",
+      "melody_cost": 2
+    },
+    {
+      "name_ja": "ファンルシルク",
+      "melody_cost": 2
+    },
+    {
+      "name_ja": "ミュンルシルク",
+      "melody_cost": 2
+    }
+  ]
+}

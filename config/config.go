@@ -200,25 +200,27 @@ type CapLinkOptions struct {
 
 // GameplayOptions has various gameplay modifiers
 type GameplayOptions struct {
-	DisableDailyGachaCoins         bool      // Disable account-wide daily 10 login + 10 one-hour premium coins (midnight KST).
-	MinFeatureWeapons              int       // Minimum number of Active Feature weapons to generate daily
-	MaxFeatureWeapons              int       // Maximum number of Active Feature weapons to generate daily
-	MaximumNP                      int       // Maximum number of NP held by a player
-	MaximumRP                      uint16    // Maximum number of RP held by a player
-	MaximumFP                      uint32    // Maximum number of FP held by a player
-	TreasureHuntExpiry             uint32    // Seconds until a Clan Treasure Hunt will expire
-	TreasureHuntPartnyaCooldown    uint32    // Seconds until a Partnya can be assigned to another Clan Treasure Hunt
-	DisableLoginBoost              bool      // Disables the Login Boost system
-	DisableBoostTime               bool      // Disables the daily NetCafe Boost Time
-	BoostTimeDuration              int       // Second that the NetCafe Boost Time lasts
-	ClanMealDuration               int       // Second that a Clan Meal can be activated for after cooking
-	ClanMemberLimits               [][]uint8 // Array of maximum Clan Members -> [Rank, Members]
-	BonusQuestAllowance            uint32    // Number of Bonus Point Quests to allow daily
-	DailyQuestAllowance            uint32    // Number of Daily Quests to allow daily
-	LowLatencyRaviente             bool      // Toggles low latency mode for Raviente, can be network intensive
-	RaviAutoStartSeconds           int       // Seconds after a Raviente gathering room opens before it auto-starts even with too few players (replicates !ravi start). 0 = off.
-	RaviAutoResurrectionSeconds    int       // Interval in seconds for automatically executing requested Raviente resurrection support. 0 = off.
-	RaviAutoSedationSeconds        int       // Interval in seconds for automatically executing Raviente sedation support. 0 = off.
+	DivaBonusRandom                bool              // Deterministic four-color monster bonuses on the UTC+9 three-hour grid (x2).
+	DivaBonusTargets               []DivaBonusTarget // Explicit song-phase bonus windows; empty means none configured.
+	DisableDailyGachaCoins         bool              // Disable account-wide daily 10 login + 10 one-hour premium coins (midnight KST).
+	MinFeatureWeapons              int               // Minimum number of Active Feature weapons to generate daily
+	MaxFeatureWeapons              int               // Maximum number of Active Feature weapons to generate daily
+	MaximumNP                      int               // Maximum number of NP held by a player
+	MaximumRP                      uint16            // Maximum number of RP held by a player
+	MaximumFP                      uint32            // Maximum number of FP held by a player
+	TreasureHuntExpiry             uint32            // Seconds until a Clan Treasure Hunt will expire
+	TreasureHuntPartnyaCooldown    uint32            // Seconds until a Partnya can be assigned to another Clan Treasure Hunt
+	DisableLoginBoost              bool              // Disables the Login Boost system
+	DisableBoostTime               bool              // Disables the daily NetCafe Boost Time
+	BoostTimeDuration              int               // Second that the NetCafe Boost Time lasts
+	ClanMealDuration               int               // Second that a Clan Meal can be activated for after cooking
+	ClanMemberLimits               [][]uint8         // Array of maximum Clan Members -> [Rank, Members]
+	BonusQuestAllowance            uint32            // Number of Bonus Point Quests to allow daily
+	DailyQuestAllowance            uint32            // Number of Daily Quests to allow daily
+	LowLatencyRaviente             bool              // Toggles low latency mode for Raviente, can be network intensive
+	RaviAutoStartSeconds           int               // Seconds after a Raviente gathering room opens before it auto-starts even with too few players (replicates !ravi start). 0 = off.
+	RaviAutoResurrectionSeconds    int               // Interval in seconds for automatically executing requested Raviente resurrection support. 0 = off.
+	RaviAutoSedationSeconds        int               // Interval in seconds for automatically executing Raviente sedation support. 0 = off.
 	RegularRavienteMaxPlayers      uint8
 	ViolentRavienteMaxPlayers      uint8
 	BerserkRavienteMaxPlayers      uint8
@@ -712,6 +714,19 @@ func LoadConfig() (*Config, error) {
 
 	if c.GameplayOptions.MinFeatureWeapons > c.GameplayOptions.MaxFeatureWeapons {
 		c.GameplayOptions.MinFeatureWeapons = c.GameplayOptions.MaxFeatureWeapons
+	}
+	if err := ValidateDivaBonusTargets(c.GameplayOptions.DivaBonusTargets); err != nil {
+		return nil, err
+	}
+	if c.GameplayOptions.DivaBonusRandom && len(c.GameplayOptions.DivaBonusTargets) > 0 {
+		return nil, fmt.Errorf("GameplayOptions.DivaBonusRandom and DivaBonusTargets cannot be enabled together")
+	}
+	divaBonusEnabled := c.GameplayOptions.DivaBonusRandom || len(c.GameplayOptions.DivaBonusTargets) > 0
+	if divaBonusEnabled && c.RealClientMode != ZZ {
+		return nil, fmt.Errorf("GameplayOptions.DivaBonusRandom/DivaBonusTargets are currently verified only for the ZZ client")
+	}
+	if divaBonusEnabled && c.DebugOptions.InGameTimeOverrideHour != nil {
+		return nil, fmt.Errorf("GameplayOptions.DivaBonusRandom/DivaBonusTargets require DebugOptions.InGameTimeOverrideHour=null: its shifted client clock does not match event windows")
 	}
 
 	for _, entry := range c.Entrance.Entries {

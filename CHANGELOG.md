@@ -7,14 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Use formal Korean Diva notices with native-panel size checks, and document the unresolved last-page repeat display.
+- Keep unclaimed interception rewards available until the next actual interception begins, with round-bound eligibility and deadline/replay checks.
+- Correct ZZ personal/guild ranking selectors and cached interception ranking layout; preserve the explicitly requested first-day 18:00 publication.
+- Parse the native melody-shop cost byte and return the expected rejection ACK while the unverified exchange remains disabled.
+- Correct Diva reward query/claim parsing and empty response widths; retain opaque claim IDs and stop acknowledging unsupported nonempty reward claims as paid.
+- Fix Diva bead-change refusal status and persist initial/carried and changed colors separately, preserving point attribution and chronological noon settlement across reconnects.
+- Correct Diva song-phase packet widths and ranking payloads; persist noon-limited bead choices, atomic song contributions and scheduled personal rankings across reconnects.
+
 ### Added
 
+- Add inferred HR prayer reward rotations with native two-page display, shared promotion-safe HR progress and cross-rank threshold deduplication; preserve GR rewards and receipt history.
+- Add server-side GR prayer reward rotation from 103,000 points at 1,000-point intervals, preserving existing milestones with matching native display and transactional, bounded receipt batches.
+- Supplement historical GR prayer milestones with five blog-verified single-threshold item totals (GR scope inferred), preserving existing receipts and one-time rewards; document native rotation formatting without enabling repeat payouts.
+- Add approved HR prayer/interception milestone prizes with rank-specific lists, promotion-safe per-threshold bundles, and backfilled protection for existing GR receipts.
+- Add approved custom HR daily and guild-ranking Diva prizes with promotion-safe bundles, historical guild membership, and immutable final guild rankings; preserve original GR prizes.
+- Restore six screenshot-verified historical GR prayer milestone rewards, with native type-1 display/eligibility and existing transactional claim protection; keep unknown HR/guild prize tables separate.
+- Publish phase-timed Diva NPC notices distinguishing restored/inferred rewards, configured bonuses and unavailable map/melody features; snapshot guild attribution for new song contributions.
+- Add opt-in, repeatable per-event Diva random targets for all four colors at UTC+9 three-hour intervals, with distinct monsters per interval and a 2x multiplier.
+- Restore verified round-40 daily/personal-ranking rewards with item/GP save-transaction receipts, and install a backed-up partial interception catalog including 16 explicitly inferred rewards.
+- Add validated ZZ Diva bonus schedules for all seven native target conditions, canonical IDs and available target data, with correct percent encoding and no duplicate server-side multiplier.
 - Dashboard weapon-class usage rankings now count each human quest departure and list all weapon classes, online hunter rows show the latest saved weapon icon, and new personal-best hunt records retain the weapon used for icon display.
 - Generated, language-independent Ferias item metadata catalog containing ItemID, rarity, raw `M`/`X` suffix, and pouch limit, plus a deterministic regeneration tool.
 - Best-effort append-only security audit observations, with configurable startup cleanup, for server-authoritative authorization decisions.
 
 ### Changed
 
+- Format Diva notices like the original title/schedule/details announcement, using packet dates in UTC+9 even in fixed modes and phase-timed player guidance.
+- Balance random Diva targets across the whole prayer phase, and preserve legacy interception totals while enabling round-scoped personal rewards with departure-bound, replay-safe point records from new rounds.
+- Retain Diva event history and stable forced-phase anchors; correct interception point/completed-quest response layouts and clear stale client completion slots between rounds.
+- Use the ZZ client's native Hunting Road catalog instead of custom seed overrides; provide a backed-up, operator-run restoration and recovery script.
 - Dashboard world rankings now use two three-column rows, show up to fourteen clear/failure quest entries beside the fourteen weapon classes, and omit the least-used-weapon card and weapon column labels.
 - Login, API, and BBS capability tokens now use a cryptographically secure generator; login tokens use a configurable sliding idle expiry and stale unbound rows are cleaned automatically.
 
