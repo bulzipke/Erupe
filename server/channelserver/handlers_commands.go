@@ -46,6 +46,25 @@ func sendDisabledCommandMessage(s *Session, cmd cfg.Command) {
 const chatFlagServer = 0x80 // marks a message as server-originated
 
 func sendServerChatMessage(s *Session, message string) {
+	s.QueueSendMHFNonBlocking(makeServerChatMessage(message))
+}
+
+// Keep ordered notices in a single queue entry. QueueSend waits for space
+// (or disconnect) instead of independently dropping individual notice lines.
+func sendServerChatMessages(s *Session, messages []string) {
+	if len(messages) == 0 {
+		return
+	}
+	batch := byteframe.NewByteFrame()
+	for _, message := range messages {
+		pkt := makeServerChatMessage(message)
+		batch.WriteUint16(uint16(pkt.Opcode()))
+		_ = pkt.Build(batch, s.clientContext)
+	}
+	s.QueueSend(batch.Data())
+}
+
+func makeServerChatMessage(message string) *mhfpacket.MsgSysCastedBinary {
 	// Make the inside of the casted binary
 	bf := byteframe.NewByteFrame()
 	bf.SetLE()
@@ -58,13 +77,11 @@ func sendServerChatMessage(s *Session, message string) {
 	}
 	_ = msgBinChat.Build(bf)
 
-	castedBin := &mhfpacket.MsgSysCastedBinary{
+	return &mhfpacket.MsgSysCastedBinary{
 		CharID:         0,
 		MessageType:    BinaryMessageTypeChat,
 		RawDataPayload: bf.Data(),
 	}
-
-	s.QueueSendMHFNonBlocking(castedBin)
 }
 
 func parseChatCommand(s *Session, command string) {

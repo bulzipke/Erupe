@@ -200,6 +200,7 @@ type CapLinkOptions struct {
 
 // GameplayOptions has various gameplay modifiers
 type GameplayOptions struct {
+	DisableDailyGachaCoins         bool      // Disable account-wide daily 10 login + 10 one-hour premium coins (midnight KST).
 	MinFeatureWeapons              int       // Minimum number of Active Feature weapons to generate daily
 	MaxFeatureWeapons              int       // Maximum number of Active Feature weapons to generate daily
 	MaximumNP                      int       // Maximum number of NP held by a player

@@ -106,17 +106,19 @@ type Session struct {
 	// Live quest run, published to the dashboard. Set on entering a quest stage
 	// and cleared on leaving one; the title is resolved once here rather than on
 	// every dashboard poll, which would re-read the quest file each time.
-	activeQuestID    atomic.Uint32
-	activeQuestStart atomic.Int64 // unix seconds, 0 when not in a quest
-	activeQuestName  atomic.Value // string
-	closeOnce        sync.Once
-	logoutOnce       sync.Once
-	lifecycleMu      sync.Mutex
-	done             chan struct{}
-	ackMu            sync.Mutex
-	ackStart         map[uint32]time.Time
-	captureConn      *pcap.RecordingConn // non-nil when capture is active
-	captureCleanup   func()              // Called on session close to flush/close capture file
+	activeQuestID      atomic.Uint32
+	activeQuestStart   atomic.Int64 // unix seconds, 0 when not in a quest
+	activeQuestName    atomic.Value // string
+	closeOnce          sync.Once
+	logoutOnce         sync.Once
+	lifecycleMu        sync.Mutex
+	done               chan struct{}
+	dailyCoinsDone     chan struct{} // Guarded by Session.Mutex; logout waits for final settlement.
+	dailyCoinsClosedAt atomic.Int64
+	ackMu              sync.Mutex
+	ackStart           map[uint32]time.Time
+	captureConn        *pcap.RecordingConn // non-nil when capture is active
+	captureCleanup     func()              // Called on session close to flush/close capture file
 }
 
 // NewSession creates a new Session type.
@@ -534,6 +536,7 @@ func (s *Session) logMessage(opcode uint16, data []byte, sender string, recipien
 }
 
 func (s *Session) markClosed() {
+	s.dailyCoinsClosedAt.CompareAndSwap(0, time.Now().UnixNano())
 	s.closed.Store(true)
 	if s.done != nil {
 		s.closeOnce.Do(func() {

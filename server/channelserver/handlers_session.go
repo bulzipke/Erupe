@@ -353,6 +353,7 @@ func logoutPlayer(s *Session) {
 					zap.ByteString("stack", debug.Stack()))
 			}
 		}()
+		s.waitDailyCoins()
 		logoutPlayerOnce(s)
 	})
 }

@@ -299,6 +299,7 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	// Previously, if newNotif was empty (no users, no objects), no packet was sent,
 	// causing the client to timeout after 60 seconds.
 	s.QueueSend(newNotif.Data())
+	s.startDailyCoins()
 	// Queue every transition packet before the database write, so statistics
 	// cannot hold up the client's stage transition.
 	if recordWeaponDeparture {

@@ -68,6 +68,7 @@
     }
   },
   "GameplayOptions": {
+    "DisableDailyGachaCoins": false,
     "MinFeatureWeapons": 0,
     "MaxFeatureWeapons": 1,
     "MaximumNP": 100000,
