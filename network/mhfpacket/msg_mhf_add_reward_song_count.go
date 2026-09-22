@@ -38,6 +38,9 @@ func (m *MsgMhfAddRewardSongCount) Parse(bf *byteframe.ByteFrame, ctx *clientctx
 	if err := bf.Err(); err != nil {
 		return err
 	}
+	if m.ArraySizeBytes != uint16(m.Count)*2 {
+		return fmt.Errorf("reward song array size %d does not match count %d", m.ArraySizeBytes, m.Count)
+	}
 	if int(m.Count) > len(bf.DataFromCurrent())/2 {
 		return fmt.Errorf("reward song entry count %d exceeds packet data", m.Count)
 	}
@@ -50,6 +53,9 @@ func (m *MsgMhfAddRewardSongCount) Parse(bf *byteframe.ByteFrame, ctx *clientctx
 
 // Build builds a binary packet from the current data.
 func (m *MsgMhfAddRewardSongCount) Build(bf *byteframe.ByteFrame, ctx *clientctx.ClientContext) error {
+	if len(m.Entries) > 255 {
+		return fmt.Errorf("reward song entry count exceeds uint8 capacity")
+	}
 	bf.WriteUint32(m.AckHandle)
 	bf.WriteUint32(m.PrayerID)
 	bf.WriteUint16(uint16(len(m.Entries) * 2))

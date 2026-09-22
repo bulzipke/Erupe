@@ -1,8 +1,6 @@
 package mhfpacket
 
 import (
-	"errors"
-
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network"
 	"erupe-ce/network/clientctx"
@@ -23,10 +21,12 @@ func (m *MsgMhfGetUdTacticsRanking) Opcode() network.PacketID {
 func (m *MsgMhfGetUdTacticsRanking) Parse(bf *byteframe.ByteFrame, ctx *clientctx.ClientContext) error {
 	m.AckHandle = bf.ReadUint32()
 	m.GuildID = bf.ReadUint32()
-	return nil
+	return bf.Err()
 }
 
 // Build builds a binary packet from the current data.
 func (m *MsgMhfGetUdTacticsRanking) Build(bf *byteframe.ByteFrame, ctx *clientctx.ClientContext) error {
-	return errors.New("NOT IMPLEMENTED")
+	bf.WriteUint32(m.AckHandle)
+	bf.WriteUint32(m.GuildID)
+	return nil
 }

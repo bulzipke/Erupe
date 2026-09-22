@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Stop native interception-map retry loops with the terminal application status; enable one current legacy round's map from update time without importing old totals, unlocking personal prizes, or changing round dates.
+- Correct ZZ interception-map buffer replies and implement map-request builders with truncated-packet checks and validated catalog bounds.
+- Rebase the existing interception bonus quest schedule onto the current event, clear all native cache slots, and remove obsolete dates and unrelated trailing bytes without changing quest multipliers.
+- Implement native ZZ battle-song activation and effect-consumption responses with event-scoped persistence, earned-use checks and departure-bound consumption receipts; retain existing unlock thresholds.
 - Use formal Korean Diva notices with native-panel size checks, and document the unresolved last-page repeat display.
 - Keep unclaimed interception rewards available until the next actual interception begins, with round-bound eligibility and deadline/replay checks.
 - Correct ZZ personal/guild ranking selectors and cached interception ranking layout; preserve the explicitly requested first-day 18:00 publication.
@@ -19,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add deterministic random interception-map geometry for new actual rounds, with connected page edges, native current/previous paging and historical branch reward validation; preserve existing maps, points and reward quantities.
+- Add an operator-approved ten-stage HR interception guild reward table with ticket/GP payouts, native HR previews and promotion-safe milestone receipts; preserve existing GR rewards and claims.
+- Connect approved custom-v1 interception maps, two optional branches, contributor-only ticket/GP treasures, existing guild milestone claims and special-hall eligibility to durable departure/area ledgers; settle hourly and publish area ranks at 04/12/20 UTC+9, only for new rounds after cutover.
+- Implement native tactics-follower selection, persistent contracts, atomic GP hiring and a 24-hour change lock; keep the chosen follower after that lock expires and require in-game verification of NPC appearance.
 - Add inferred HR prayer reward rotations with native two-page display, shared promotion-safe HR progress and cross-rank threshold deduplication; preserve GR rewards and receipt history.
 - Add server-side GR prayer reward rotation from 103,000 points at 1,000-point intervals, preserving existing milestones with matching native display and transactional, bounded receipt batches.
 - Supplement historical GR prayer milestones with five blog-verified single-threshold item totals (GR scope inferred), preserving existing receipts and one-time rewards; document native rotation formatting without enabling repeat payouts.

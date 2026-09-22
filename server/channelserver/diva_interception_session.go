@@ -60,8 +60,19 @@ func (s *Session) captureDivaInterceptionDeparture(questID uint16, generation ui
 		return
 	}
 	if !progress.Enabled {
-		s.logger.Info("Legacy Diva interception round retained without new reward eligibility", zap.Uint32("eventID", event.ID))
-		return
+		activation, ok := s.server.divaRepo.(DivaMapActivationRepository)
+		if !ok || s.server.erupeConfig.DebugOptions.InGameTimeOverrideHour != nil {
+			return
+		}
+		activatedAt, enabled, err := activation.GetDivaMapActivation(event.ID)
+		if err != nil {
+			s.logger.Warn("Failed to check Diva map activation", zap.Error(err))
+			return
+		}
+		if !enabled || run.StartedAt.Before(activatedAt) {
+			s.logger.Info("Legacy Diva interception round retained without new map eligibility", zap.Uint32("eventID", event.ID))
+			return
+		}
 	}
 	guildID, reason, err := resolveGuildMemberAccess(s, 0)
 	if err != nil || reason != "" || guildID == 0 {
@@ -77,6 +88,18 @@ func (s *Session) captureDivaInterceptionDeparture(questID uint16, generation ui
 	id := hex.EncodeToString(key[:])
 	run.QuestID, run.EventID, run.GuildID = questID, event.ID, guildID
 	run.Key = id[:8] + "-" + id[8:12] + "-" + id[12:16] + "-" + id[16:20] + "-" + id[20:]
+	if maps, ok := s.server.divaRepo.(DivaMapRepository); ok && s.server.erupeConfig.DebugOptions.InGameTimeOverrideHour == nil {
+		if _, err := maps.BindDivaMapDeparture(s.charID, guildID, event.ID, questID, run.Key, run.StartedAt, TimeAdjusted()); err != nil {
+			// Do not move an unbound report into whatever map is current later.
+			// Personal points still use the independently validated departure.
+			s.logger.Warn("Failed to bind Diva map departure", zap.Error(err))
+			if !progress.Enabled {
+				return
+			}
+		}
+	} else if !progress.Enabled {
+		return
+	}
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
 	if s.questWeaponGeneration == generation && s.divaTacticsRun.Generation == generation && s.divaTacticsRun.Key == "" {

@@ -95,9 +95,6 @@ func (r *DivaRepository) AddDivaInterceptionPoints(charID, eventID uint32, quest
 	if err != nil {
 		return err
 	}
-	if legacy {
-		return ErrDivaInterceptionLegacy
-	}
 	// A successful report retried after leaving the guild or after phase end
 	// creates no points. Check it before rejecting new out-of-window reports.
 	var oldQuest uint16
@@ -113,6 +110,13 @@ func (r *DivaRepository) AddDivaInterceptionPoints(charID, eventID uint32, quest
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
+	}
+	if legacy {
+		// An explicit map activation may collect NEW validated departures in an
+		// old personal round. It never imports old totals or unlocks old prizes.
+		if err = validateDivaLegacyMapDepartureTx(tx, charID, eventID, guildID, questID, runKey, startedAt, now); err != nil {
+			return err
+		}
 	}
 	phaseStart, phaseEnd := divaInterceptionWindow(event)
 	if startedAt.Before(phaseStart) || !startedAt.Before(phaseEnd) || now.Before(phaseStart) || !now.Before(phaseEnd) {
@@ -130,6 +134,20 @@ func (r *DivaRepository) AddDivaInterceptionPoints(charID, eventID uint32, quest
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, charID, eventID, runKey, questID, guildID, points, startedAt.Truncate(time.Microsecond), now.Truncate(time.Microsecond))
 	if err != nil {
 		return err
+	}
+	if err := recordDivaMapContributionTx(tx, charID, eventID, runKey, questID, guildID, points, startedAt, now); err != nil {
+		return err
+	}
+	if legacy {
+		// Keep the pre-existing personal display and its completed-quest list.
+		// The UUID journal makes this increment replay-safe; map progress and
+		// the legacy total either commit together or both roll back.
+		if _, err = tx.Exec(`UPDATE guild_characters
+			SET interception_points = COALESCE(interception_points,'{}'::jsonb) || jsonb_build_object(
+				$2::text,COALESCE((interception_points->>$2::text)::bigint,0)+$3::bigint)
+			WHERE character_id=$1 AND guild_id=$4`, charID, questID, points, guildID); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

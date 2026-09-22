@@ -192,6 +192,28 @@ func handleDivaRewardAcquire(s *Session, pkt *mhfpacket.MsgMhfAcquireUdItem) {
 				return
 			}
 			offers, err = windowRepo.PrepareDivaInterceptionRewardClaims(s.charID, pkt.RewardIDs, s.server.erupeConfig.DebugOptions.DivaOverride)
+		} else if pkt.RewardType == 5 {
+			if _, err := s.divaEvent(); err != nil {
+				doAckBufFail(s, pkt.AckHandle, nil)
+				return
+			}
+			treasureRepo, ok := s.server.divaRepo.(DivaTreasureRewardRepository)
+			if !ok {
+				doAckBufFail(s, pkt.AckHandle, nil)
+				return
+			}
+			offers, err = treasureRepo.PrepareDivaTreasureRewardClaims(s.charID, pkt.RewardIDs, s.server.erupeConfig.DebugOptions.DivaOverride)
+		} else if pkt.RewardType == 7 {
+			if _, err := s.divaEvent(); err != nil {
+				doAckBufFail(s, pkt.AckHandle, nil)
+				return
+			}
+			guildRepo, ok := s.server.divaRepo.(DivaGuildRewardRepository)
+			if !ok {
+				doAckBufFail(s, pkt.AckHandle, nil)
+				return
+			}
+			offers, err = guildRepo.PrepareDivaGuildRewardClaims(s.charID, pkt.RewardIDs, s.server.erupeConfig.DebugOptions.DivaOverride)
 		} else {
 			offers, err = repo.PrepareDivaRewardClaims(s.charID, pkt.RewardType, pkt.RewardIDs)
 		}
@@ -214,7 +236,7 @@ func handleDivaRewardAcquire(s *Session, pkt *mhfpacket.MsgMhfAcquireUdItem) {
 		return
 	}
 	// Other catalogs do not yet have sufficiently verified eligibility state.
-	if pkt.RewardType != 0 && pkt.RewardType != 1 && pkt.RewardType != 2 && pkt.RewardType != 3 && pkt.RewardType != 6 {
+	if pkt.RewardType != 0 && pkt.RewardType != 1 && pkt.RewardType != 2 && pkt.RewardType != 3 && pkt.RewardType != 5 && pkt.RewardType != 6 && pkt.RewardType != 7 {
 		empty()
 		return
 	}
@@ -224,6 +246,36 @@ func handleDivaRewardAcquire(s *Session, pkt *mhfpacket.MsgMhfAcquireUdItem) {
 		return
 	}
 	now := TimeAdjusted()
+	if pkt.RewardType == 5 {
+		treasureRepo, ok := s.server.divaRepo.(DivaTreasureRewardRepository)
+		if !ok {
+			empty()
+			return
+		}
+		offers, err := treasureRepo.OfferDivaTreasureRewards(s.charID, s.server.erupeConfig.DebugOptions.DivaOverride)
+		if err != nil || len(offers) > 32 {
+			s.logger.Warn("Failed to offer Diva branch treasures", zap.Error(err), zap.Int("count", len(offers)))
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
+		doAckBufSucceed(s, pkt.AckHandle, divaAvailableRewardPayload(offers))
+		return
+	}
+	if pkt.RewardType == 7 {
+		guildRepo, ok := s.server.divaRepo.(DivaGuildRewardRepository)
+		if !ok {
+			empty()
+			return
+		}
+		offers, err := guildRepo.OfferDivaGuildRewards(s.charID, s.server.erupeConfig.DebugOptions.DivaOverride)
+		if err != nil || len(offers) > 32 {
+			s.logger.Warn("Failed to offer Diva guild rewards", zap.Error(err), zap.Int("count", len(offers)))
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
+		doAckBufSucceed(s, pkt.AckHandle, divaAvailableRewardPayload(offers))
+		return
+	}
 	if pkt.RewardType == 6 {
 		handleDivaInterceptionRewardQuery(s, pkt, repo, now)
 		return

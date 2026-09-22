@@ -68,7 +68,7 @@ func divaRewardGroup(r DivaRewardCatalogEntry) (group, variant string) {
 		}
 	} else if r.RewardType == 3 {
 		group, variant = "guild-rank", fmt.Sprintf("rank-%d-%d", r.Lower, r.Upper)
-	} else if (r.RewardType == 1 || r.RewardType == 6) && r.Threshold > 0 && (r.GR || r.MinHR > 0) {
+	} else if (r.RewardType == 1 || r.RewardType == 6 || r.RewardType == 7) && r.Threshold > 0 && (r.GR || r.MinHR > 0) {
 		group, variant = fmt.Sprintf("milestone-%d", r.Threshold), "gr"
 		if !r.GR {
 			variant = fmt.Sprintf("hr-%d-%d", r.MinHR, r.MaxHR)

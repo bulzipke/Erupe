@@ -27,33 +27,17 @@ func handleMsgMhfGetUdRankingRewardList(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfGetRewardSong(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetRewardSong)
-	// RE-confirmed layout (22 bytes):
-	//   +0x00 u8  error
-	//   +0x01 u8  usage_count
-	//   +0x02 u32 prayer_id
-	//   +0x06 u32 prayer_end  (0xFFFFFFFF = no active prayer)
-	//   then 4 × (u8 color_error, u8 color_id, u8 color_usage_count)
-	bf := byteframe.NewByteFrame()
-	bf.WriteUint8(0)           // error
-	bf.WriteUint8(0)           // usage_count
-	bf.WriteUint32(0)          // prayer_id
-	bf.WriteUint32(0xFFFFFFFF) // prayer_end: no active prayer
-	for colorID := uint8(1); colorID <= 4; colorID++ {
-		bf.WriteUint8(0)       // color_error
-		bf.WriteUint8(colorID) // color_id
-		bf.WriteUint8(0)       // color_usage_count
-	}
-	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
+	getDivaBattleSong(s, pkt.AckHandle)
 }
 
 func handleMsgMhfUseRewardSong(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfUseRewardSong)
-	doAckSimpleSucceed(s, pkt.AckHandle, []byte{0x00})
+	useDivaBattleSong(s, pkt.AckHandle)
 }
 
 func handleMsgMhfAddRewardSongCount(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfAddRewardSongCount)
-	doAckSimpleSucceed(s, pkt.AckHandle, []byte{0x00})
+	consumeDivaBattleSongEffects(s, pkt)
 }
 
 func handleMsgMhfAcquireMonthlyReward(s *Session, p mhfpacket.MHFPacket) {

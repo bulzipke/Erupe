@@ -167,16 +167,25 @@ func TestHandleMsgMhfGetUdTacticsRanking(t *testing.T) {
 }
 
 func TestHandleMsgMhfSetUdTacticsFollower(t *testing.T) {
-	server := createMockServer()
-	session := createMockSession(1, server)
+	session, repo := newDivaTacticsFollowerSession()
+	pkt := &mhfpacket.MsgMhfSetUdTacticsFollower{
+		AckHandle: 12345, NameIndex: 39, Voice: 3, Weapon: 1, Strength: 2,
+	}
+	handleMsgMhfSetUdTacticsFollower(session, pkt)
+	ack := readAck(t, session)
+	if ack.AckHandle != pkt.AckHandle || ack.IsBufferResponse || ack.ErrorCode != 0 ||
+		repo.setCalls != 1 || repo.choice != (DivaTacticsFollowerChoice{39, 3, 1, 2}) {
+		t.Fatalf("wrong follower SET success ACK: %+v; calls=%d choice=%+v", ack, repo.setCalls, repo.choice)
+	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			t.Errorf("handleMsgMhfSetUdTacticsFollower panicked: %v", r)
-		}
-	}()
-
-	handleMsgMhfSetUdTacticsFollower(session, nil)
+	// The wrapper must return a failed simple ACK, not silently swallow a
+	// rejected duplicate or send the GET protocol's buffered response.
+	repo.err = errDivaTacticsFollowerLocked
+	handleMsgMhfSetUdTacticsFollower(session, pkt)
+	ack = readAck(t, session)
+	if ack.AckHandle != pkt.AckHandle || ack.IsBufferResponse || ack.ErrorCode != 1 || repo.setCalls != 2 {
+		t.Fatalf("wrong follower SET failure ACK: %+v; calls=%d", ack, repo.setCalls)
+	}
 }
 
 // Tests consolidated from handlers_coverage3_test.go
@@ -254,29 +263,6 @@ func TestNonTrivialHandlers_TacticsGo(t *testing.T) {
 			default:
 				t.Errorf("%s: no response queued", tt.name)
 			}
-		})
-	}
-}
-
-func TestEmptyHandlers_MiscFiles_Tactics(t *testing.T) {
-	server := createMockServer()
-	session := createMockSession(1, server)
-
-	tests := []struct {
-		name string
-		fn   func()
-	}{
-		{"handleMsgMhfSetUdTacticsFollower", func() { handleMsgMhfSetUdTacticsFollower(session, nil) }},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r != nil {
-					t.Errorf("%s panicked: %v", tt.name, r)
-				}
-			}()
-			tt.fn()
 		})
 	}
 }

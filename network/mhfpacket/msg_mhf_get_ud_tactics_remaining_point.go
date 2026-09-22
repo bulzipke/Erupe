@@ -1,8 +1,6 @@
 package mhfpacket
 
 import (
-	"errors"
-
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network"
 	"erupe-ce/network/clientctx"
@@ -27,10 +25,14 @@ func (m *MsgMhfGetUdTacticsRemainingPoint) Parse(bf *byteframe.ByteFrame, ctx *c
 	m.Unk0 = bf.ReadUint32()
 	m.Unk1 = bf.ReadUint32()
 	m.Unk2 = bf.ReadUint32()
-	return nil
+	return bf.Err()
 }
 
 // Build builds a binary packet from the current data.
 func (m *MsgMhfGetUdTacticsRemainingPoint) Build(bf *byteframe.ByteFrame, ctx *clientctx.ClientContext) error {
-	return errors.New("NOT IMPLEMENTED")
+	bf.WriteUint32(m.AckHandle)
+	bf.WriteUint32(m.Unk0)
+	bf.WriteUint32(m.Unk1)
+	bf.WriteUint32(m.Unk2)
+	return nil
 }

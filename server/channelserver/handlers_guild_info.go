@@ -3,6 +3,7 @@ package channelserver
 import (
 	"sort"
 	"strings"
+	"time"
 
 	"erupe-ce/common/byteframe"
 	ps "erupe-ce/common/pascalstring"
@@ -102,7 +103,7 @@ func handleMsgMhfInfoGuild(s *Session, p mhfpacket.MHFPacket) {
 		bf.WriteBytes(guildLeaderName)
 		bf.WriteUint32(0)                  // Unk
 		bf.WriteBool(guild.ReturnType > 0) // isReturnGuild
-		bf.WriteBool(false)                // earnedSpecialHall
+		bf.WriteBool(divaGuildSpecialHall(s, guild.ID, characterGuildData))
 		bf.WriteUint8(2)
 		bf.WriteUint8(2)
 		bf.WriteUint32(guild.EventRP) // Skipped if last byte is <2?
@@ -281,6 +282,30 @@ func handleMsgMhfInfoGuild(s *Session, p mhfpacket.MHFPacket) {
 	} else {
 		doAckBufSucceed(s, pkt.AckHandle, make([]byte, 4))
 	}
+}
+
+func divaGuildSpecialHall(s *Session, guildID uint32, member *GuildMember) bool {
+	mode := s.server.erupeConfig.DebugOptions.DivaOverride
+	if s.server.erupeConfig.RealClientMode != cfg.ZZ || (mode != -1 && mode != 3) ||
+		member == nil || member.IsApplicant || member.JoinedAt == nil || member.GuildID != guildID {
+		return false
+	}
+	repo, ok := s.server.divaRepo.(DivaSpecialHallRepository)
+	if !ok {
+		return false
+	}
+	if _, err := s.divaEvent(); err != nil {
+		s.logger.Warn("Failed to resolve Diva special hall event", zap.Error(err))
+		return false
+	}
+	// Read the database clock after acquiring entitlement locks; a delayed
+	// request must not retain the previous welcome period's entry flag.
+	earned, err := repo.GetDivaSpecialHall(s.charID, guildID, time.Time{})
+	if err != nil {
+		s.logger.Warn("Failed to read Diva special hall entitlement", zap.Error(err))
+		return false
+	}
+	return earned
 }
 
 func handleMsgMhfEnumerateGuild(s *Session, p mhfpacket.MHFPacket) {

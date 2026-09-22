@@ -9,6 +9,12 @@ import (
 func setupDivaRepo(t *testing.T) (*DivaRepository, *sqlx.DB) {
 	t.Helper()
 	db := SetupTestDB(t)
+	// Existing fixtures exercise custom-v1. Random-map tests opt in explicitly
+	// by moving this test-only cutover before their actual interception start.
+	if _, err := db.Exec(`INSERT INTO diva_random_map_cutover(singleton,installed_at)
+		VALUES(TRUE,'9999-01-01T00:00:00Z') ON CONFLICT(singleton) DO NOTHING`); err != nil {
+		t.Fatal(err)
+	}
 	repo := NewDivaRepository(db)
 	t.Cleanup(func() { TeardownTestDB(t, db) })
 	return repo, db

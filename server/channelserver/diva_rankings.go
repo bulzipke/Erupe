@@ -58,7 +58,7 @@ func (s *Session) divaMyRanks() ([]DivaRank, []DivaRank, error) {
 // (4041 payload bytes + one byte reserved by the transport).
 // An interception point total or completed-quest count is NOT an area count.
 func divaEmptyTacticsRankingPayload() []byte {
-	data := make([]byte, 41+100*40)
-	data[40] = 100
+	// Empty input cannot fail the shared codec's row validation.
+	data, _ := divaAreaRankingPayload(nil, nil)
 	return data
 }

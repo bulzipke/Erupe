@@ -1,7 +1,6 @@
 package channelserver
 
 import (
-	"encoding/hex"
 	cfg "erupe-ce/config"
 	"fmt"
 	"sort"
@@ -144,6 +143,7 @@ func handleMsgMhfGetUdTacticsRewardList(s *Session, p mhfpacket.MHFPacket) {
 		doAckBufFail(s, pkt.AckHandle, nil)
 		return
 	}
+	var hrGuild []DivaPrize
 	if s.server.erupeConfig.RealClientMode == cfg.ZZ {
 		ranks, ok := s.server.divaRepo.(DivaRewardRankRepository)
 		if !ok {
@@ -157,12 +157,17 @@ func handleMsgMhfGetUdTacticsRewardList(s *Session, p mhfpacket.MHFPacket) {
 		}
 		personal = append(append([]DivaPrize(nil), personal...), divaHRInterceptionDisplay(hr, gr)...)
 		sort.SliceStable(personal, func(i, j int) bool { return personal[i].PointsReq < personal[j].PointsReq })
+		hrGuild = divaHRGuildDisplay(hr, gr)
 	}
 	guild, err := s.server.divaRepo.GetGuildPrizes()
 	if err != nil {
 		s.logger.Warn("Failed to get guild prizes", zap.Error(err))
 		doAckBufFail(s, pkt.AckHandle, nil)
 		return
+	}
+	if len(hrGuild) > 0 {
+		guild = append(append([]DivaPrize(nil), guild...), hrGuild...)
+		sort.SliceStable(guild, func(i, j int) bool { return guild[i].PointsReq < guild[j].PointsReq })
 	}
 
 	bf := byteframe.NewByteFrame()
@@ -182,14 +187,12 @@ func handleMsgMhfGetUdTacticsRewardList(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfGetUdTacticsFollower(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetUdTacticsFollower)
-	doAckBufSucceed(s, pkt.AckHandle, []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
+	getDivaTacticsFollower(s, pkt.AckHandle)
 }
 
 func handleMsgMhfGetUdTacticsBonusQuest(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetUdTacticsBonusQuest)
-	// Temporary canned response
-	data, _ := hex.DecodeString("14E2F55DCBFE505DCC1A7003E8E2C55DCC6ED05DCC8AF00258E2CE5DCCDF505DCCFB700279E3075DCD4FD05DCD6BF0041AE2F15DCDC0505DCDDC700258E2C45DCE30D05DCE4CF00258E2F55DCEA1505DCEBD7003E8E2C25DCF11D05DCF2DF00258E2CE5DCF82505DCF9E700279E3075DCFF2D05DD00EF0041AE2CE5DD063505DD07F700279E2F35DD0D3D05DD0EFF0028AE2C35DD144505DD160700258E2F05DD1B4D05DD1D0F00258E2CE5DD225505DD241700279E2F55DD295D05DD2B1F003E8E2F25DD306505DD3227002EEE2CA5DD376D05DD392F00258E3075DD3E7505DD40370041AE2F55DD457D05DD473F003E82027313220686F757273273A3A696E74657276616C29202B2027313220686F757273273A3A696E74657276616C2047524F5550204259206D6170204F52444552204259206D61703B2000C7312B000032")
-	doAckBufSucceed(s, pkt.AckHandle, data)
+	handleDivaTacticsBonusQuest(s, pkt)
 }
 
 // udTacticsFirstQuestBonuses are the static first-quest bonus point values,
@@ -212,6 +215,10 @@ func handleMsgMhfGetUdTacticsFirstQuestBonus(s *Session, p mhfpacket.MHFPacket) 
 
 func handleMsgMhfGetUdTacticsRemainingPoint(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetUdTacticsRemainingPoint)
+	if s.server.erupeConfig.RealClientMode == cfg.ZZ {
+		handleDivaRemainingAreas(s, pkt)
+		return
+	}
 	bf := byteframe.NewByteFrame()
 	bf.WriteUint32(0) // Points until Special Guild Hall earned
 	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
@@ -219,12 +226,12 @@ func handleMsgMhfGetUdTacticsRemainingPoint(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfGetUdTacticsRanking(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetUdTacticsRanking)
-	// Map/area progress is not implemented; never rank unrelated quest points
-	// as cleared areas, and clear any cached fake rows from older servers.
-	doAckBufSucceed(s, pkt.AckHandle, divaEmptyTacticsRankingPayload())
+	handleDivaAreaRanking(s, pkt)
 }
 
-func handleMsgMhfSetUdTacticsFollower(s *Session, p mhfpacket.MHFPacket) {} // stub: unimplemented
+func handleMsgMhfSetUdTacticsFollower(s *Session, p mhfpacket.MHFPacket) {
+	setDivaTacticsFollower(s, p.(*mhfpacket.MsgMhfSetUdTacticsFollower))
+}
 
 // handleMsgMhfGetUdTacticsLog was previously a bare stub, which meant it sent
 // no ack at all -- since the packet carries an AckHandle, that silence is a

@@ -84,6 +84,7 @@ type Session struct {
 	// divaRewardClaims await item/GP persistence. Guarded by Session.Mutex.
 	divaRewardClaims map[uint32]DivaRewardOffer
 	divaTacticsRun   divaInterceptionRun // Guarded by lifecycleMu; survives return to town.
+	divaBattleRun    divaBattleSongRun   // Guarded by lifecycleMu; survives return to town.
 
 	Name          string
 	closed        atomic.Bool

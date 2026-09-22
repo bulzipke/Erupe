@@ -107,7 +107,7 @@ func validateDivaRewardCatalog(kind uint8, rewards []DivaRewardCatalogEntry) err
 // Persisted item snapshots never change when a catalog is edited or reordered.
 // Querying does not consume anything; the matching save transaction does that.
 func (r *DivaRepository) OfferDivaRewards(charID, eventID uint32, kind uint8, rewards []DivaRewardCatalogEntry) ([]DivaRewardOffer, error) {
-	if kind == 6 {
+	if kind == 5 || kind == 6 || kind == 7 {
 		return nil, errInvalidDivaReward
 	} // Interception requires authoritative mode context.
 	return r.offerDivaRewardsAt(charID, eventID, kind, rewards, time.Time{})
@@ -238,7 +238,7 @@ func validateDivaRewardClaimIDs(charID uint32, kind uint8, ids []uint32) error {
 // rows. Already claimed owned IDs are harmless retries, not new entitlements.
 // This method deliberately does not consume receipts or grant inventory/GP.
 func (r *DivaRepository) PrepareDivaRewardClaims(charID uint32, kind uint8, ids []uint32) ([]DivaRewardOffer, error) {
-	if kind == 6 {
+	if kind == 5 || kind == 6 || kind == 7 {
 		return nil, errInvalidDivaReward
 	} // Use the interception-specific API.
 	return r.prepareDivaRewardClaimsAt(charID, kind, ids, time.Time{})

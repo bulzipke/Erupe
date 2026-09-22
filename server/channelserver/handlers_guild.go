@@ -255,6 +255,10 @@ func handleMsgMhfGetGuildManageRight(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfGetUdGuildMapInfo(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetUdGuildMapInfo)
+	if s.server.erupeConfig.RealClientMode == cfg.ZZ {
+		handleDivaMapQuery(s, pkt.AckHandle, false)
+		return
+	}
 	doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 }
 
@@ -487,6 +491,10 @@ func handleMsgMhfUpdateForceGuildRank(s *Session, p mhfpacket.MHFPacket) {} // s
 
 func handleMsgMhfGenerateUdGuildMap(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGenerateUdGuildMap)
+	if s.server.erupeConfig.RealClientMode == cfg.ZZ {
+		handleDivaMapQuery(s, pkt.AckHandle, true)
+		return
+	}
 	doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 }
 

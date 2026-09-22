@@ -192,6 +192,7 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 			s.questWeaponGeneration++
 			weaponGeneration = s.questWeaponGeneration
 			s.divaTacticsRun = divaInterceptionRun{Generation: weaponGeneration, StartedAt: TimeAdjusted()}
+			s.divaBattleRun = divaBattleSongRun{Generation: weaponGeneration, StartedAt: TimeAdjusted()}
 			if s.server.erupeConfig.RealClientMode != cfg.ZZ {
 				// Older modes do not have a validated setup decoder. Leave them
 				// uncounted rather than allowing arbitrary Qs stage names to inflate
@@ -304,6 +305,7 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	// Queue every transition packet before the database write, so statistics
 	// cannot hold up the client's stage transition.
 	if recordWeaponDeparture {
+		s.captureDivaBattleSongDeparture(weaponQuestID, weaponGeneration)
 		s.captureDivaInterceptionDeparture(weaponQuestID, weaponGeneration)
 		s.recordQuestWeaponDeparture(weaponQuestID, weaponGeneration)
 	}
@@ -742,6 +744,7 @@ func handleMsgSysSetStageBinary(s *Session, p mhfpacket.MHFPacket) {
 			}
 		}
 		for _, departure := range pendingWeaponDepartures {
+			departure.session.captureDivaBattleSongDeparture(questID, departure.generation)
 			departure.session.captureDivaInterceptionDeparture(questID, departure.generation)
 			departure.session.recordArmedQuestWeaponDeparture(questID, departure.generation)
 		}
