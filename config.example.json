@@ -9,7 +9,8 @@
   },
   "ClientMode": "ZZ",
   "GameplayOptions": {
-    "DivaBonusRandom": false
+    "DivaBonusRandom": false,
+    "DivaMapRedTreasureMode": "off"
   },
   "AutoCreateAccount": true
 }

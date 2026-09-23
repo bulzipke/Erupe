@@ -42,6 +42,9 @@ SELECT
 	pugi_outfit_1,
 	pugi_outfit_2,
 	pugi_outfit_3,
+	diva_pugi_outfit_1,
+	diva_pugi_outfit_2,
+	diva_pugi_outfit_3,
 	pugi_outfits,
 	recruiting,
 	COALESCE((SELECT team FROM festa_registrations fr WHERE fr.guild_id = g.id), 'none') AS festival_color,
@@ -256,7 +259,8 @@ func (r *GuildRepository) AddMember(guildID, charID uint32) error {
 	return err
 }
 
-// Save persists guild metadata changes.
+// Save persists ordinary guild metadata. Special-hall clothing is deliberately
+// excluded: a stale ordinary snapshot must not overwrite its independent state.
 func (r *GuildRepository) Save(guild *Guild) error {
 	_, err := r.db.Exec(`
 		UPDATE guilds SET main_motto=$2, sub_motto=$3, comment=$4, pugi_name_1=$5, pugi_name_2=$6, pugi_name_3=$7,

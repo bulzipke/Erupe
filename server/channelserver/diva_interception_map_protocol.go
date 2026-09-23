@@ -46,26 +46,34 @@ type DivaInterceptionMapDefinition struct {
 // Unknown fields retain their exact native wire offsets. The examined HD map
 // renderer does not consume them; preserving them avoids inventing semantics.
 type DivaInterceptionMapNodeDefinition struct {
-	Coordinate         uint16
-	Unknown02          uint16
-	Unknown04          uint16
-	Unknown06          uint16
-	Unknown08          uint16
-	Unknown10          uint16
-	Unknown12          uint8
-	Kind               uint8 // 0 normal, 1 start, 2 goal, 3 main-route branch junction.
+	Coordinate uint16
+	Unknown02  uint16
+	Unknown04  uint16
+	Unknown06  uint16
+	Unknown08  uint16
+	Unknown10  uint16
+	Unknown12  uint8
+	Kind       uint8 // Wire tag: 1 start, 2 goal; custom catalogs also tag junctions as 3.
+	// The native UI derives a neutral branch from state.BranchQuests, not tag 3.
+	// HD 103b9440 compares this with state.RequiredPoints. An unacquired
+	// ordinary tile with RequiredPoints > BaseRequiredPoints renders as a
+	// monster fierce-battle zone, not just a more expensive ordinary tile.
 	BaseRequiredPoints uint32
 	TreasureMode       uint8
 	TreasureGroupID    uint32
 }
 
 type DivaInterceptionMapState struct {
-	TemplateID uint32
-	MapNumber  uint16
-	Nodes      []DivaInterceptionMapNodeState
+	// Persistence-only page-local hourly clock for custom-progressive-v3.
+	InvasionTick uint16 `json:",omitempty"`
+	TemplateID   uint32
+	MapNumber    uint16
+	Nodes        []DivaInterceptionMapNodeState
 }
 
 type DivaInterceptionMapNodeState struct {
+	// Persistence-only extra percentage over the page's normal requirement.
+	Fortification         uint8 `json:",omitempty"`
 	EarnedPoints          uint32
 	RequiredPoints        uint32
 	Coordinate            uint16
@@ -103,7 +111,7 @@ func validateDivaInterceptionMap(m DivaInterceptionMap) error {
 	for _, row := range m.Treasures {
 		if row.GroupID == 0 || row.Quantity == 0 || row.MinMap == 0 || row.MaxMap < row.MinMap ||
 			(row.ItemType != 7 && row.ItemType != 26) || (row.ItemType == 7 && row.ItemID == 0) ||
-			(row.ItemType == 26 && row.ItemID != 0) || row.DisplayMode > 1 {
+			(row.ItemType == 26 && row.ItemID != 0) || row.DisplayMode > 2 {
 			return fmt.Errorf("diva map: invalid fixed treasure reward")
 		}
 		groups[row.GroupID] = true
@@ -215,8 +223,10 @@ func validateDivaInterceptionMapDefinition(definition DivaInterceptionMapDefinit
 		} else if node.BaseRequiredPoints == 0 || node.BaseRequiredPoints > math.MaxInt32 {
 			return fmt.Errorf("diva map: node %d requires positive signed-safe base points", node.Coordinate)
 		}
-		if node.TreasureMode != 0 {
-			return fmt.Errorf("diva map: unsupported special treasure mode")
+		// Native +18 is a boolean preview suppression flag. Do not allow it
+		// without an actual treasure group or accept unexamined mode values.
+		if node.TreasureMode > 1 || (node.TreasureMode != 0 && node.TreasureGroupID == 0) {
+			return fmt.Errorf("diva map: unsupported/orphaned treasure preview mode")
 		}
 	}
 	if starts != 1 || goals != 1 {

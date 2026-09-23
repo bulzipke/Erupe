@@ -156,6 +156,7 @@ func handleMsgMhfGetUdTacticsRewardList(s *Session, p mhfpacket.MHFPacket) {
 			return
 		}
 		personal = append(append([]DivaPrize(nil), personal...), divaHRInterceptionDisplay(hr, gr)...)
+		personal = append(personal, divaMelodyDisplay()...)
 		sort.SliceStable(personal, func(i, j int) bool { return personal[i].PointsReq < personal[j].PointsReq })
 		hrGuild = divaHRGuildDisplay(hr, gr)
 	}
@@ -169,6 +170,12 @@ func handleMsgMhfGetUdTacticsRewardList(s *Session, p mhfpacket.MHFPacket) {
 		guild = append(append([]DivaPrize(nil), guild...), hrGuild...)
 		sort.SliceStable(guild, func(i, j int) bool { return guild[i].PointsReq < guild[j].PointsReq })
 	}
+	if s.server.erupeConfig.RealClientMode == cfg.ZZ {
+		// Display the already-implemented automatic one-area hall entitlement.
+		// Do not issue an artificial inventory item or a second unlock receipt.
+		guild = append(append([]DivaPrize(nil), guild...), DivaPrize{Type: "guild", PointsReq: 1, ItemType: 28, Quantity: 1}, DivaPrize{Type: "guild", PointsReq: 1, ItemType: 28, Quantity: 1, GR: true})
+		sort.SliceStable(guild, func(i, j int) bool { return guild[i].PointsReq < guild[j].PointsReq })
+	}
 
 	bf := byteframe.NewByteFrame()
 	// Leading status byte: the client skips parsing entirely when this is
@@ -177,9 +184,9 @@ func handleMsgMhfGetUdTacticsRewardList(s *Session, p mhfpacket.MHFPacket) {
 	bf.WriteUint8(0)
 	writeDivaPrizeList(bf, personal)
 	writeDivaPrizeList(bf, guild)
-	// Third list: ranking rewards (13-byte entries). Unimplemented, but the
-	// count field itself is mandatory — without it the client reads past the
-	// end of the payload looking for it.
+	// Retain the native third slot. No separate interception ranking prize
+	// catalog is verified in the final manual/round-40 notice. A zero count is
+	// mandatory, not evidence that a known original reward is unimplemented.
 	bf.WriteUint16(0)
 
 	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
@@ -233,14 +240,7 @@ func handleMsgMhfSetUdTacticsFollower(s *Session, p mhfpacket.MHFPacket) {
 	setDivaTacticsFollower(s, p.(*mhfpacket.MsgMhfSetUdTacticsFollower))
 }
 
-// handleMsgMhfGetUdTacticsLog was previously a bare stub, which meant it sent
-// no ack at all -- since the packet carries an AckHandle, that silence is a
-// client softlock (see CLAUDE.md's ack requirement), not just a missing
-// feature. The real log entry format hasn't been reverse engineered yet, so
-// this returns an empty result via the same "no results" convention used
-// elsewhere in this file (e.g. handleMsgMhfGetUdTacticsRemainingPoint)
-// rather than fabricate a layout.
 func handleMsgMhfGetUdTacticsLog(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetUdTacticsLog)
-	stubEnumerateNoResults(s, pkt.AckHandle)
+	handleDivaTacticsLog(s, pkt.AckHandle)
 }

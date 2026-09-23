@@ -77,6 +77,8 @@ func handleMsgMhfEnumerateShop(s *Session, p mhfpacket.MHFPacket) {
 	// 7: limited item
 	// 8: special item
 	switch pkt.ShopType {
+	case 9: // Preview and exchange share this catalog; USE checks purchase eligibility.
+		enumerateDivaMelodyShop(s, pkt)
 	case 1: // Running gachas
 		// Fundamentally, gacha works completely differently, just hide it for now.
 		if s.server.erupeConfig.RealClientMode < cfg.G1 {
@@ -219,8 +221,6 @@ func handleMsgMhfEnumerateShop(s *Session, p mhfpacket.MHFPacket) {
 	case 7: // Item->GCP
 		fallthrough
 	case 8: // Diva
-		fallthrough
-	case 9: // Diva song shop
 		bf := byteframe.NewByteFrame()
 		items := getShopItems(s, pkt.ShopType, pkt.ShopID)
 		if len(items) > int(pkt.Limit) {

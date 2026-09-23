@@ -150,6 +150,19 @@ func TestDivaKoreanNoticesUsePlayerGuidance(t *testing.T) {
 	}
 }
 
+func TestDivaNoticeMelodyDeadlineDiffersFromMaterialRewards(t *testing.T) {
+	ko := divaNoticeTexts("ko", false, 0)[2]
+	for _, phrase := range []string{"1에리어", "선율은 가영의 장 종료 전까지", "그 외 요격 보수는 다음 요격전"} {
+		if !strings.Contains(ko, phrase) {
+			t.Fatalf("missing special-hall/melody guidance %q", phrase)
+		}
+	}
+	en := divaNoticeTexts("en", false, 0)[2]
+	if !strings.Contains(en, "reception phase ends") || !strings.Contains(en, "before the next battle begins") {
+		t.Fatal("melody and material deadlines must remain distinct")
+	}
+}
+
 func TestDivaNoticeOriginalStyleAndLiveSchedule(t *testing.T) {
 	// Deliberately cross midnight, month and year boundaries. The host's local
 	// zone must not change the date communicated to a UTC+9 game client.

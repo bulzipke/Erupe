@@ -48,7 +48,7 @@ func divaNoticeTexts(language string, random bool, manualCount int) [4]string {
 		return [4]string{
 			fmt.Sprintf("가희수위전 · 기도의 장\n■ 기도의 장 안내\n기주를 선택하고 사냥하면\n노래 구슬이 쌓입니다.\n개인 달성 보수와 매일 보수는\n노래 구슬을 모아 받을 수 있습니다.\n%s", bonus),
 			"가희수위전 · 전가의 장\n■ 전가의 장 안내\n요격 퀘스트에서 점수를 모으면\n개인 달성 보수를 받을 수 있습니다.\n기도의 장에서 획득한 보수도\n보수 메뉴에서 확인 가능합니다.\n미수령 요격 보수는 다음 요격전\n시작 전까지 수령 가능합니다.",
-			"가희수위전 · 가영의 장\n■ 보수 수령 안내\n미수령 요격 개인 보수는\n다음 요격전이 시작되기 전까지\n수령할 수 있습니다.\n수령 가능한 보수는\n보수 메뉴에서 확인 가능합니다.",
+			"가희수위전 · 가영의 장\n■ 특별 수렵단방 안내\n1에리어 획득 시 특별방이 열립니다.\n선율은 가영의 장 종료 전까지\n교환할 수 있습니다.\n그 외 요격 보수는 다음 요격전\n시작 전까지 수령 가능합니다.",
 			"가희수위전 · 다음 개최 준비\n■ 보수 수령 안내\n미수령 요격 개인 보수는\n다음 요격전이 시작되기 전까지\n수령할 수 있습니다.\n새 회차 보수에는 해당 회차에서\n획득한 점수만 반영됩니다.",
 		}
 	}
@@ -61,7 +61,7 @@ func divaNoticeTexts(language string, random bool, manualCount int) [4]string {
 	return [4]string{
 		fmt.Sprintf("Diva Defense - Prayer\n[Prayer phase]\nChoose a bead and go hunting\nto collect song gems.\nCollect gems to earn milestone\nand daily rewards.\n%s", bonus),
 		"Diva Defense - Interception\n[Interception phase]\nEarn points on battle quests\nto receive milestone rewards.\nPrayer rewards can also be\nchecked at the reward counter.\nClaim pending battle rewards\nbefore the next battle begins.",
-		"Diva Defense - Reception\n[Reward collection]\nUnclaimed battle rewards can\nbe collected before the next\ninterception event begins.\nCheck the reward counter\nfor available rewards.",
+		"Diva Defense - Reception\n[Special guild hall]\nCapture 1 area to open hall.\nExchange melodies before this\nreception phase ends.\nClaim other battle rewards\nbefore the next battle begins.",
 		"Diva Defense - Between rounds\n[Reward collection]\nClaim pending battle rewards\nbefore the next battle begins.\nNew-round rewards use points\nearned during that round.",
 	}
 }

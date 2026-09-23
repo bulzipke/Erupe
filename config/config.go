@@ -202,6 +202,7 @@ type CapLinkOptions struct {
 type GameplayOptions struct {
 	DivaBonusRandom                bool              // Deterministic four-color monster bonuses on the UTC+9 three-hour grid (x2).
 	DivaBonusTargets               []DivaBonusTarget // Explicit song-phase bonus windows; empty means none configured.
+	DivaMapRedTreasureMode         string            // off (default), random-one, or all; pinned only for future v2 rounds.
 	DisableDailyGachaCoins         bool              // Disable account-wide daily 10 login + 10 one-hour premium coins (midnight KST).
 	MinFeatureWeapons              int               // Minimum number of Active Feature weapons to generate daily
 	MaxFeatureWeapons              int               // Maximum number of Active Feature weapons to generate daily
@@ -519,6 +520,7 @@ func registerDefaults() {
 	// DebugOptions (dot-notation for per-field merge)
 	viper.SetDefault("DebugOptions.MaxHexdumpLength", 256)
 	viper.SetDefault("DebugOptions.DivaOverride", -1)
+	viper.SetDefault("GameplayOptions.DivaMapRedTreasureMode", DivaMapRedTreasureOff)
 	viper.SetDefault("DebugOptions.FestaOverride", -1)
 	viper.SetDefault("DebugOptions.AutoQuestBackport", true)
 	viper.SetDefault("DebugOptions.TraceSaveCorruption", false)
@@ -714,6 +716,16 @@ func LoadConfig() (*Config, error) {
 
 	if c.GameplayOptions.MinFeatureWeapons > c.GameplayOptions.MaxFeatureWeapons {
 		c.GameplayOptions.MinFeatureWeapons = c.GameplayOptions.MaxFeatureWeapons
+	}
+	if c.GameplayOptions.DivaMapRedTreasureMode == "" {
+		c.GameplayOptions.DivaMapRedTreasureMode = DivaMapRedTreasureOff
+	}
+	if err := ValidateDivaMapRedTreasureMode(c.GameplayOptions.DivaMapRedTreasureMode); err != nil {
+		return nil, err
+	}
+	if c.GameplayOptions.DivaMapRedTreasureMode != DivaMapRedTreasureOff &&
+		(c.RealClientMode != ZZ || c.DebugOptions.InGameTimeOverrideHour != nil) {
+		return nil, fmt.Errorf("GameplayOptions.DivaMapRedTreasureMode requires the ZZ client and DebugOptions.InGameTimeOverrideHour=null")
 	}
 	if err := ValidateDivaBonusTargets(c.GameplayOptions.DivaBonusTargets); err != nil {
 		return nil, err

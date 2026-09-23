@@ -37,7 +37,7 @@ func (r *GuildRepository) CreateAdventure(guildID, destination uint32, depart, r
 func (r *GuildRepository) CreateAdventureForGuild(guildID, actorCharID, destination uint32, depart, returnTime int64) error {
 	return requireGuildScopedMutation(r.db.Exec(`
 		INSERT INTO guild_adventures (guild_id, destination, depart, return)
-		SELECT $1, $3, $4, $5
+		SELECT $1::integer, $3, $4, $5
 		WHERE EXISTS (
 			SELECT 1
 			FROM guild_characters gc
@@ -60,7 +60,7 @@ func (r *GuildRepository) CreateAdventureWithCharge(guildID, destination, charge
 func (r *GuildRepository) CreateAdventureWithChargeForGuild(guildID, actorCharID, destination, charge uint32, depart, returnTime int64) error {
 	return requireGuildScopedMutation(r.db.Exec(`
 		INSERT INTO guild_adventures (guild_id, destination, charge, depart, return)
-		SELECT $1, $3, $4, $5, $6
+		SELECT $1::integer, $3, $4, $5, $6
 		WHERE EXISTS (
 			SELECT 1
 			FROM guild_characters gc

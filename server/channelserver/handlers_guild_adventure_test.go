@@ -3,6 +3,7 @@ package channelserver
 import (
 	"testing"
 
+	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
 )
 
@@ -188,9 +189,10 @@ func TestChargeGuildAdventure_Success(t *testing.T) {
 
 func TestRegistGuildAdventureDiva_Success(t *testing.T) {
 	server := createMockServer()
-	guildMock := &mockGuildRepo{membership: &GuildMember{GuildID: 10, CharID: 1}}
-	guildMock.guild = &Guild{ID: 10}
-	server.guildRepo = guildMock
+	server.erupeConfig.RealClientMode = cfg.ZZ
+	server.erupeConfig.DebugOptions.DivaOverride = 3
+	repo := &specialAdventureMockRepo{}
+	server.divaRepo = repo
 	session := createMockSession(1, server)
 
 	pkt := &mhfpacket.MsgMhfRegistGuildAdventureDiva{
@@ -201,9 +203,8 @@ func TestRegistGuildAdventureDiva_Success(t *testing.T) {
 
 	handleMsgMhfRegistGuildAdventureDiva(session, pkt)
 
-	select {
-	case <-session.sendPackets:
-	default:
-		t.Error("No response packet queued")
+	ack := readAck(t, session)
+	if ack.ErrorCode != 0 || ack.AckHandle != 100 || repo.calls != 1 || repo.char != 1 || repo.destination != 3 || repo.charge != 200 {
+		t.Fatalf("unexpected registration: ack=%+v repo=%+v", ack, repo)
 	}
 }

@@ -509,3 +509,23 @@ implements the Tower dure kill reward table (Op=5, ID 260001) and the Tower floo
 table (Op=5, ID 260003). Those are not missing here — they live in `handlers_seibattle.go`
 on the `feature/conquest` branch. When that branch is eventually integrated, ensure the
 Tower floor reward data is preserved.
+
+---
+
+## Client gate for the receptionist menu (ZZ, verified 2026-09-23)
+
+The ZZ client keeps the Tower reception in the **same NPC as the Hunting Road receptionist**
+(Mezeporta NPC 38, menu list of counter type 0x10: codes `0x99` tower info, `0x9a` tower
+counter, `0x9b`/`0xb9`/`0x9e`/`0x9f` Road items). The menu builder (`FUN_10372000` in
+mhfo-hd.dll) shows `0x99`/`0x9a` only when **both** hold:
+
+1. `GetEarthStatus` contains an entry with StatusID 21 whose Start..End window covers now
+   (config `EarthStatus: 21` on this fork).
+2. Client tune value **1146 is zero** (`isTower_invisible`). Tune values are the records
+   appended after the quest list in the `EnumerateQuest` response; the client stores them
+   obfuscated (`FUN_115119e0`, value table `0x1e419c78`, slot 79 = ID 1146). A non-zero
+   value hides the two Tower items (asm at `0x103720a0`: `TEST EAX,EAX; JZ keep`).
+
+`handleMsgMhfEnumerateQuest` keeps sending 1146 = 0. The Road items have no hide condition
+in the client, so during a Tower week the NPC offers both Road and Tower entries unless the
+client-side menu list is altered.

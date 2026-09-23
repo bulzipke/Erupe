@@ -34,7 +34,7 @@ func (r *GuildRepository) CreateMealForGuild(guildID, actorCharID, mealID, level
 	var id uint32
 	err := r.db.QueryRow(`
 		INSERT INTO guild_meals (guild_id, meal_id, level, created_at)
-		SELECT $1, $3, $4, $5
+		SELECT $1::integer, $3, $4, $5
 		WHERE EXISTS (
 			SELECT 1
 			FROM guild_characters gc

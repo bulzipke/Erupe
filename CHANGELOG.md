@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Show the shared 76-item Diva melody catalog in the interception reward preview before welcome-period/hall eligibility, while retaining all purchase-time membership, period and wallet checks.
+- Authorize special-hall one-hour adventures atomically against current accepted membership, earned area access and the actual welcome period; fix ordinary guild adventure registration's integer/bigint parameter conflict without changing expedition times.
+- Fix the matching guild-meal registration SQL type conflict; verify native special-hall cooking assistance without applying a second success boost or consuming materials twice, and add result/expiry/shared-storage regression coverage.
+- Keep special-hall poogie outfits separate from ordinary guild-room outfits and handle the native three special outfit operations with leader, membership, entitlement and real-period checks.
+- Exclude expired melody receipts from material reward batches so ordinary unclaimed interception rewards remain available through their existing deadline.
 - Stop native interception-map retry loops with the terminal application status; enable one current legacy round's map from update time without importing old totals, unlocking personal prizes, or changing round dates.
 - Correct ZZ interception-map buffer replies and implement map-request builders with truncated-packet checks and validated catalog bounds.
 - Rebase the existing interception bonus quest schedule onto the current event, clear all native cache slots, and remove obsolete dates and unrelated trailing bytes without changing quest multipliers.
@@ -23,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add native personal interception milestone logs every 10,000 points from accepted round results, preserving totals across guild transfers while attributing each crossing to its original guild and retaining the 200-row limit.
+- Add operator-approved HR melody caps at half the GR thresholds, preserving account-shared maximum earnings, spent balances, immutable GR receipts and promotion-safe pending claims.
+- Add progressive v3 interception maps for future actual rounds: page-tiered initial reinforcement, hourly-boundary invasion chances and hidden-treasure ratios, with deterministic persistence, captured-tile protection, a 100% reinforcement cap and native invasion journal entries. Preserve all v1/v2 rounds and reward quantities.
+- Implement account/event-scoped Diva melody caps, explicit reward claims and locked spending, with 42 source-verified exchange entries and native shop/coin responses; document historical threshold inferences and remaining catalog gaps.
+- Implement native interception logs from actual accepted contributions and settled area/treasure awards, with current-guild isolation, safe encoded names and a 200-row limit.
+- Add opt-in hidden-content red-treasure presentation for future random-map rounds, pinning each round to its start-time policy without rewriting maps, points, prizes or claim history; keep the default off pending an operator distribution choice.
+- Document the native special-hall entry path and the renewed original-source audit that found no separate final-era interception ranking prize catalog.
 - Add deterministic random interception-map geometry for new actual rounds, with connected page edges, native current/previous paging and historical branch reward validation; preserve existing maps, points and reward quantities.
 - Add an operator-approved ten-stage HR interception guild reward table with ticket/GP payouts, native HR previews and promotion-safe milestone receipts; preserve existing GR rewards and claims.
 - Connect approved custom-v1 interception maps, two optional branches, contributor-only ticket/GP treasures, existing guild milestone claims and special-hall eligibility to durable departure/area ledgers; settle hourly and publish area ranks at 04/12/20 UTC+9, only for new rounds after cutover.
@@ -43,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Complete the 76-entry Diva melody exchange catalog with 34 restored ticket/material entries, documenting single-unit historical inferences separately from official names/prices; document later operator-approved HR and map-invasion substitutes separately from original data.
 - Format Diva notices like the original title/schedule/details announcement, using packet dates in UTC+9 even in fixed modes and phase-timed player guidance.
 - Balance random Diva targets across the whole prayer phase, and preserve legacy interception totals while enabling round-scoped personal rewards with departure-bound, replay-safe point records from new rounds.
 - Retain Diva event history and stable forced-phase anchors; correct interception point/completed-quest response layouts and clear stale client completion slots between rounds.

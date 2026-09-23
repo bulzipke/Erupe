@@ -86,6 +86,9 @@ func divaCustomMapAt(number uint16) (DivaInterceptionMap, error) {
 }
 
 func divaCustomMapNext(previous DivaInterceptionMap) (DivaInterceptionMap, error) {
+	if previous.RulesVersion == divaProgressiveMapRules {
+		return divaProgressiveMapNext(previous)
+	}
 	if previous.RulesVersion == divaRandomMapRules {
 		return divaRandomMapNext(previous)
 	}
@@ -230,6 +233,9 @@ func advanceDivaCustomMap(m DivaInterceptionMap, points map[uint16]uint64) (diva
 // otherwise fixed junction indices or a changed treasure table could silently
 // reinterpret an already bound departure.
 func validateDivaCustomMap(m DivaInterceptionMap) error {
+	if m.RulesVersion == divaProgressiveMapRules {
+		return validateDivaProgressiveMap(m)
+	}
 	if m.RulesVersion == divaRandomMapRules {
 		return validateDivaRandomMap(m)
 	}
@@ -243,6 +249,9 @@ func validateDivaCustomMap(m DivaInterceptionMap) error {
 		return fmt.Errorf("diva custom map: unexpected template count")
 	}
 	for _, state := range m.States {
+		if state.InvasionTick != 0 {
+			return fmt.Errorf("diva legacy map contains invasion metadata")
+		}
 		expected, err := divaCustomMapAt(state.MapNumber)
 		if err != nil {
 			return err

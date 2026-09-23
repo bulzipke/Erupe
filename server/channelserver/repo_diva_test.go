@@ -15,6 +15,10 @@ func setupDivaRepo(t *testing.T) (*DivaRepository, *sqlx.DB) {
 		VALUES(TRUE,'9999-01-01T00:00:00Z') ON CONFLICT(singleton) DO NOTHING`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`INSERT INTO diva_progressive_map_cutover(singleton,installed_at)
+		VALUES(TRUE,'9999-01-01T00:00:00Z') ON CONFLICT(singleton) DO NOTHING`); err != nil {
+		t.Fatal(err)
+	}
 	repo := NewDivaRepository(db)
 	t.Cleanup(func() { TeardownTestDB(t, db) })
 	return repo, db

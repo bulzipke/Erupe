@@ -162,7 +162,7 @@ func TestDivaHRInterceptionDisplayHandler(t *testing.T) {
 		s.server.divaRepo = &divaHRDisplayRepo{hr: tt.hr, gr: tt.gr}
 		handleMsgMhfGetUdTacticsRewardList(s, &mhfpacket.MsgMhfGetUdTacticsRewardList{AckHandle: 55})
 		ack := readAck(t, s)
-		if ack.ErrorCode != 0 || len(ack.Payload) != 7+(5+10)*11 || binary.BigEndian.Uint16(ack.Payload[1:3]) != 5 {
+		if ack.ErrorCode != 0 || len(ack.Payload) != 7+(5+20+10+2)*11 || binary.BigEndian.Uint16(ack.Payload[1:3]) != 25 {
 			t.Fatalf("HR preview failed: %+v", ack)
 		}
 		if binary.BigEndian.Uint16(ack.Payload[10:12]) != tt.quantity || ack.Payload[12] != 0 || ack.Payload[13] != 0 {

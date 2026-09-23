@@ -121,7 +121,7 @@ func loadDivaStoredMap(tx *sqlx.Tx, eventID, guildID uint32) (divaStoredMap, Div
 	return stored, m, nil
 }
 
-func createDivaGuildMapTx(tx *sqlx.Tx, eventID, guildID uint32, name string, start time.Time) error {
+func createDivaGuildMapTx(tx *sqlx.Tx, eventID, guildID uint32, name string, start, firstUse time.Time) error {
 	var exists bool
 	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM diva_map_guilds WHERE event_id=$1 AND guild_id=$2)`, eventID, guildID).Scan(&exists); err != nil {
 		return err
@@ -132,6 +132,11 @@ func createDivaGuildMapTx(tx *sqlx.Tx, eventID, guildID uint32, name string, sta
 	m, err := initialDivaMapForEventTx(tx, eventID)
 	if err != nil {
 		return err
+	}
+	// A late first visit must not inherit days of attacks before this guild
+	// even had a map. Subsequent downtime DOES advance the persisted page clock.
+	if m.RulesVersion == divaProgressiveMapRules && firstUse.After(start) {
+		start = firstUse
 	}
 	if err = validateDivaMapEventCatalogTx(tx, eventID, m); err != nil {
 		return err
@@ -186,6 +191,8 @@ func settleDivaGuildMapTx(tx *sqlx.Tx, eventID, guildID uint32, window divaMapEv
 			break
 		}
 		begin := position
+		mapBefore := m.States[0].MapNumber
+		changed := false
 		points := make(map[uint16]uint64)
 		for position < len(pending) && pending[position].EligibleAt.Before(boundary) {
 			row := pending[position]
@@ -198,6 +205,7 @@ func settleDivaGuildMapTx(tx *sqlx.Tx, eventID, guildID uint32, window divaMapEv
 			position++
 		}
 		if position > begin {
+			changed = true
 			before := m
 			progress, err := advanceDivaCustomMap(m, points)
 			if err != nil {
@@ -249,6 +257,24 @@ func settleDivaGuildMapTx(tx *sqlx.Tx, eventID, guildID uint32, window divaMapEv
 					return err
 				}
 			}
+		}
+		// Resolve this bucket's captures before invasion. Never attack a newly
+		// opened page in its birth bucket, or at/after the event's final cutoff.
+		if m.RulesVersion == divaProgressiveMapRules && m.States[0].MapNumber == mapBefore && boundary.Before(window.End) {
+			var attacked []uint16
+			m, attacked, err = applyDivaProgressiveInvasion(m, m.States[0].InvasionTick+1)
+			if err != nil {
+				return err
+			}
+			changed = true // Persist the tick even when every attack roll fails.
+			if len(attacked) > 0 {
+				if _, err = tx.Exec(`INSERT INTO diva_map_invasions(event_id,guild_id,happened_at,map_number,page_tick,changed_nodes)
+					VALUES($1,$2,$3,$4,$5,$6)`, eventID, guildID, boundary, mapBefore, m.States[0].InvasionTick, len(attacked)); err != nil {
+					return err
+				}
+			}
+		}
+		if changed {
 			if err = validateDivaMapEventCatalogTx(tx, eventID, m); err != nil {
 				return err
 			}
@@ -389,7 +415,7 @@ func (r *DivaRepository) GetDivaMap(charID, guildID, eventID uint32, now time.Ti
 			return view, nil
 		}
 	}
-	if err = createDivaGuildMapTx(tx, eventID, guildID, name, window.Start); err != nil {
+	if err = createDivaGuildMapTx(tx, eventID, guildID, name, window.Start, now); err != nil {
 		return view, err
 	}
 	if _, err = settleDivaMapEventTx(tx, eventID, now); err != nil {
@@ -400,6 +426,11 @@ func (r *DivaRepository) GetDivaMap(charID, guildID, eventID uint32, now time.Ti
 		return view, err
 	}
 	view.Enabled = true
+	if view.Map.RulesVersion == divaProgressiveMapRules {
+		view.SpecialTreasures, view.SpecialTreasureError = selectDivaProgressiveTreasures(view.Map)
+	} else if r.mapSpecialPolicyReady.Load() {
+		view.SpecialTreasures, view.SpecialTreasureError = loadDivaMapSpecialSelectionsTx(tx, eventID, view.Map)
+	}
 	return view, tx.Commit()
 }
 
@@ -447,7 +478,7 @@ func (r *DivaRepository) BindDivaMapDeparture(charID, guildID, eventID uint32, q
 	if err != nil {
 		return out, err
 	}
-	if err = createDivaGuildMapTx(tx, eventID, guildID, name, window.Start); err != nil {
+	if err = createDivaGuildMapTx(tx, eventID, guildID, name, window.Start, startedAt); err != nil {
 		return out, err
 	}
 	if _, err = settleDivaMapEventTx(tx, eventID, now); err != nil {

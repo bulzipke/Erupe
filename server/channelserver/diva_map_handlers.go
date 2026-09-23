@@ -88,7 +88,16 @@ func handleDivaMapQuery(s *Session, ackHandle uint32, generate bool) {
 		doAckBufSucceed(s, ackHandle, []byte{0})
 		return
 	}
-	data, err := divaInterceptionMapPayload(view.Map)
+	selections := view.SpecialTreasures
+	if view.SpecialTreasureError != nil {
+		s.logger.Warn("Diva special treasure presentation unavailable; using ordinary map", zap.Error(view.SpecialTreasureError))
+		selections = nil
+	}
+	data, err := divaMapSpecialTreasurePayload(view.Map, selections)
+	if err != nil && len(selections) > 0 {
+		s.logger.Warn("Rejected Diva special treasure presentation; using ordinary map", zap.Error(err))
+		data, err = divaInterceptionMapPayload(view.Map)
+	}
 	if err != nil {
 		s.logger.Error("Rejected unsafe Diva map payload", zap.Error(err))
 		doAckBufSucceed(s, ackHandle, []byte{divaMapNativeTerminalError})

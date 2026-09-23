@@ -19,7 +19,7 @@ type divaMapRules struct {
 
 func validDivaMapRules(rules divaMapRules) bool {
 	return (rules.Version == divaCustomMapRules && rules.Seed == 0) ||
-		(rules.Version == divaRandomMapRules && rules.Seed > 0 && rules.Seed <= math.MaxInt64)
+		((rules.Version == divaRandomMapRules || rules.Version == divaProgressiveMapRules) && rules.Seed > 0 && rules.Seed <= math.MaxInt64)
 }
 
 func loadDivaMapRulesTx(tx *sqlx.Tx, eventID uint32) (divaMapRules, error) {
@@ -59,10 +59,23 @@ func ensureDivaMapEventRulesTx(tx *sqlx.Tx, eventID uint32, actualStart time.Tim
 				return fmt.Errorf("create diva map seed: %w", seedErr)
 			}
 			rules = divaMapRules{Version: divaRandomMapRules, Seed: seed.Uint64() + 1}
+			var progressiveCutover time.Time
+			if err = tx.QueryRow(`SELECT installed_at FROM diva_progressive_map_cutover WHERE singleton=TRUE`).Scan(&progressiveCutover); err != nil {
+				return err
+			}
+			if actualStart.After(progressiveCutover) {
+				rules.Version = divaProgressiveMapRules
+			}
 		}
-		if _, err = tx.Exec(`INSERT INTO diva_map_events(event_id,rules_version,generation_seed,starts_at,ends_at)
-			VALUES($1,$2,$3,$4,$5) ON CONFLICT(event_id) DO NOTHING`,
-			eventID, rules.Version, int64(rules.Seed), window.Start, window.End); err != nil {
+		// Optional presentation must not prevent normal map creation if its
+		// configuration table is unavailable. The helper restores the savepoint.
+		specialMode, _ := divaMapSpecialModeForNewEventTx(tx, rules.Version, actualStart)
+		if rules.Version == divaProgressiveMapRules {
+			specialMode = "progressive"
+		}
+		if _, err = tx.Exec(`INSERT INTO diva_map_events(event_id,rules_version,generation_seed,starts_at,ends_at,red_treasure_mode)
+			VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(event_id) DO NOTHING`,
+			eventID, rules.Version, int64(rules.Seed), window.Start, window.End, specialMode); err != nil {
 			return err
 		}
 		err = tx.QueryRow(`SELECT starts_at,ends_at FROM diva_map_events WHERE event_id=$1`, eventID).
@@ -113,7 +126,9 @@ func initialDivaMapForEventTx(tx *sqlx.Tx, eventID uint32) (DivaInterceptionMap,
 		return DivaInterceptionMap{}, err
 	}
 	var m DivaInterceptionMap
-	if rules.Version == divaRandomMapRules {
+	if rules.Version == divaProgressiveMapRules {
+		m, err = divaProgressiveMapInitial(rules.Seed)
+	} else if rules.Version == divaRandomMapRules {
 		m, err = divaRandomMapInitial(rules.Seed)
 	} else {
 		m, err = divaCustomMapInitial()

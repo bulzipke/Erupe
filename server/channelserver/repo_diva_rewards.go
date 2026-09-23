@@ -75,6 +75,9 @@ func (r *DivaRepository) GetDivaRewardProgress(charID, eventID uint32, start, en
 }
 
 func validateDivaRewardItem(kind uint8, id, quantity uint16) error {
+	if kind == divaMelodyItemType && id == 0 && quantity >= 1 && quantity <= uint16(divaMelodyMax) {
+		return nil
+	}
 	if quantity == 0 || (kind != 7 && kind != 26) ||
 		(kind == 7 && id == 0) || (kind == 26 && id != 0) {
 		return errInvalidDivaReward
@@ -88,6 +91,9 @@ func validateDivaRewardCatalog(kind uint8, rewards []DivaRewardCatalogEntry) err
 	}
 	keys := make(map[string]struct{}, len(rewards))
 	for i, reward := range rewards {
+		if reward.ItemType == divaMelodyItemType && (kind != 6 || !validDivaMelodyReceipt(DivaRewardOffer{RewardType: kind, CatalogKey: reward.Key, ItemType: reward.ItemType, ItemID: reward.ItemID, Quantity: reward.Quantity})) {
+			return errInvalidDivaReward
+		}
 		if reward.NormaRepeat || reward.RewardType != kind || reward.Key == "" || strings.TrimSpace(reward.Key) != reward.Key ||
 			strings.ContainsRune(reward.Key, '\x00') {
 			return fmt.Errorf("%w: catalog row %d", errInvalidDivaReward, i)
@@ -154,6 +160,9 @@ func (r *DivaRepository) offerDivaRewardsWithRotationAt(charID, eventID uint32, 
 		if current.ID == 0 || current.ID != eventID {
 			return nil, ErrDivaInterceptionRewardExpired
 		}
+		if err := offerDivaMelodyTx(tx, charID, eventID, now); err != nil {
+			return nil, err
+		}
 	}
 	keys := make([]string, 0, len(rewards))
 	for _, reward := range rewards {
@@ -188,11 +197,17 @@ func (r *DivaRepository) offerDivaRewardsWithRotationAt(charID, eventID uint32, 
 	}
 	var offers []DivaRewardOffer
 	if kind == 6 {
+		clock, err := divaMapClock(tx, now)
+		if err != nil {
+			return nil, err
+		}
 		// Previously offered items retain their immutable snapshot, including
 		// when a later catalog edit removed the original row from the UI list.
 		err = tx.Select(&offers, `SELECT id,event_id,reward_type,catalog_key,item_type,item_id,quantity
 			FROM diva_reward_receipts WHERE char_id=$1 AND event_id=$2 AND reward_type=6
-			AND claimed_at IS NULL ORDER BY id LIMIT 32`, charID, eventID)
+			AND claimed_at IS NULL AND (item_type<>29 OR EXISTS(
+				SELECT 1 FROM events e WHERE e.id=$2 AND e.event_type='diva'
+				AND e.start_time+INTERVAL '1810800 seconds'>$3)) ORDER BY id LIMIT 32`, charID, eventID, clock)
 		if err != nil {
 			return nil, err
 		}
@@ -293,6 +308,15 @@ func (r *DivaRepository) prepareDivaRewardClaimsAt(charID uint32, kind uint8, id
 		if !row.ClaimedAt.Valid {
 			if kind == 6 && (current.ID == 0 || current.ID != row.EventID) {
 				return nil, ErrDivaInterceptionRewardExpired
+			}
+			if row.ItemType == divaMelodyItemType {
+				if kind != 6 {
+					return nil, errInvalidDivaReward
+				}
+				if err := claimDivaMelodyTx(tx, charID, row.DivaRewardOffer, now); err != nil {
+					return nil, err
+				}
+				continue
 			}
 			offers = append(offers, row.DivaRewardOffer)
 		}

@@ -589,7 +589,7 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 		{ID: 1104, Value: 10},
 
 		{ID: 1145, Value: 200},                // get_ud_point_rate_premium
-		{ID: 1146, Value: 0},                  // isTower_invisible
+		{ID: 1146, Value: 0},                  // isTower_invisible (client hides the Tower receptionist menu, NPC 38 codes 0x99/0x9a, when non-zero; Earth status 21 must also be active)
 		{ID: 1147, Value: 0},                  // isVenom_playable
 		{ID: 1149, Value: 20},                 // get_ud_break_parts_point
 		{ID: 1152, Value: 1130},               // unused?

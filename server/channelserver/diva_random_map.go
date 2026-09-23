@@ -300,6 +300,9 @@ func validateDivaRandomMap(m DivaInterceptionMap) error {
 	}
 	var currentAreas, previousBranches uint32
 	for i, state := range m.States {
+		if state.InvasionTick != 0 {
+			return fmt.Errorf("diva v2 map contains invasion metadata")
+		}
 		wantNumber := number - uint16(i)
 		if state.MapNumber != wantNumber {
 			return fmt.Errorf("diva random map: nonconsecutive map number")

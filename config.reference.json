@@ -70,6 +70,7 @@
   "GameplayOptions": {
     "DivaBonusRandom": false,
     "DivaBonusTargets": [],
+    "DivaMapRedTreasureMode": "off",
     "DisableDailyGachaCoins": false,
     "MinFeatureWeapons": 0,
     "MaxFeatureWeapons": 1,

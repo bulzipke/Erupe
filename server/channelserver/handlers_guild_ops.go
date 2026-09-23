@@ -129,6 +129,11 @@ func handleMsgMhfOperateGuild(s *Session, p mhfpacket.MHFPacket) {
 		handleChangePugi(s, uint8(pkt.Data1.ReadUint32()), guild, 2)
 	case mhfpacket.OperateGuildChangePugi3:
 		handleChangePugi(s, uint8(pkt.Data1.ReadUint32()), guild, 3)
+	case mhfpacket.OperateGuildChangeDivaPugi1, mhfpacket.OperateGuildChangeDivaPugi2, mhfpacket.OperateGuildChangeDivaPugi3:
+		if !handleChangeDivaSpecialPugi(s, pkt) {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
 	case mhfpacket.OperateGuildUnlockOutfit:
 		if err := s.server.guildRepo.SetPugiOutfits(guild.ID, pkt.Data1.ReadUint32()); err != nil {
 			s.logger.Error("Failed to unlock guild pugi outfit", zap.Error(err))

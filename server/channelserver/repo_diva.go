@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"sync/atomic"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -12,6 +13,9 @@ import (
 // DivaRepository centralizes all database access for diva defense events.
 type DivaRepository struct {
 	db *sqlx.DB
+	// Written at server initialization; atomic also keeps explicit reconfiguration
+	// and tests safe. A failed policy sync disables only the special presentation.
+	mapSpecialPolicyReady atomic.Bool
 }
 
 // NewDivaRepository creates a new DivaRepository.

@@ -114,9 +114,9 @@ func handleMsgMhfInfoGuild(s *Session, p mhfpacket.MHFPacket) {
 		bf.WriteUint8(guild.PugiOutfit2)
 		bf.WriteUint8(guild.PugiOutfit3)
 		if s.server.erupeConfig.RealClientMode >= cfg.Z1 {
-			bf.WriteUint8(guild.PugiOutfit1)
-			bf.WriteUint8(guild.PugiOutfit2)
-			bf.WriteUint8(guild.PugiOutfit3)
+			bf.WriteUint8(guild.DivaPugiOutfit1)
+			bf.WriteUint8(guild.DivaPugiOutfit2)
+			bf.WriteUint8(guild.DivaPugiOutfit3)
 		}
 		bf.WriteUint32(guild.PugiOutfits)
 

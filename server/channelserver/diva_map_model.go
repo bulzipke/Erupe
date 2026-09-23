@@ -17,8 +17,10 @@ type DivaMapActivationRepository interface {
 }
 
 type DivaMapView struct {
-	Enabled bool
-	Map     DivaInterceptionMap
+	Enabled              bool
+	Map                  DivaInterceptionMap
+	SpecialTreasures     []DivaMapSpecialTreasureSelection
+	SpecialTreasureError error // Optional presentation failure; the ordinary map remains usable.
 }
 
 type DivaMapDeparture struct {

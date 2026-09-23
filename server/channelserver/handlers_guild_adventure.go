@@ -1,10 +1,12 @@
 package channelserver
 
 import (
+	"errors"
 	"time"
 
 	"erupe-ce/common/byteframe"
 	"erupe-ce/common/stringsupport"
+	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
 	"go.uber.org/zap"
 )
@@ -96,14 +98,23 @@ func handleMsgMhfChargeGuildAdventure(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfRegistGuildAdventureDiva(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfRegistGuildAdventureDiva)
-	membership, err := s.server.guildRepo.GetCharacterMembership(s.charID)
-	if err != nil || membership == nil || membership.CharID != s.charID || membership.IsApplicant {
-		s.logger.Error("Failed to get guild for character", zap.Error(err))
-		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+	options := s.server.erupeConfig
+	mode := options.DebugOptions.DivaOverride
+	repo, ok := s.server.divaRepo.(DivaSpecialAdventureRepository)
+	if !ok || s.charID == 0 || options.RealClientMode != cfg.ZZ ||
+		(mode != -1 && mode != 3) || options.DebugOptions.InGameTimeOverrideHour != nil {
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
-	if err := s.server.guildRepo.CreateAdventureWithChargeForGuild(membership.GuildID, s.charID, pkt.Destination, pkt.Charge, TimeAdjusted().Unix(), TimeAdjusted().Add(1*time.Hour).Unix()); err != nil {
-		s.logger.Error("Failed to register guild adventure", zap.Error(err))
+	// Resolve membership, earned hall access and the real deadline together.
+	// A preflight GetDivaSpecialHall followed by an ordinary insert has a race
+	// with guild changes and the welcome-song period closing.
+	if err := repo.RegisterDivaSpecialAdventure(s.charID, pkt.Destination, pkt.Charge, mode); err != nil {
+		if !errors.Is(err, errDivaSpecialAdventureUnavailable) {
+			s.logger.Warn("Failed to register Diva special guild adventure", zap.Error(err))
+		}
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }

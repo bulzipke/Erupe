@@ -130,11 +130,15 @@ func TestDivaHRGuildDisplayHandlerWireAndRankReuse(t *testing.T) {
 			personalCount := int(binary.BigEndian.Uint16(ack.Payload[1:3]))
 			guildAt := 3 + 11*personalCount
 			guildCount := int(binary.BigEndian.Uint16(ack.Payload[guildAt : guildAt+2]))
-			if guildCount != 12+tt.wantHR || len(ack.Payload) != 7+(personalCount+guildCount)*11 {
+			wantHall := 0
+			if tt.mode == cfg.ZZ {
+				wantHall = 2
+			}
+			if guildCount != 12+tt.wantHR+wantHall || len(ack.Payload) != 7+(personalCount+guildCount)*11 {
 				t.Fatalf("bad guild count/packet length: guild=%d length=%d", guildCount, len(ack.Payload))
 			}
 			var lastArea uint32
-			var grRows, hrRows int
+			var grRows, hrRows, hallRows int
 			for at := guildAt + 2; at < guildAt+2+guildCount*11; at += 11 {
 				row := ack.Payload[at : at+11]
 				area := binary.BigEndian.Uint32(row[:4])
@@ -142,6 +146,13 @@ func TestDivaHRGuildDisplayHandlerWireAndRankReuse(t *testing.T) {
 					t.Fatalf("unsorted or repeating guild row: %x", row)
 				}
 				lastArea = area
+				if row[4] == 28 {
+					if area != 1 || row[9] > 1 {
+						t.Fatalf("invalid hall entitlement row: %x", row)
+					}
+					hallRows++
+					continue
+				}
 				if row[9] == 1 {
 					grRows++
 				} else if row[9] == 0 {
@@ -150,7 +161,7 @@ func TestDivaHRGuildDisplayHandlerWireAndRankReuse(t *testing.T) {
 					t.Fatalf("invalid guild rank flag: %x", row)
 				}
 			}
-			if grRows != 12 || hrRows != tt.wantHR || !reflect.DeepEqual(original, r.guildPrizes) {
+			if grRows != 12 || hrRows != tt.wantHR || hallRows != wantHall || !reflect.DeepEqual(original, r.guildPrizes) {
 				t.Fatal("original GR catalog mutated or HR catalog missing")
 			}
 			wantRankCalls := 0

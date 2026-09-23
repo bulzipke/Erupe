@@ -33,31 +33,34 @@ const (
 
 // Guild represents a guild with all its metadata.
 type Guild struct {
-	ID            uint32        `db:"id"`
-	Name          string        `db:"name"`
-	MainMotto     uint8         `db:"main_motto"`
-	SubMotto      uint8         `db:"sub_motto"`
-	CreatedAt     time.Time     `db:"created_at"`
-	MemberCount   uint16        `db:"member_count"`
-	RankRP        uint32        `db:"rank_rp"`
-	EventRP       uint32        `db:"event_rp"`
-	RoomRP        uint16        `db:"room_rp"`
-	RoomExpiry    time.Time     `db:"room_expiry"`
-	Comment       string        `db:"comment"`
-	ReturnType    uint8         `db:"return_type"`
-	PugiName1     string        `db:"pugi_name_1"`
-	PugiName2     string        `db:"pugi_name_2"`
-	PugiName3     string        `db:"pugi_name_3"`
-	PugiOutfit1   uint8         `db:"pugi_outfit_1"`
-	PugiOutfit2   uint8         `db:"pugi_outfit_2"`
-	PugiOutfit3   uint8         `db:"pugi_outfit_3"`
-	PugiOutfits   uint32        `db:"pugi_outfits"`
-	Recruiting    bool          `db:"recruiting"`
-	FestivalColor FestivalColor `db:"festival_color"`
-	Souls         uint32        `db:"souls"`
-	AllianceID    uint32        `db:"alliance_id"`
-	Icon          *GuildIcon    `db:"icon"`
-	RPResetAt     time.Time     `db:"rp_reset_at"`
+	ID              uint32        `db:"id"`
+	Name            string        `db:"name"`
+	MainMotto       uint8         `db:"main_motto"`
+	SubMotto        uint8         `db:"sub_motto"`
+	CreatedAt       time.Time     `db:"created_at"`
+	MemberCount     uint16        `db:"member_count"`
+	RankRP          uint32        `db:"rank_rp"`
+	EventRP         uint32        `db:"event_rp"`
+	RoomRP          uint16        `db:"room_rp"`
+	RoomExpiry      time.Time     `db:"room_expiry"`
+	Comment         string        `db:"comment"`
+	ReturnType      uint8         `db:"return_type"`
+	PugiName1       string        `db:"pugi_name_1"`
+	PugiName2       string        `db:"pugi_name_2"`
+	PugiName3       string        `db:"pugi_name_3"`
+	PugiOutfit1     uint8         `db:"pugi_outfit_1"`
+	PugiOutfit2     uint8         `db:"pugi_outfit_2"`
+	PugiOutfit3     uint8         `db:"pugi_outfit_3"`
+	DivaPugiOutfit1 uint8         `db:"diva_pugi_outfit_1"`
+	DivaPugiOutfit2 uint8         `db:"diva_pugi_outfit_2"`
+	DivaPugiOutfit3 uint8         `db:"diva_pugi_outfit_3"`
+	PugiOutfits     uint32        `db:"pugi_outfits"`
+	Recruiting      bool          `db:"recruiting"`
+	FestivalColor   FestivalColor `db:"festival_color"`
+	Souls           uint32        `db:"souls"`
+	AllianceID      uint32        `db:"alliance_id"`
+	Icon            *GuildIcon    `db:"icon"`
+	RPResetAt       time.Time     `db:"rp_reset_at"`
 
 	GuildLeader
 }

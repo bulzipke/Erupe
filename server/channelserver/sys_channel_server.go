@@ -230,7 +230,11 @@ func NewServer(config *Config) *Server {
 	s.shopRepo = NewShopRepository(config.DB)
 	s.cafeRepo = NewCafeRepository(config.DB)
 	s.goocooRepo = NewGoocooRepository(config.DB)
-	s.divaRepo = NewDivaRepository(config.DB)
+	divaRepo := NewDivaRepository(config.DB)
+	if err := divaRepo.ConfigureDivaMapSpecialTreasures(config.ErupeConfig.GameplayOptions.DivaMapRedTreasureMode, time.Time{}); err != nil {
+		s.logger.Warn("Diva special treasure policy unavailable; retaining ordinary map presentation", zap.Error(err))
+	}
+	s.divaRepo = divaRepo
 	s.miscRepo = NewMiscRepository(config.DB)
 	s.scenarioRepo = NewScenarioRepository(config.DB)
 	s.mercenaryRepo = NewMercenaryRepository(config.DB)
