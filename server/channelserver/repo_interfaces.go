@@ -288,13 +288,32 @@ type FestaRepo interface {
 
 // TowerRepo defines the contract for tower/tenrouirai data access.
 type TowerRepo interface {
+	GetGuardianKills(earthID int32) (uint32, uint32, error)
+	RecordGuardianKill(earthID int32, block uint8, runID string, charID uint32) error
+	RecordTowerRun(earthID int32, charID uint32, block uint8, dayStart time.Time, stats TowerMissionStats) error
+	RecordTowerDailyExtras(earthID int32, charID uint32, dayStart time.Time, stats TowerMissionStats) error
+	GetTowerScoutScores(earthID int32) (uint32, uint32, error)
+	GetTowerRewardState(earthID int32, charID uint32, dayStart time.Time) (TowerRewardState, error)
+	GetTowerSurveyHistory(earthID int32, charID uint32) ([5]int32, error)
+	GetTowerDailyBin(charID uint32) ([]byte, error)
+	SaveTowerDailyBin(charID uint32, data []byte) error
+	RecordTowerRewardClaim(earthID int32, charID uint32, kind, index int32, itemID uint16, quantity uint16) (bool, error)
 	GetTowerData(charID uint32) (TowerData, error)
 	GetSkills(charID uint32) (string, error)
 	UpdateSkills(charID uint32, skills string, cost int32) error
+	GetRoadSkills(charID uint32) (string, error)
+	UpdateRoadSkills(charID uint32, skills string) error
+	AddTSP(charID uint32, tsp int32) error
+	ResetTowerSkills(charID uint32, refund int32) error
 	UpdateProgress(charID uint32, tr, trp, cost, block1 int32) error
+	UpdateBlockFloors(charID uint32, block uint8, floors int32) error
+	AddTowerRankPoints(charID uint32, trp, perRank, tspPerRank int32) (int32, error)
 	GetGems(charID uint32) (string, error)
 	UpdateGems(charID uint32, gems string) error
+	GetGemHistory(charID uint32) ([]GemHistory, error)
+	TransferGem(senderID, receiverID uint32, gemID uint16, message uint16) error
 	GetTenrouiraiProgress(guildID uint32) (TenrouiraiProgressData, error)
+	SubmitTenrouiraiProgress(guildID, charID uint32, stats TowerMissionStats) error
 	GetTenrouiraiMissionScores(guildID uint32, missionIndex uint8) ([]TenrouiraiCharScore, error)
 	GetGuildTowerRP(guildID uint32) (uint32, error)
 	GetGuildTowerPageAndRP(guildID uint32) (page int, donated int, err error)

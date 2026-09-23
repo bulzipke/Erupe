@@ -3,6 +3,11 @@
 Tracks what is known about the Tower system and what remains to be reverse-engineered
 or implemented in Erupe.
 
+> Historical design notes: several `feature/tower` and `feature/conquest` branch
+> descriptions below are not present on current `main`. For the implemented
+> 2026-09-23 behavior, reward sources and remaining limitations, see
+> [tower-rewards.md](tower-rewards.md).
+
 The core of this system **is already implemented on `develop`** via the repository and
 service pattern (`repo_tower.go`, `svc_tower.go`, `handlers_tower.go`). Two branches carry
 earlier work: `wip/tower` predates the refactor and uses direct SQL; `feature/tower` merges
@@ -192,6 +197,14 @@ unknown.
 floor era) is never incremented by the handler. This is likely a bug — `block2` should be
 written when the client sends a G7+ floor run.
 
+**InfoType 6 — ZZ floor record (verified against the ZZ client, 2026-09-24)**: the ZZ client
+never sends InfoType 1/7. Its quest-result step compares the floor reached in each block with
+the record `GetTowerInfo` returned and, when the run beat it, sends `cComm_PostTowerInfo`
+with `InfoType=6, Unk1=1, Unk6=<block 1|2>, Block1=<new best floor>` (TR/TRP/Cost are 0).
+`develop` fell through the switch for InfoType 6, which is why `tower.block1/block2` stayed
+NULL and every departure restarted at floor 1. The handler now stores it through
+`UpdateBlockFloors` (monotonic, `GREATEST`) and arms the tenrouirai submission.
+
 **Current state on develop**: Implemented. Calls `towerRepo.UpdateSkills` (InfoType=2) and
 `towerRepo.UpdateProgress` (InfoType=1,7). `Unk9`/`Unk1`/`Unk6`/`Unk7` are logged in
 debug mode but not acted on.
@@ -300,7 +313,12 @@ contributes to (based on mission type and the run's stats), then write to the ap
 `guilds.tower_rp`, and advances the mission page when the cumulative donation threshold
 is met. `Unk0`, `Unk1`, and `Unk2_0-3` are parsed but unused.
 
-**Current state on develop**: Op=2 fully implemented. Op=1 is a no-op.
+**Op=1 acceptance (2026-09-24)**: the ZZ client posts Op=1 after every tower run, but only
+reports floors (InfoType 6) when a record improves, so readiness no longer waits for a
+progress packet. `claimTowerMissionSubmission` accepts one submission per quest departure
+(session generation) plus any submission explicitly armed by a progress or floor packet.
+
+**Current state on develop**: Op=2 fully implemented. Op=1 records guild mission progress once per departure.
 
 ---
 
@@ -373,7 +391,7 @@ milestone awards). This packet's field names differ between `develop` and `wip/t
 ```
 AckHandle    uint32
 Unk0         uint32
-Operation    uint32   — 1=open list, 2=claim item, 3=close
+Operation    uint32   — 1=open list, 2=claim item, 3=confirm receipt by present type
 PresentCount uint32   — number of PresentType entries that follow
 Unk3         uint32   — unknown
 Unk4         uint32   — unknown
@@ -395,14 +413,20 @@ used to drive the `for` loop but the semantic name is lost.
 [int32]  Amount
 ```
 
-**Critical gap — no claim tracking**: `ItemClaimIndex` is a sequential ID that the client
-uses for "claimed" state, but the server has no DB table or flag for it. Every call
-returns the same hardcoded items, so a player can claim the same rewards repeatedly.
+**Current implementation**: `tower_reward_claims` records each issued reward and its
+gift-box item in one transaction. The client capture from 2026-09-25 shows Op=1
+followed by Op=3 after the player confirms receipt, without an individual claim
+index. The server therefore rechecks pending rewards for the supplied present
+types and claims each unissued reward on Op=3.
 
-**Op=3**: returns an empty buffer (close/dismiss).
+**Op=3**: claims the eligible, unissued rewards for the requested present types
+and returns frames for the items actually deposited, using the same row format
+as Op=1. A replay finds no pending rewards and returns an empty list. The
+in-game receipt display still needs verification with the updated server.
 
-**Current state on develop**: handler returns an empty item list (`data` slice is nil).
-The `wip/tower` branch has a working hardcoded handler (7 dummy items per `PresentType`)
+**Historical develop baseline**: the old handler returned an empty item list
+(`data` slice was nil). The `wip/tower` branch had a hardcoded handler
+(7 dummy items per `PresentType`)
 with the correct response structure. `Unk0`, `Unk3`–`Unk6` purposes unknown.
 
 **Note**: `wip/tower`'s `MsgMhfPresentBox.Parse()` still contains `fmt.Printf` debug
@@ -511,6 +535,46 @@ on the `feature/conquest` branch. When that branch is eventually integrated, ens
 Tower floor reward data is preserved.
 
 ---
+
+## Zone departures (2026-09-25)
+
+The tower has two floor blocks the client tracks separately (block 1 = 第一区, block 2 =
+第二区; `GetTowerInfo` InfoType 5 returns one 16-byte frame per block and the ZZ client
+copies `Floors` into its "reached" slot (the floor a new run resumes from) and the third
+field into its "record" slot). The departure quests are:
+
+| Quest | Map | Role |
+|-------|-----|------|
+| 21729 天廊調査序章 | 71 | tutorial, always one floor |
+| 21732 第一区調査 | 71 | zone 1 climb (file built from 21730 "未使用", id/map/title changed) |
+| 21733 第二区調査 | 73 | zone 2 climb (same base, map 73) |
+| 21731 / 21746 | 72 / 74 | 緊急調査依頼 — the 20-minute Guardian (Duremudira) arenas of block 1 / block 2; listed only while the block record sits on a milestone floor (10, 40n, 500), see below |
+
+The G10.1 client listed whatever the server enumerated (descriptor `(1,0x43)` = client quest
+records of category 0x43 ∩ server pool) and had no list-side unlock rule, so the server owns
+the progression: `allowsTowerQuest` hides 21732 until `tower.block1 >= TowerZone1UnlockFloor`
+(default 1, i.e. the prologue posted its floor) and 21733 until `tower.block1 >=
+TowerZone2UnlockFloor` (default 1 until the zone-1 top floor is confirmed from the client's
+milestone table; set it to that floor). Both quests must exist in `event_quests` with
+`quest_type` 55 (the receptionist descriptor this fork uses) and as `bin/quests/2173[23]d0.bin`.
+
+**Guardian (天廊の番人) rule (2026-09-25, from the JP encyclopedia wiki and the client tables)**: in
+天廊遠征録 the 「緊急調査依頼」 appeared when the climbed floor count reached 10, every multiple of
+40 (40, 80, 120, …) and 500; the client still ends a run on exactly those floors (paper rows 1104
+`(10, 9999, 40)` and 1105 `(10, 500)` are that milestone table, not a "venom level"). The fight was
+optional (traversal counted, a side hole let you skip it), so `allowsTowerQuest` lists the block's
+arena quest (21731 for block 1, 21746 for block 2, both `quest_type` 55 in `event_quests`) only
+while the block record equals a milestone floor; climbing on hides it again. Rare in-run encounters
+("巨大な扉のある区画") are left to the client. 第二区 entry on the official server needed 凄腕 rank
+and TR 51. The ZZ client never posts TR/TRP (InfoType 1/7), so the Tower Rank is kept from the
+TRP each run reports in `PostTenrouirai` Op=1: `AddTowerRankPoints` adds it to `tower.trp`,
+sets `tr = trp / TowerRankTRPPerRank + 1` (default 600, linear, provisional — the official curve
+is unknown) and grants `TowerTSPPerRank` TSP per rank gained. Zone 2 is listed once
+`tower.block1 >= TowerZone2UnlockFloor` **and** `tower.tr >= TowerZone2UnlockTR` (default 51).
+The receptionist lists the tower departures as 21746, 21733, 21731, 21732, 21729 (higher zone
+first, each Guardian arena above its climb, prologue last; `orderTowerQuests`).
+
+**Room mission timing (tune 1048, 2026-09-26)**: entering a maze room starts a timer of `get_rate_tower_hint_sec` x 30 frames before the room's mission text shows (client index 694, same code in G10.1 with index 0x2B0). The client ignores 0 and uses 120 s, which made the mission appear late or only when the room was cleared. `TowerHintSec` (default 1) sets the tune.
 
 ## Client gate for the receptionist menu (ZZ, verified 2026-09-23)
 

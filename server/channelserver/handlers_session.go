@@ -759,9 +759,18 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 		questMetadata := mhfquest.HuntQuestMetadata{RankKind: mhfquest.HuntRankUnknown}
 		metadataLoaded := false
 		var val uint8
+		var guardianKilled [2]bool
 		runModeSkipLogged := false
 		for i := 0; i < killLogMonsterCount; i++ {
 			val = bf.ReadUint8()
+			if val > 0 {
+				switch i {
+				case mhfmon.Block1Duremudira:
+					guardianKilled[0] = true
+				case mhfmon.Block2Duremudira:
+					guardianKilled[1] = true
+				}
+			}
 			if val > 0 && mhfmon.Monsters[i].Large {
 				if err := s.server.guildRepo.InsertKillLog(s.charID, i, val, recordedAt); err != nil {
 					s.logger.Error("Failed to insert kill log", zap.Error(err))
@@ -826,6 +835,26 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 							zap.Uint16("questID", questID),
 							zap.Uint32("elapsedFrames", elapsedFrames),
 						)
+					}
+				}
+			}
+		}
+		// The kill log is sent after returning to town, so the stage receipt
+		// must survive that transfer but be consumed by this matching result.
+		s.lifecycleMu.Lock()
+		guardianRunID := ""
+		if s.towerGuardianQuestID == questID {
+			guardianRunID = s.towerGuardianRunID
+			s.towerGuardianRunID = ""
+			s.towerGuardianQuestID = 0
+		}
+		s.lifecycleMu.Unlock()
+		if pkt.Data[questResultCodeOffset] == questResultCodeCleared &&
+			s.server.erupeConfig.EarthStatus == 21 && guardianRunID != "" && s.server.towerRepo != nil {
+			for i, killed := range guardianKilled {
+				if killed {
+					if err := s.server.towerRepo.RecordGuardianKill(s.server.erupeConfig.EarthID, uint8(i+1), guardianRunID, s.charID); err != nil {
+						s.logger.Error("Failed to record tower guardian kill", zap.Error(err), zap.Int("block", i+1))
 					}
 				}
 			}

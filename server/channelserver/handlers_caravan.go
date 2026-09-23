@@ -71,14 +71,40 @@ func handleMsgMhfPostRyoudama(s *Session, p mhfpacket.MHFPacket) {
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }
 
+// towerDailyBinSize is the client's Tower daily-mission progress: timetable
+// end, six mission counters and the cleared-mission bits (8 x uint32 in client
+// byte order). The client loads it with GET 0/1/1 (ZZ FUN_113ac8d0, a reply of
+// any other size resets its progress) and saves it with POST 0/1/1/1 after a
+// quest (ZZ FUN_10b77c10). It discards the counters itself when the timetable
+// changes, so the server keeps the blob verbatim.
+const towerDailyBinSize = 0x20
+
+func isTowerDailyBin(k0, k1, k2 uint8) bool {
+	return k0 == 0 && k1 == 1 && k2 == 1
+}
+
 func handleMsgMhfGetTinyBin(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetTinyBin)
+	if isTowerDailyBin(pkt.Unk0, pkt.Unk1, pkt.Unk2) && s.server.towerRepo != nil {
+		data, err := s.server.towerRepo.GetTowerDailyBin(s.charID)
+		if err != nil {
+			s.logger.Error("Failed to read tower daily progress", zap.Error(err))
+		} else if len(data) == towerDailyBinSize {
+			doAckBufSucceed(s, pkt.AckHandle, data)
+			return
+		}
+	}
 	// requested after conquest quests
 	doAckBufSucceed(s, pkt.AckHandle, []byte{})
 }
 
 func handleMsgMhfPostTinyBin(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfPostTinyBin)
+	if isTowerDailyBin(pkt.Unk0, pkt.Unk1, pkt.Unk2) && len(pkt.Data) == towerDailyBinSize && s.server.towerRepo != nil {
+		if err := s.server.towerRepo.SaveTowerDailyBin(s.charID, pkt.Data); err != nil {
+			s.logger.Error("Failed to save tower daily progress", zap.Error(err))
+		}
+	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }
 

@@ -2,6 +2,7 @@ package channelserver
 
 import (
 	cfg "erupe-ce/config"
+	"fmt"
 	"math"
 	"strings"
 	"time"
@@ -12,6 +13,87 @@ import (
 	"erupe-ce/common/stringsupport"
 	"erupe-ce/network/mhfpacket"
 )
+
+// maxTowerFloorReport bounds the floor a client may report through
+// MsgMhfPostTowerInfo InfoType 6. The tower never came close to this many
+// floors, so anything larger is treated as a corrupt packet and ignored.
+const maxTowerFloorReport = 1000
+
+// Tower zone departures the receptionist lists per character. The prologue
+// (21729, map 71, one tutorial floor) is always offered; zone 1 (21732, map 71)
+// and zone 2 (21733, map 73) wait for the block-1 floor record configured in
+// TowerZone1UnlockFloor / TowerZone2UnlockFloor. The client has no list-side
+// rule of its own (the G10.1 departure list was "category 0x43 quest records
+// the server enumerated"), so the server decides what each hunter sees.
+const (
+	towerQuestZone1     = 21732
+	towerQuestZone2     = 21733
+	towerQuestGuardian1 = 21731 // 緊急調査依頼: 20-minute Guardian arena of block 1 (map 72)
+	towerQuestGuardian2 = 21746 // 緊急調査依頼: 20-minute Guardian arena of block 2 (map 74)
+)
+
+// towerGuardianFloor reports whether a block floor record sits exactly on a
+// Guardian milestone: floor 10, every multiple of 40, and floor 500 (paper rows
+// 1104/1105; the client ends a run on these floors). The 天廊遠征録 rule was that
+// the 緊急調査依頼 appeared on reaching them and the fight itself was optional,
+// so the arena is offered while the hunter stands on the milestone and vanishes
+// again once they climb on. Killing it does not need tracking here: the record
+// only moves when the hunter continues the climb.
+func towerGuardianFloor(record int32) bool {
+	return record == 10 || record == 500 || (record >= 40 && record%40 == 0)
+}
+
+// towerDataCached reads the tower row once per quest enumeration.
+func (s *Session) towerDataCached(cache **TowerData) (*TowerData, bool) {
+	if *cache == nil {
+		td, err := s.server.towerRepo.GetTowerData(s.charID)
+		if err != nil {
+			s.logger.Warn("Tower gate: failed to read tower data, hiding tower departures", zap.Error(err))
+			return nil, false
+		}
+		*cache = &td
+	}
+	return *cache, true
+}
+
+// allowsTowerQuest applies the per-character tower gates: the prologue is always
+// listed, the zone climbs wait for the configured block-1 record, and the
+// Guardian arenas appear only while the matching block record is on a milestone.
+func (s *Session) allowsTowerQuest(eq EventQuest, cache **TowerData) bool {
+	switch eq.QuestID {
+	case towerQuestZone1:
+		need := s.server.erupeConfig.TowerZone1UnlockFloor
+		if need <= 0 {
+			return true
+		}
+		td, ok := s.towerDataCached(cache)
+		return ok && td.Block1 >= need
+	case towerQuestZone2:
+		// Official rule: 凄腕 rank and Tower Rank 51. The floor threshold stays as
+		// a second, optional knob.
+		needFloor, needTR := s.server.erupeConfig.TowerZone2UnlockFloor, s.server.erupeConfig.TowerZone2UnlockTR
+		if needFloor <= 0 && needTR <= 0 {
+			return true
+		}
+		td, ok := s.towerDataCached(cache)
+		if !ok {
+			return false
+		}
+		return td.Block1 >= needFloor && td.TR >= needTR
+	case towerQuestGuardian1, towerQuestGuardian2:
+		td, ok := s.towerDataCached(cache)
+		if !ok {
+			return false
+		}
+		record := td.Block1
+		if eq.QuestID == towerQuestGuardian2 {
+			record = td.Block2
+		}
+		return towerGuardianFloor(record)
+	default:
+		return true
+	}
+}
 
 // TowerInfoTRP represents tower RP (points) info.
 type TowerInfoTRP struct {
@@ -48,6 +130,34 @@ func EmptyTowerCSV(len int) string {
 	return strings.Join(temp, ",")
 }
 
+// towerSurveyRound is Earth value 1001, the current Tower survey round
+// (EarthID; 36 when no EarthID is configured). The Tower Status basic info
+// page matches the five history rounds against it (G10.1 FUN_104b0d80).
+func towerSurveyRound(earthID int32) uint32 {
+	if earthID > 0 {
+		return uint32(earthID)
+	}
+	return 36
+}
+
+// towerSurveyHistory builds InfoType 4: the current round and the four
+// before it (Unk0) with the floors this character cleared in each (Unk1).
+func towerSurveyHistory(s *Session) TowerInfoHistory {
+	history := TowerInfoHistory{make([]int16, 5), make([]int16, 5)}
+	round := int32(towerSurveyRound(s.server.erupeConfig.EarthID))
+	floors, err := s.server.towerRepo.GetTowerSurveyHistory(s.server.erupeConfig.EarthID, s.charID)
+	if err != nil {
+		s.logger.Error("Failed to read tower survey history", zap.Error(err))
+	}
+	for i := range history.Unk0 {
+		history.Unk0[i] = int16(round - int32(i))
+		if err == nil {
+			history.Unk1[i] = int16(min(floors[i], math.MaxInt16))
+		}
+	}
+	return history
+}
+
 func handleMsgMhfGetTowerInfo(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetTowerInfo)
 	var data []*byteframe.ByteFrame
@@ -80,11 +190,26 @@ func handleMsgMhfGetTowerInfo(s *Session, p mhfpacket.MHFPacket) {
 		towerInfo.Level = towerInfo.Level[:1]
 	}
 
-	for i, skill := range stringsupport.CSVElems(td.Skills) {
+	roadSkills := ""
+	if pkt.InfoType == 2 {
+		var roadErr error
+		if roadSkills, roadErr = s.server.towerRepo.GetRoadSkills(s.charID); roadErr != nil {
+			s.logger.Error("Failed to read road skills", zap.Error(roadErr))
+			roadSkills = ""
+		}
+	}
+	for i, skill := range towerMergeSkills(td.Skills, roadSkills) {
+		if i >= len(towerInfo.Skill[0].Skills) {
+			break
+		}
 		if skill < math.MinInt16 || skill > math.MaxInt16 {
 			continue
 		}
 		towerInfo.Skill[0].Skills[i] = int16(skill)
+	}
+
+	if pkt.InfoType == 4 {
+		towerInfo.History[0] = towerSurveyHistory(s)
 	}
 
 	switch pkt.InfoType {
@@ -149,18 +274,165 @@ func handleMsgMhfPostTowerInfo(s *Session, p mhfpacket.MHFPacket) {
 
 	switch pkt.InfoType {
 	case 2:
-		skills, _ := s.server.towerRepo.GetSkills(s.charID)
-		newSkills := stringsupport.CSVSetIndex(skills, int(pkt.Skill), stringsupport.CSVGetIndex(skills, int(pkt.Skill))+1)
-		if err := s.server.towerRepo.UpdateSkills(s.charID, newSkills, pkt.Cost); err != nil {
-			s.logger.Error("Failed to update tower skills", zap.Error(err))
+		// Skill learn. ZZ turned the G10 Tower skill screen into its Hunting Road
+		// status, so both screens post InfoType 2 with the skill index and its
+		// cost. The two skill sets are stored apart: the thirteen Tower-only
+		// skills in tower.skills and every other skill in road_skills. Only a
+		// Tower Status learn is paid with TSP (vorbis.dll marks it with Unk1 =
+		// towerStatusLearnTag); a Hunting Road learn is paid with Road SP from
+		// the save data, so it only raises the level.
+		if pkt.Skill < 0 || pkt.Skill >= 64 || pkt.Cost <= 0 {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
 		}
+		if _, err := s.server.towerRepo.GetTowerData(s.charID); err != nil {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+		if err := towerLearnSkill(s, int(pkt.Skill), pkt.Unk1 == towerStatusLearnTag, pkt.Cost); err != nil {
+			s.logger.Error("Failed to learn tower skill", zap.Int32("skill", pkt.Skill), zap.Error(err))
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+	case 3:
+		if pkt.Unk1 == towerStatusLearnTag {
+			// Tower Status reset (G10.1 FUN_105d7d90 state 4, one 再覚之古書): the
+			// client refunds the learn cost of every Tower skill level and posts the
+			// new TSP total as Cost. Refund from the stored levels rather than
+			// trusting Cost.
+			if err := towerResetSkills(s, pkt.Cost); err != nil {
+				s.logger.Error("Failed to reset tower skills", zap.Error(err))
+				doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+				return
+			}
+			break
+		}
+		// Hunting Road skill reset (a Road reset book). The client clears every
+		// level but the Tower-only skills (vorbis.dll keeps those) and refunds
+		// Road SP in its save data; Cost is that new Road SP and is not stored
+		// here. The Tower-only levels live in tower.skills and stay.
+		if err := s.server.towerRepo.UpdateRoadSkills(s.charID, EmptyTowerCSV(64)); err != nil {
+			s.logger.Error("Failed to reset road skills", zap.Error(err))
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+	case 5:
+		// ＴＳＰ変換 (G10.1 FUN_105d7d90 state 6): five 天技之古書 become one TSP
+		// and the client posts InfoType 5 with Cost = 1. vorbis.dll tags the Tower
+		// Status conversion; the untagged Hunting Road conversion is paid into
+		// Road SP in the save data and needs nothing here.
+		if pkt.Unk1 != towerStatusLearnTag {
+			break
+		}
+		if pkt.Cost != 1 {
+			s.logger.Warn("Tower TSP conversion with unexpected amount", zap.Int32("cost", pkt.Cost))
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+		if _, err := s.server.towerRepo.GetTowerData(s.charID); err != nil {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+		if err := s.server.towerRepo.AddTSP(s.charID, pkt.Cost); err != nil {
+			s.logger.Error("Failed to convert TSP", zap.Error(err))
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+	case 6:
+		// Floor record from the ZZ client (cComm_PostTowerInfo, verified against
+		// the client on 2026-09-24): the quest-result step sends it only when the
+		// run beat the block record it received from GetTowerInfo. Unk6 is the
+		// block (1 or 2) and Block1 the new best floor; Unk1 is always 1. Ignoring
+		// it left tower.block1/block2 NULL, so every departure restarted at floor 1.
+		if pkt.Unk6 < 1 || pkt.Unk6 > 2 || pkt.Block1 <= 0 || pkt.Block1 > maxTowerFloorReport {
+			s.logger.Warn("Tower floor report out of range, not recorded", zap.Int32("block", pkt.Unk6), zap.Int32("floors", pkt.Block1))
+			break
+		}
+		if _, err := s.server.towerRepo.GetTowerData(s.charID); err != nil {
+			s.logger.Error("Failed to initialize tower data for floor report", zap.Error(err))
+			break
+		}
+		if err := s.server.towerRepo.UpdateBlockFloors(s.charID, uint8(pkt.Unk6), pkt.Block1); err != nil {
+			s.logger.Error("Failed to save tower floor report", zap.Error(err))
+			break
+		}
+		s.lifecycleMu.Lock()
+		s.towerMissionBlock = uint8(pkt.Unk6)
+		s.towerMissionDayStart = towerDailyStart(TimeAdjusted())
+		s.lifecycleMu.Unlock()
+		s.towerMissionSubmissionReady.Store(true)
 	case 1, 7:
-		// This might give too much TSP? No idea what the rate is supposed to be
-		if err := s.server.towerRepo.UpdateProgress(s.charID, pkt.TR, pkt.TRP, pkt.Cost, pkt.Block1); err != nil {
+		// Tower progress from the quest-clear flow. The ZZ client builds InfoType 7
+		// in FUN_10b77aa0 (verified 2026-09-26): TR is the new Tower Rank, TRP and
+		// Cost (TSP) are what the run added, Unk6 is the tower block (1-4) and
+		// Block1 the floors climbed. The floors go to that block's column (blocks 3
+		// and 4 have none) and the rank is never lowered.
+		block := towerProgressBlock(pkt)
+		s.lifecycleMu.Lock()
+		if s.questWeaponGeneration == 0 || s.towerProgressGeneration == s.questWeaponGeneration ||
+			pkt.Block1 < 0 || pkt.Block1 > 4 || pkt.TRP < 0 || pkt.TRP > 50000 {
+			s.lifecycleMu.Unlock()
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+		td, err := s.server.towerRepo.GetTowerData(s.charID)
+		if err != nil {
+			s.lifecycleMu.Unlock()
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+		tr := pkt.TR
+		if tr < td.TR {
+			tr = td.TR
+		}
+		if err := s.server.towerRepo.UpdateProgress(s.charID, tr, pkt.TRP, pkt.Cost, 0); err != nil {
+			s.lifecycleMu.Unlock()
 			s.logger.Error("Failed to update tower progress", zap.Error(err))
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+		if pkt.Block1 > 0 && (block == 1 || block == 2) {
+			reached := td.Block1
+			if block == 2 {
+				reached = td.Block2
+			}
+			if err := s.server.towerRepo.UpdateBlockFloors(s.charID, block, reached+pkt.Block1); err != nil {
+				s.logger.Error("Failed to save tower floors", zap.Error(err))
+			}
+		}
+		s.towerProgressGeneration = s.questWeaponGeneration
+		s.towerMissionBlock = block
+		s.towerMissionDayStart = towerDailyStart(TimeAdjusted())
+		if pkt.Block1 > 0 && (block == 1 || block == 2) {
+			stats := TowerMissionStats{Floors: uint16(pkt.Block1), TRP: uint16(pkt.TRP)}
+			if err := s.server.towerRepo.RecordTowerRun(s.server.erupeConfig.EarthID, s.charID,
+				block, s.towerMissionDayStart, stats); err != nil {
+				s.logger.Error("Failed to save Tower floor and daily progress", zap.Error(err))
+			}
+		}
+		s.lifecycleMu.Unlock()
+		if pkt.Block1 > 0 {
+			s.towerMissionSubmissionReady.Store(true)
 		}
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+}
+
+// claimTowerMissionSubmission reports whether the current quest departure may
+// still record a guild investigation (tenrouirai) submission, and claims it.
+// The ZZ client reports floors through MsgMhfPostTowerInfo InfoType 6 only when
+// a block record improves, so readiness cannot wait for a progress packet: one
+// submission is accepted per quest departure (session generation), plus one
+// whenever a progress or floor packet explicitly armed towerMissionSubmissionReady.
+func (s *Session) claimTowerMissionSubmission() bool {
+	s.lifecycleMu.Lock()
+	fresh := s.questWeaponGeneration != 0 && s.towerMissionGeneration != s.questWeaponGeneration
+	if fresh {
+		s.towerMissionGeneration = s.questWeaponGeneration
+	}
+	s.lifecycleMu.Unlock()
+	armed := s.towerMissionSubmissionReady.Swap(false)
+	return armed || fresh
 }
 
 // Default missions
@@ -270,6 +542,7 @@ func handleMsgMhfGetTenrouirai(s *Session, p mhfpacket.MHFPacket) {
 
 	tenrouirai := Tenrouirai{
 		Progress: []TenrouiraiProgress{{1, 0, 0, 0}},
+		Reward:   towerGuildRewards,
 		Data:     tenrouiraiData,
 		Ticket:   []TenrouiraiTicket{{0, 0, 0}},
 	}
@@ -294,16 +567,20 @@ func handleMsgMhfGetTenrouirai(s *Session, p mhfpacket.MHFPacket) {
 		for _, reward := range tenrouirai.Reward {
 			bf := byteframe.NewByteFrame()
 			bf.WriteUint8(reward.Index)
-			bf.WriteUint16(reward.Item[0])
-			bf.WriteUint16(reward.Item[1])
-			bf.WriteUint16(reward.Item[2])
-			bf.WriteUint16(reward.Item[3])
-			bf.WriteUint16(reward.Item[4])
-			bf.WriteUint8(reward.Quantity[0])
-			bf.WriteUint8(reward.Quantity[1])
-			bf.WriteUint8(reward.Quantity[2])
-			bf.WriteUint8(reward.Quantity[3])
-			bf.WriteUint8(reward.Quantity[4])
+			for i := 0; i < 5; i++ {
+				if i < len(reward.Item) {
+					bf.WriteUint16(reward.Item[i])
+				} else {
+					bf.WriteUint16(0)
+				}
+			}
+			for i := 0; i < 5; i++ {
+				if i < len(reward.Quantity) {
+					bf.WriteUint8(reward.Quantity[i])
+				} else {
+					bf.WriteUint8(0)
+				}
+			}
 			data = append(data, bf)
 		}
 	case 4:
@@ -370,8 +647,66 @@ func handleMsgMhfPostTenrouirai(s *Session, p mhfpacket.MHFPacket) {
 		)
 	}
 
-	if pkt.Op == 2 {
+	if pkt.Op == 1 {
+		// The client posts this from its quest-end state machine (state 0x9b) and
+		// only proceeds on a success ack: a failure ack leaves it polling forever
+		// on a black screen (observed 2026-09-24 after abandoning a tower quest).
+		// The official server never failed this message, so every rejection below
+		// answers success and simply does not record progress. One submission is
+		// accepted per quest departure; see claimTowerMissionSubmission.
+		if !s.claimTowerMissionSubmission() {
+			s.logger.Debug("Tower investigation submission ignored: already recorded for this departure")
+			doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+		stats := TowerMissionStats{Floors: pkt.Floors, Antiques: pkt.Antiques, Chests: pkt.Chests, Cats: pkt.Cats, TRP: pkt.TRP, Slays: pkt.Slays}
+		if !stats.Valid() {
+			s.logger.Warn("Tower investigation counters out of range, not recorded")
+			doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+		// The quest-clear flow normally posts TR, TRP and TSP itself (InfoType 7,
+		// verified 2026-09-26). Only when that did not reach us for this departure
+		// is the Tower Rank kept from this report's TRP, so a run never counts twice.
+		s.lifecycleMu.Lock()
+		progressPosted := s.questWeaponGeneration != 0 && s.towerProgressGeneration == s.questWeaponGeneration
+		s.lifecycleMu.Unlock()
+		if perRank := s.server.erupeConfig.TowerRankTRPPerRank; perRank > 0 && stats.TRP > 0 && !progressPosted {
+			if _, err := s.server.towerRepo.AddTowerRankPoints(s.charID, int32(stats.TRP), perRank, s.server.erupeConfig.TowerTSPPerRank); err != nil {
+				s.logger.Error("Failed to credit tower rank points", zap.Error(err))
+			}
+		}
+		// claimTowerMissionSubmission above already consumed the armed flag (one
+		// submission per departure). A run that did not post a floor record has no
+		// recorded day yet; it ended just now, so count it against today.
+		s.lifecycleMu.Lock()
+		dayStart := s.towerMissionDayStart
+		s.lifecycleMu.Unlock()
+		if dayStart.IsZero() {
+			dayStart = towerDailyStart(TimeAdjusted())
+		}
+		if err := s.server.towerRepo.RecordTowerDailyExtras(s.server.erupeConfig.EarthID, s.charID, dayStart, stats); err != nil {
+			s.logger.Error("Failed to save Tower daily bonus counters", zap.Error(err))
+		}
+		guildID, reason, err := resolveGuildMemberAccess(s, pkt.GuildID)
+		if err != nil || reason != "" {
+			s.logger.Debug("Tower guild investigation not recorded", zap.Error(err), zap.String("reason", reason))
+			doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+		if err := s.server.towerRepo.SubmitTenrouiraiProgress(guildID, s.charID, stats); err != nil {
+			s.logger.Error("Failed to save tower investigation progress", zap.Error(err))
+			doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+	} else if pkt.Op == 2 {
 		bf := byteframe.NewByteFrame()
+		if pkt.DonatedRP == 0 {
+			bf.WriteUint32(0)
+			doAckSimpleFail(s, pkt.AckHandle, bf.Data())
+			return
+		}
 		guildID, reason, lookupErr := resolveGuildMemberAccess(s, pkt.GuildID)
 		if lookupErr != nil {
 			s.logger.Error("Failed to establish guild membership for tower donation", zap.Error(lookupErr))
@@ -389,21 +724,28 @@ func handleMsgMhfPostTenrouirai(s *Session, p mhfpacket.MHFPacket) {
 		}
 
 		sd, err := GetCharacterSaveData(s, s.charID)
-		if err == nil && sd != nil {
-			sd.RP -= pkt.DonatedRP
-			if err := sd.Save(s); err != nil {
-				s.logger.Error("Failed to save RP after tower donation", zap.Error(err))
-			}
-			result, err := s.server.towerService.DonateGuildTowerRP(guildID, pkt.DonatedRP)
-			if err != nil {
-				s.logger.Error("Failed to process tower RP donation", zap.Error(err))
-				bf.WriteUint32(0)
-			} else {
-				bf.WriteUint32(uint32(result.ActualDonated))
-			}
-		} else {
+		if err != nil || sd == nil || sd.RP < pkt.DonatedRP {
 			bf.WriteUint32(0)
+			doAckSimpleFail(s, pkt.AckHandle, bf.Data())
+			return
 		}
+		result, err := s.server.towerService.DonateGuildTowerRP(guildID, pkt.DonatedRP)
+		if err != nil {
+			s.logger.Error("Failed to process tower RP donation", zap.Error(err))
+			bf.WriteUint32(0)
+			doAckSimpleFail(s, pkt.AckHandle, bf.Data())
+			return
+		}
+		// A page may need fewer points than requested. Never deduct the
+		// entire request or allow uint16 underflow in the character save.
+		sd.RP -= result.ActualDonated
+		if err := sd.Save(s); err != nil {
+			s.logger.Error("Failed to save RP after tower donation", zap.Error(err))
+			bf.WriteUint32(0)
+			doAckSimpleFail(s, pkt.AckHandle, bf.Data())
+			return
+		}
+		bf.WriteUint32(uint32(result.ActualDonated))
 
 		doAckSimpleSucceed(s, pkt.AckHandle, bf.Data())
 	} else {
@@ -413,21 +755,7 @@ func handleMsgMhfPostTenrouirai(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfPresentBox(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfPresentBox)
-	var data []*byteframe.ByteFrame
-	/*
-		bf.WriteUint32(0)
-		bf.WriteInt32(0)
-		bf.WriteInt32(0)
-		bf.WriteInt32(0)
-		bf.WriteInt32(0)
-		bf.WriteInt32(0)
-		bf.WriteInt32(0)
-		bf.WriteInt32(0)
-		bf.WriteInt32(0)
-		bf.WriteInt32(0)
-		bf.WriteInt32(0)
-	*/
-	doAckEarthSucceed(s, pkt.AckHandle, data)
+	handleTowerPresentBox(s, pkt)
 }
 
 // GemInfo represents gem (decoration) info.
@@ -450,8 +778,16 @@ func handleMsgMhfGetGemInfo(s *Session, p mhfpacket.MHFPacket) {
 	gemInfo := []GemInfo{}
 	gemHistory := []GemHistory{}
 
-	tempGems, _ := s.server.towerRepo.GetGems(s.charID)
+	tempGems, err := s.server.towerRepo.GetGems(s.charID)
+	if err != nil && pkt.QueryType == 1 {
+		s.logger.Error("Failed to read ancient treasures", zap.Error(err))
+		doAckBufFail(s, pkt.AckHandle, nil)
+		return
+	}
 	for i, v := range stringsupport.CSVElems(tempGems) {
+		if i >= 30 {
+			break
+		}
 		if v < 0 || v > math.MaxUint16 {
 			continue
 		}
@@ -467,6 +803,12 @@ func handleMsgMhfGetGemInfo(s *Session, p mhfpacket.MHFPacket) {
 			data = append(data, bf)
 		}
 	case 2:
+		gemHistory, err = s.server.towerRepo.GetGemHistory(s.charID)
+		if err != nil {
+			s.logger.Error("Failed to read ancient treasure gift history", zap.Error(err))
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
 		for _, history := range gemHistory {
 			bf := byteframe.NewByteFrame()
 			bf.WriteUint16(history.Gem)
@@ -497,12 +839,32 @@ func handleMsgMhfPostGemInfo(s *Session, p mhfpacket.MHFPacket) {
 
 	switch pkt.Op {
 	case 1: // Add gem
-		i := int((pkt.Gem >> 8 * 5) + (pkt.Gem - pkt.Gem&0xFF00 - 1%5))
+		// The protocol encodes six groups of five as (group << 8) | (slot+1).
+		group, slot := pkt.Gem>>8, pkt.Gem&0xFF
+		if group < 0 || group >= 6 || slot < 1 || slot > 5 || pkt.Quantity <= 0 {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+		i := int(group*5 + slot - 1)
 		if err := s.server.towerService.AddGem(s.charID, i, int(pkt.Quantity)); err != nil {
 			s.logger.Error("Failed to update tower gems", zap.Error(err))
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
 		}
 	case 2: // Transfer gem
-		// no way im doing this for now
+		if pkt.CID <= 0 || pkt.Quantity != 1 || pkt.Message < 0 || pkt.Message > math.MaxUint16 ||
+			pkt.Gem < 0 || pkt.Gem > math.MaxUint16 {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+		if err := s.server.towerRepo.TransferGem(s.charID, uint32(pkt.CID), uint16(pkt.Gem), uint16(pkt.Message)); err != nil {
+			s.logger.Warn("Rejected ancient treasure gift", zap.Error(err), zap.Uint32("sender", s.charID), zap.Int32("receiver", pkt.CID))
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+	default:
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }
@@ -515,4 +877,128 @@ func handleMsgMhfGetNotice(s *Session, p mhfpacket.MHFPacket) {
 func handleMsgMhfPostNotice(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfPostNotice)
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+}
+
+// towerProgressBlock returns the tower block (1-4) a progress post belongs to.
+// The ZZ client names it in Unk6; without one, InfoType 7 meant block 2.
+func towerProgressBlock(pkt *mhfpacket.MsgMhfPostTowerInfo) uint8 {
+	if pkt.Unk6 >= 1 && pkt.Unk6 <= 4 {
+		return uint8(pkt.Unk6)
+	}
+	if pkt.InfoType == 7 {
+		return 2
+	}
+	return 1
+}
+
+// towerStatusLearnTag is the Unk1 value vorbis.dll puts on an InfoType 2 skill
+// learn made from the Tower Status screen, the only learn paid with TSP.
+const towerStatusLearnTag = 0x5453
+
+// isTowerOnlySkill reports whether id is one of the G10 Tower skills ZZ dropped
+// from its Hunting Road skill table. Only the Tower Status learns them, so a
+// Hunting Road reset leaves them alone.
+func isTowerOnlySkill(id int) bool {
+	switch id {
+	case 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 16, 17, 21:
+		return true
+	}
+	return false
+}
+
+// towerTSPMax is the client's TSP ceiling (G10.1 FUN_105d7630 clamps to it).
+const towerTSPMax = 99999999
+
+// towerSkillLearnCosts is the TSP cost of each level of the Tower-only skills
+// (G10.1 mhfdat skill table, record +0xC), indexed by skill id then level-1.
+var towerSkillLearnCosts = map[int][]int32{
+	3: {1}, 4: {3, 7},
+	6: {1, 2, 4, 5, 7}, 7: {1, 2, 4, 5, 7}, 8: {1, 2, 4, 5, 7}, 9: {1, 2, 4, 5, 7},
+	10: {1, 3}, 11: {1, 3, 5}, 12: {1, 2, 5, 6, 8}, 13: {1, 3, 5},
+	16: {2, 4, 7}, 17: {3, 5, 8}, 21: {5},
+}
+
+// towerSkillRefund is what a Tower Status reset returns: the learn cost of every
+// Tower-only skill level held (G10.1 FUN_105d79d0).
+func towerSkillRefund(skills string) int32 {
+	var refund int32
+	for id, level := range stringsupport.CSVElems(skills) {
+		costs := towerSkillLearnCosts[id]
+		for l := 0; l < level && l < len(costs); l++ {
+			refund += costs[l]
+		}
+	}
+	return refund
+}
+
+// towerResetSkills clears the Tower-only skill levels and refunds their TSP.
+func towerResetSkills(s *Session, clientTSP int32) error {
+	td, err := s.server.towerRepo.GetTowerData(s.charID)
+	if err != nil {
+		return err
+	}
+	skills, err := s.server.towerRepo.GetSkills(s.charID)
+	if err != nil {
+		return err
+	}
+	refund := towerSkillRefund(skills)
+	if clientTSP != td.TSP+refund {
+		s.logger.Warn("Tower skill reset TSP differs from the client",
+			zap.Int32("client", clientTSP), zap.Int32("server", td.TSP+refund))
+	}
+	return s.server.towerRepo.ResetTowerSkills(s.charID, refund)
+}
+
+// towerMergeSkills rebuilds the client's single 64-entry skill-level array from
+// the two stores: Tower-only skills from tower.skills, every other skill from
+// road_skills.
+func towerMergeSkills(tower, road string) []int {
+	t := stringsupport.CSVElems(tower)
+	r := stringsupport.CSVElems(road)
+	out := make([]int, 64)
+	for i := range out {
+		if isTowerOnlySkill(i) {
+			if i < len(t) {
+				out[i] = t[i]
+			}
+		} else if i < len(r) {
+			out[i] = r[i]
+		}
+	}
+	return out
+}
+
+// towerLearnSkill raises one skill level in its own store and, for a Tower
+// Status learn, pays cost TSP. A tagged learn of a Road skill (older
+// vorbis.dll builds listed the common skills on the Tower Status) is still
+// paid with TSP but its level goes to road_skills.
+func towerLearnSkill(s *Session, id int, towerStatus bool, cost int32) error {
+	if !towerStatus {
+		cost = 0
+	}
+	skills, err := s.server.towerRepo.GetSkills(s.charID)
+	if err != nil {
+		return err
+	}
+	if len(stringsupport.CSVElems(skills)) != 64 {
+		return fmt.Errorf("tower skills have %d entries", len(stringsupport.CSVElems(skills)))
+	}
+	if isTowerOnlySkill(id) {
+		return s.server.towerRepo.UpdateSkills(s.charID,
+			stringsupport.CSVSetIndex(skills, id, stringsupport.CSVGetIndex(skills, id)+1), cost)
+	}
+	road, err := s.server.towerRepo.GetRoadSkills(s.charID)
+	if err != nil {
+		return err
+	}
+	if len(stringsupport.CSVElems(road)) != 64 {
+		return fmt.Errorf("road skills have %d entries", len(stringsupport.CSVElems(road)))
+	}
+	if cost > 0 {
+		if err := s.server.towerRepo.UpdateSkills(s.charID, skills, cost); err != nil {
+			return err
+		}
+	}
+	return s.server.towerRepo.UpdateRoadSkills(s.charID,
+		stringsupport.CSVSetIndex(road, id, stringsupport.CSVGetIndex(road, id)+1))
 }

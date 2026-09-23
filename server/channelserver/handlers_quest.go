@@ -14,6 +14,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"go.uber.org/zap"
@@ -454,9 +455,14 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 		quests = s.appendBuiltInCollabQuests(quests)
 		currentTime := time.Now()
 		var updates []EventQuestUpdate
+		var towerData *TowerData // per-character tower row, read once per enumeration
+		quests = orderTowerQuests(quests)
 
 		for i, eq := range quests {
 			if !s.allowsCollabQuest(eq) {
+				continue
+			}
+			if !s.allowsTowerQuest(eq, &towerData) {
 				continue
 			}
 
@@ -543,7 +549,7 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 		{ID: 1044, Value: 200},                // get_rate_tload_time_out
 		{ID: 1045, Value: 0},                  // get_rate_tower_treasure_preset
 		{ID: 1046, Value: 99},                 // get_hunter_life_cap
-		{ID: 1048, Value: 0},                  // get_rate_tower_hint_sec
+		{ID: 1048, Value: towerHintTune(s)},   // get_rate_tower_hint_sec
 		{ID: 1049, Value: 10},                 // get_rate_tower_gem_max
 		{ID: 1050, Value: 1},                  // get_rate_tower_gem_set
 		{ID: 1051, Value: 200},                // get_pallone_score_rate_premium
@@ -763,4 +769,60 @@ func getTuneValueRange(start uint16, value uint16) []tuneValue {
 		tv = append(tv, tuneValue{start + i, value})
 	}
 	return tv
+}
+
+// towerQuestOrder is the receptionist order of the tower departures, top to
+// bottom: the higher zone first, each zone's Guardian arena directly above its
+// climb, the prologue last. Everything else keeps its quest_id order.
+var towerQuestOrder = []int{21746, 21733, 21731, 21732, 21729}
+
+// orderTowerQuests rearranges the tower departures among the slots they already
+// occupy so the list the receptionist shows follows towerQuestOrder.
+func orderTowerQuests(quests []EventQuest) []EventQuest {
+	rank := func(id int) int {
+		for i, q := range towerQuestOrder {
+			if q == id {
+				return i
+			}
+		}
+		return -1
+	}
+	var tower []EventQuest
+	for _, eq := range quests {
+		if rank(eq.QuestID) >= 0 {
+			tower = append(tower, eq)
+		}
+	}
+	if len(tower) < 2 {
+		return quests
+	}
+	sort.SliceStable(tower, func(a, b int) bool { return rank(tower[a].QuestID) < rank(tower[b].QuestID) })
+	out := make([]EventQuest, 0, len(quests))
+	next := 0
+	for _, eq := range quests {
+		if rank(eq.QuestID) >= 0 {
+			out = append(out, tower[next])
+			next++
+			continue
+		}
+		out = append(out, eq)
+	}
+	return out
+}
+
+// towerHintTune is tune 1048 (get_rate_tower_hint_sec, client index 694). When
+// the hunter enters a maze room the client waits this many seconds (x30 frames)
+// before it shows the room's mission text ("モンスターを討伐せよ！" and the like).
+// The client ignores 0 and falls back to its built-in 120 s, so with the old
+// value 0 the mission only appeared after two minutes in a room, usually around
+// the time the room was cleared. Players remember it appearing on entry.
+func towerHintTune(s *Session) uint16 {
+	v := s.server.erupeConfig.TowerHintSec
+	if v <= 0 {
+		return 0
+	}
+	if v > 0xffff {
+		v = 0xffff
+	}
+	return uint16(v)
 }

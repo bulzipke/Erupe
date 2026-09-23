@@ -90,6 +90,12 @@ type Config struct {
 	EarthStatus               int32
 	EarthID                   int32
 	EarthMonsters             []int32
+	TowerZone1UnlockFloor     int32 // Tower: zone 1 departure (quest 21732) is listed once the block-1 floor record reaches this (prologue clear = 1; 0 disables the gate)
+	TowerZone2UnlockFloor     int32 // Tower: zone 2 departure (quest 21733) is listed once the block-1 floor record reaches this (zone 1 top floor; 0 disables the gate)
+	TowerZone2UnlockTR        int32 // Tower: zone 2 departure also needs this Tower Rank (official: 51; 0 disables)
+	TowerHintSec              int32 // Tower: seconds after entering a maze room before its mission text shows (tune 1048; 0 = client default 120 s)
+	TowerRankTRPPerRank       int32 // Tower: TRP per Tower Rank, linear (official curve unknown; 0 disables TR accumulation)
+	TowerTSPPerRank           int32 // Tower: TSP granted for every Tower Rank gained (provisional)
 	SaveDumps                 SaveDumpOptions
 	Screenshots               ScreenshotsOptions
 	Capture                   CaptureOptions
@@ -493,6 +499,12 @@ func registerDefaults() {
 	viper.RegisterAlias("DisableSoftCrash", "DisableShutdownCountdown")
 	viper.SetDefault("DefaultCourses", []uint16{1, 23, 24})
 	viper.SetDefault("EarthMonsters", []int32{0, 0, 0, 0})
+	viper.SetDefault("TowerZone1UnlockFloor", 1)
+	viper.SetDefault("TowerZone2UnlockFloor", 1)
+	viper.SetDefault("TowerZone2UnlockTR", 51)
+	viper.SetDefault("TowerHintSec", 1)
+	viper.SetDefault("TowerRankTRPPerRank", 600)
+	viper.SetDefault("TowerTSPPerRank", 1)
 
 	// SaveDumps
 	viper.SetDefault("SaveDumps", SaveDumpOptions{

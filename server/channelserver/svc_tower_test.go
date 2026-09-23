@@ -38,6 +38,17 @@ func TestTowerService_AddGem_GetGemsError(t *testing.T) {
 	}
 }
 
+func TestTowerService_AddGem_AncientTreasureCap(t *testing.T) {
+	mock := &mockTowerRepo{gems: "9,0,0,0,0"}
+	svc := newTestTowerService(mock)
+	if err := svc.AddGem(1, 0, 2); err == nil {
+		t.Fatal("ancient treasure count above ten accepted")
+	}
+	if err := svc.AddGem(1, -1, 1); err == nil {
+		t.Fatal("negative treasure index accepted")
+	}
+}
+
 // --- GetTenrouiraiProgressCapped tests ---
 
 func TestTowerService_GetTenrouiraiProgressCapped_CapsToGoals(t *testing.T) {
@@ -156,6 +167,10 @@ func TestTowerService_DonateGuildTowerRP_AdvancesPage(t *testing.T) {
 	mock := &mockTowerRepo{
 		page:    1,
 		donated: requirement - 10, // 10 short of requirement
+		progress: TenrouiraiProgressData{
+			Page: 1, Mission1: tenrouiraiData[0].Goal,
+			Mission2: tenrouiraiData[1].Goal, Mission3: tenrouiraiData[2].Goal,
+		},
 	}
 	svc := newTestTowerService(mock)
 
@@ -174,6 +189,30 @@ func TestTowerService_DonateGuildTowerRP_AdvancesPage(t *testing.T) {
 	}
 }
 
+func TestTowerService_DonateGuildTowerRP_DoesNotAdvanceIncompleteMissions(t *testing.T) {
+	mock := &mockTowerRepo{page: 1, donated: 0, progress: TenrouiraiProgressData{Page: 1}}
+	svc := newTestTowerService(mock)
+	result, err := svc.DonateGuildTowerRP(10, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Advanced || mock.advanceCalled || result.ActualDonated != 50 {
+		t.Fatalf("incomplete missions advanced or overcharged: %+v", result)
+	}
+}
+
+func TestTowerService_DonateGuildTowerRP_CapsAlreadyFundedPage(t *testing.T) {
+	mock := &mockTowerRepo{page: 1, donated: 100, progress: TenrouiraiProgressData{Page: 1}}
+	svc := newTestTowerService(mock)
+	result, err := svc.DonateGuildTowerRP(10, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ActualDonated != 0 || mock.advanceCalled {
+		t.Fatalf("funded page consumed more RP: %+v", result)
+	}
+}
+
 func TestTowerService_DonateGuildTowerRP_DBError(t *testing.T) {
 	mock := &mockTowerRepo{pageRPErr: errors.New("db error")}
 	svc := newTestTowerService(mock)
@@ -181,5 +220,16 @@ func TestTowerService_DonateGuildTowerRP_DBError(t *testing.T) {
 	_, err := svc.DonateGuildTowerRP(10, 100)
 	if err == nil {
 		t.Fatal("expected error from DB failure")
+	}
+}
+
+func TestTowerService_DonateGuildTowerRP_ProgressReadErrorDoesNotCredit(t *testing.T) {
+	mock := &mockTowerRepo{page: 1, progressErr: errors.New("progress unavailable")}
+	svc := newTestTowerService(mock)
+	if _, err := svc.DonateGuildTowerRP(10, 50); err == nil {
+		t.Fatal("expected progress read failure")
+	}
+	if mock.donatedRP != 0 || mock.advanceCalled {
+		t.Fatal("RP changed despite unreadable investigation progress")
 	}
 }

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bound tower skill and ancient-treasure inputs, reject invalid ancient-treasure gifts, and require all three guild investigation goals before advancing a funded page.
 - Show the shared 76-item Diva melody catalog in the interception reward preview before welcome-period/hall eligibility, while retaining all purchase-time membership, period and wallet checks.
 - Authorize special-hall one-hour adventures atomically against current accepted membership, earned area access and the actual welcome period; fix ordinary guild adventure registration's integer/bigint parameter conflict without changing expedition times.
 - Fix the matching guild-meal registration SQL type conflict; verify native special-hall cooking assistance without applying a second success boost or consuming materials twice, and add result/expiry/shared-storage regression coverage.
@@ -28,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add a documented first-expedition Sky Corridor floor-reward display, explicitly marked server-specific guild investigation substitutes, one-run guild mission scoring, and same-guild duplicate ancient-treasure gifts with receipt history. Automatic event rotation and unverified reward claiming remain out of scope.
 - Add native personal interception milestone logs every 10,000 points from accepted round results, preserving totals across guild transfers while attributing each crossing to its original guild and retaining the 200-row limit.
 - Add operator-approved HR melody caps at half the GR thresholds, preserving account-shared maximum earnings, spent balances, immutable GR receipts and promotion-safe pending claims.
 - Add progressive v3 interception maps for future actual rounds: page-tiered initial reinforcement, hourly-boundary invasion chances and hidden-treasure ratios, with deterministic persistence, captured-tile protection, a 100% reinforcement cap and native invasion journal entries. Preserve all v1/v2 rounds and reward quantities.

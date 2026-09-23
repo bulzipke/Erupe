@@ -88,9 +88,12 @@ type Session struct {
 
 	Name          string
 	closed        atomic.Bool
-	hidden        atomic.Bool   // Set via MsgSysHideClient; excludes this session from MsgSysEnumerateClient's "All" results.
-	questHadParty atomic.Bool   // Sticky for one quest; prevents party hunts from entering solo time rankings.
-	questRunState atomic.Uint32 // Packed quest ID and runtime normal/HC selection for the active quest.
+	hidden        atomic.Bool // Set via MsgSysHideClient; excludes this session from MsgSysEnumerateClient's "All" results.
+	questHadParty atomic.Bool // Sticky for one quest; prevents party hunts from entering solo time rankings.
+	// One guild investigation submission may follow a successful tower progress
+	// packet. Cleared at the next quest departure and consumed by PostTenrouirai.
+	towerMissionSubmissionReady atomic.Bool
+	questRunState               atomic.Uint32 // Packed quest ID and runtime normal/HC selection for the active quest.
 	// questConquestLevelState retains the runtime Conquest level until the
 	// matching result log arrives. The client returns to town before sending
 	// that log, so this state deliberately outlives the live quest-stage state.
@@ -105,6 +108,12 @@ type Session struct {
 	// an older departure overwriting a newer quest's snapshot. A ZZ first entry
 	// waits in pendingStage only when the validated setup has not arrived yet.
 	questWeaponGeneration        uint64
+	towerProgressGeneration      uint64    // Last quest departure credited to Tower; guarded by lifecycleMu.
+	towerMissionGeneration       uint64    // Last quest departure that recorded a guild investigation submission; guarded by lifecycleMu.
+	towerMissionBlock            uint8     // Zone of the accepted Tower run, guarded by lifecycleMu.
+	towerMissionDayStart         time.Time // Noon-JST day of the accepted run, guarded by lifecycleMu.
+	towerGuardianRunID           string    // Quest-stage receipt token, retained through return to town.
+	towerGuardianQuestID         uint16    // Validated quest setup tied to that receipt.
 	questWeaponPendingGeneration uint64
 	questWeaponPendingStage      string
 	// Live quest run, published to the dashboard. Set on entering a quest stage

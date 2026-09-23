@@ -30,6 +30,12 @@
   "EarthStatus": 0,
   "EarthID": 0,
   "EarthMonsters": [0, 0, 0, 0],
+  "TowerZone1UnlockFloor": 1,
+  "TowerZone2UnlockFloor": 1,
+  "TowerZone2UnlockTR": 51,
+  "TowerHintSec": 1,
+  "TowerRankTRPPerRank": 600,
+  "TowerTSPPerRank": 1,
   "SaveDumps": {
     "Enabled": true,
     "RawEnabled": false,

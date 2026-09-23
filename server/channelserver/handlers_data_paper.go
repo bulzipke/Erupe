@@ -32,6 +32,77 @@ type PaperMission struct {
 	Data       []PaperMissionData
 }
 
+// Unk1 is the client's mission type, the index into its mission text table
+// (G10.1 [pac+0xd94], ZZ [pac+0xde0]): 1 floors reached, 2 TRP earned, 3 chests
+// collected, 4 antiques collected, 5 large monsters slain, 6-9 guardians of
+// zones 1-4. Unk2 is the goal; for TRP the client multiplies it by 100 before
+// displaying and comparing it (G10.1 FUN_11002130, ZZ FUN_113ac8d0).
+//
+// The original rotating item quantities were not preserved. These twelve
+// conservative tasks use the documented categories and rotate
+// deterministically at noon JST: one floor, two large monsters, one chest,
+// two antiques, 500 TRP, three floors, two floors, three large monsters, two
+// chests, 1000 TRP, three antiques and four floors.
+var towerDailyMissionPool = []PaperMissionData{
+	{1, 1, 1, 0x2B9C, 1, 0, 0},
+	{2, 5, 2, 0x2B97, 2, 0, 0},
+	{3, 3, 1, 0x2B98, 2, 0, 0},
+	{4, 4, 2, 0x2B99, 2, 0, 0},
+	{5, 2, 5, 0x2B96, 1, 0, 0},
+	{6, 1, 3, 0x2BC9, 1, 0, 0},
+	{7, 1, 2, 0x2BA5, 1, 0, 0},
+	{8, 5, 3, 0x2C75, 1, 0, 0},
+	{9, 3, 2, 0x2C78, 1, 0, 0},
+	{10, 2, 10, 0x2B9B, 1, 0, 0},
+	{11, 4, 3, 0x2B97, 3, 0, 0},
+	{12, 1, 4, 0x2B98, 3, 0, 0},
+}
+
+// towerDailyMissionMet reports whether one day's server counters satisfy a
+// mission, reading the counter that matches the client's mission type.
+func towerDailyMissionMet(c TowerDailyCounters, m PaperMissionData) bool {
+	goal := int32(m.Unk2)
+	if goal <= 0 {
+		return false
+	}
+	switch m.Unk1 {
+	case 1:
+		return c.Floors >= goal
+	case 2:
+		return c.TRP >= goal*100
+	case 3:
+		return c.Chests >= goal
+	case 4:
+		return c.Antiques >= goal
+	case 5:
+		return c.Slays >= goal
+	}
+	return false
+}
+
+func towerDailyStart(now time.Time) time.Time {
+	start := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, now.Location())
+	if now.Before(start) {
+		start = start.Add(-24 * time.Hour)
+	}
+	return start
+}
+
+func towerDailyMissions(dayStart time.Time) []PaperMissionData {
+	// Six of twelve tasks appear per day. Sliding by one yields a new set each
+	// day without inventing a fresh reward table on every server restart.
+	first := int(dayStart.Unix()/86400) % len(towerDailyMissionPool)
+	out := make([]PaperMissionData, 6)
+	for i := range out {
+		out[i] = towerDailyMissionPool[(first+i)%len(towerDailyMissionPool)]
+		// The client treats this byte as a 1-based timetable index, not
+		// the position among the six missions. All six belong to today's
+		// only timetable entry.
+		out[i].Unk0 = 1
+	}
+	return out
+}
+
 // PaperData represents complete daily paper data.
 type PaperData struct {
 	Unk0 uint16
@@ -61,9 +132,11 @@ func handleMsgMhfGetPaperData(s *Session, p mhfpacket.MHFPacket) {
 
 	switch pkt.DataType {
 	case 0:
+		// Tower daily missions rotate at noon JST, not at midnight.
+		dayStart := towerDailyStart(TimeAdjusted())
 		paperMissions = PaperMission{
-			[]PaperMissionTimetable{{TimeMidnight(), TimeMidnight().Add(24 * time.Hour)}},
-			[]PaperMissionData{},
+			[]PaperMissionTimetable{{dayStart, dayStart.Add(24 * time.Hour)}},
+			towerDailyMissions(dayStart),
 		}
 	case 5:
 		paperData = paperDataTower
