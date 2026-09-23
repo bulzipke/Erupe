@@ -8,8 +8,8 @@
 // Save Strategy:
 // All plate data saves immediately when the client sends save packets.
 // This differs from the main savedata which may use session caching.
-// The logout flow includes a safety check via savePlateDataToDatabase()
-// to ensure no data loss if packets are lost or client disconnects.
+// The logout flow does not retry these writes. Failed saves return a failed ACK
+// so the client must not treat unsaved plate data as persisted.
 //
 // Cache Management:
 // When plate data is saved, the server's user binary cache (types 2-3)
@@ -48,7 +48,7 @@ func handleMsgMhfSavePlateData(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfSavePlateData)
 	if len(pkt.RawDataPayload) > plateDataMaxPayload {
 		s.logger.Warn("PlateData payload too large", zap.Int("len", len(pkt.RawDataPayload)))
-		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
 	saveStart := time.Now()
@@ -70,7 +70,7 @@ func handleMsgMhfSavePlateData(s *Session, p mhfpacket.MHFPacket) {
 				zap.Error(err),
 				zap.Uint32("charID", s.charID),
 			)
-			doAckSimpleSucceed(s, pkt.AckHandle, []byte{0x00, 0x00, 0x00, 0x00})
+			doAckSimpleFail(s, pkt.AckHandle, []byte{0x00, 0x00, 0x00, 0x00})
 			return
 		}
 
@@ -83,7 +83,7 @@ func handleMsgMhfSavePlateData(s *Session, p mhfpacket.MHFPacket) {
 					zap.Error(err),
 					zap.Uint32("charID", s.charID),
 				)
-				doAckSimpleSucceed(s, pkt.AckHandle, []byte{0x00, 0x00, 0x00, 0x00})
+				doAckSimpleFail(s, pkt.AckHandle, []byte{0x00, 0x00, 0x00, 0x00})
 				return
 			}
 		} else {
@@ -99,7 +99,7 @@ func handleMsgMhfSavePlateData(s *Session, p mhfpacket.MHFPacket) {
 				zap.Error(err),
 				zap.Uint32("charID", s.charID),
 			)
-			doAckSimpleSucceed(s, pkt.AckHandle, []byte{0x00, 0x00, 0x00, 0x00})
+			doAckSimpleFail(s, pkt.AckHandle, []byte{0x00, 0x00, 0x00, 0x00})
 			return
 		}
 		saveOutput, err := nullcomp.Compress(patched)
@@ -108,7 +108,7 @@ func handleMsgMhfSavePlateData(s *Session, p mhfpacket.MHFPacket) {
 				zap.Error(err),
 				zap.Uint32("charID", s.charID),
 			)
-			doAckSimpleSucceed(s, pkt.AckHandle, []byte{0x00, 0x00, 0x00, 0x00})
+			doAckSimpleFail(s, pkt.AckHandle, []byte{0x00, 0x00, 0x00, 0x00})
 			return
 		}
 		dataSize = len(saveOutput)
@@ -119,7 +119,7 @@ func handleMsgMhfSavePlateData(s *Session, p mhfpacket.MHFPacket) {
 				zap.Error(err),
 				zap.Uint32("charID", s.charID),
 			)
-			doAckSimpleSucceed(s, pkt.AckHandle, []byte{0x00, 0x00, 0x00, 0x00})
+			doAckSimpleFail(s, pkt.AckHandle, []byte{0x00, 0x00, 0x00, 0x00})
 			return
 		}
 	} else {
@@ -133,7 +133,7 @@ func handleMsgMhfSavePlateData(s *Session, p mhfpacket.MHFPacket) {
 				zap.Error(err),
 				zap.Uint32("charID", s.charID),
 			)
-			doAckSimpleSucceed(s, pkt.AckHandle, []byte{0x00, 0x00, 0x00, 0x00})
+			doAckSimpleFail(s, pkt.AckHandle, []byte{0x00, 0x00, 0x00, 0x00})
 			return
 		}
 	}

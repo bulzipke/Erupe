@@ -90,6 +90,14 @@ type Config struct {
 	EarthStatus               int32
 	EarthID                   int32
 	EarthMonsters             []int32
+	TowerZone1UnlockTRP       int32 // Tower: zone-1 list gate; default 1 cumulative TRP (0 disables)
+	TowerZone1UnlockFloor     int32 // Tower: optional custom zone-1 floor gate; default 0 (G10 prologue adds no floors)
+	TowerZone2UnlockTRP       int32 // Tower: zone-2 list gate; default 1 cumulative TRP (0 disables)
+	TowerZone2UnlockFloor     int32 // Tower: optional custom zone-2 floor gate; default 0 (original requirement is HR5/TR51)
+	TowerZone2UnlockTR        int32 // Tower: zone 2 departure also needs this Tower Rank (official: 51; 0 disables)
+	TowerHintSec              int32 // Tower: seconds after entering a maze room before its mission text shows (tune 1048; 0 = client default 120 s)
+	TowerRankTRPPerRank       int32 // Tower: TRP per Tower Rank, linear (official curve unknown; 0 disables TR accumulation)
+	TowerTSPPerRank           int32 // Tower: TSP granted for every Tower Rank gained (provisional)
 	SaveDumps                 SaveDumpOptions
 	Screenshots               ScreenshotsOptions
 	Capture                   CaptureOptions
@@ -493,6 +501,14 @@ func registerDefaults() {
 	viper.RegisterAlias("DisableSoftCrash", "DisableShutdownCountdown")
 	viper.SetDefault("DefaultCourses", []uint16{1, 23, 24})
 	viper.SetDefault("EarthMonsters", []int32{0, 0, 0, 0})
+	viper.SetDefault("TowerZone1UnlockTRP", 1)
+	viper.SetDefault("TowerZone1UnlockFloor", 0)
+	viper.SetDefault("TowerZone2UnlockTRP", 1)
+	viper.SetDefault("TowerZone2UnlockFloor", 0)
+	viper.SetDefault("TowerZone2UnlockTR", 51)
+	viper.SetDefault("TowerHintSec", 1)
+	viper.SetDefault("TowerRankTRPPerRank", 600)
+	viper.SetDefault("TowerTSPPerRank", 1)
 
 	// SaveDumps
 	viper.SetDefault("SaveDumps", SaveDumpOptions{

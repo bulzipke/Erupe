@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jmoiron/sqlx"
@@ -20,6 +21,41 @@ func setupTowerRepo(t *testing.T) (*TowerRepository, *sqlx.DB, uint32, uint32) {
 	repo := NewTowerRepository(db)
 	t.Cleanup(func() { TeardownTestDB(t, db) })
 	return repo, db, charID, guildID
+}
+
+func TestRepoTowerTransferAncientTreasure(t *testing.T) {
+	repo, db, senderID, guildID := setupTowerRepo(t)
+	userID := CreateTestUser(t, db, "tower_gift_user")
+	receiverID := CreateTestCharacter(t, db, userID, "TowerGiftReceiver")
+	if _, err := db.Exec(`INSERT INTO guild_characters (guild_id, character_id) VALUES ($1,$2)`, guildID, receiverID); err != nil {
+		t.Fatal(err)
+	}
+	items := strings.Split(EmptyTowerCSV(30), ",")
+	items[0] = "2"
+	if _, err := db.Exec(`INSERT INTO tower (char_id, gems) VALUES ($1,$2)`, senderID, strings.Join(items, ",")); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.TransferGem(senderID, receiverID, 0x0001, 7); err != nil {
+		t.Fatal(err)
+	}
+	sender, err := repo.GetGems(senderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiver, err := repo.GetGems(receiverID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Split(sender, ",")[0] != "1" || strings.Split(receiver, ",")[0] != "1" {
+		t.Fatalf("gift inventory sender=%q receiver=%q", sender, receiver)
+	}
+	if err := repo.TransferGem(senderID, receiverID, 0x0001, 7); err == nil {
+		t.Fatal("duplicate gift should be rejected")
+	}
+	history, err := repo.GetGemHistory(receiverID)
+	if err != nil || len(history) != 1 || history[0].Gem != 0x0001 || history[0].Message != 7 {
+		t.Fatalf("gift history=%+v error=%v", history, err)
+	}
 }
 
 func TestRepoTowerGetTowerDataAutoCreate(t *testing.T) {

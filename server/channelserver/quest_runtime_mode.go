@@ -196,6 +196,7 @@ func resolveQuestRunVariant(base mhfquest.HuntVariant, stageMode, recordMode que
 // here because it reads the quest file, which is far too costly to repeat on
 // every dashboard poll.
 func (s *Session) beginQuestRun() {
+	s.towerMissionSubmissionReady.Store(false)
 	questID := uint16(s.questRunState.Load())
 	if questID == 0 {
 		// The quest was selected without a decodable run mode, so the ID is not

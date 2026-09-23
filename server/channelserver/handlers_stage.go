@@ -139,6 +139,10 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 		doAckSimpleFail(s, ackHandle, []byte{0x00, 0x00, 0x00, 0x01})
 		return false
 	}
+	if stageKind(stageID) == "Qs" && !alreadyClient && len(stage.clients) == 0 {
+		// A reused stage name represents a fresh run after its last hunter left.
+		stage.towerGuardianRunID = newTowerGuardianRunID()
+	}
 	stage.clients[s] = s.charID
 	delete(stage.reservedClientSlots, s.charID)
 	updateQuestPartyTrackingLocked(stage, s, alreadyClient)
@@ -162,6 +166,8 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	recordWeaponDeparture := false
 	if stageKind(stageID) == "Qs" {
 		if !alreadyClient {
+			s.towerGuardianRunID = ""
+			s.towerGuardianQuestID = 0
 			// A fresh quest entry must not inherit the result snapshot of an
 			// abandoned earlier attempt. A validated setup below repopulates it.
 			s.clearQuestConquestLevel(0)
@@ -177,6 +183,10 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 			// Weapon usage is independent of client mode. Keeping the decoded ID
 			// lets a later ZZ result attach the departure weapon to its exact run.
 			weaponQuestID = questID
+			if !alreadyClient {
+				s.towerGuardianRunID = stage.towerGuardianRunID
+				s.towerGuardianQuestID = questID
+			}
 		}
 		if s.server.erupeConfig.RealClientMode == cfg.ZZ && decoded {
 			s.storeQuestRunMode(questID, runMode)
@@ -731,6 +741,12 @@ func handleMsgSysSetStageBinary(s *Session, p mhfpacket.MHFPacket) {
 		// first hunter must not leave the remaining hunters' departures exposed
 		// to a concurrent town transfer or result packet.
 		for _, session := range questClients {
+			session.lifecycleMu.Lock()
+			if session.towerGuardianRunID == "" && session.questWeaponGeneration != 0 {
+				session.towerGuardianRunID = stage.towerGuardianRunID
+				session.towerGuardianQuestID = questID
+			}
+			session.lifecycleMu.Unlock()
 			if generation, pending := session.armPendingQuestWeaponDeparture(pkt.StageID, questID); pending {
 				pendingWeaponDepartures = append(pendingWeaponDepartures, pendingWeaponDeparture{
 					session: session, generation: generation,

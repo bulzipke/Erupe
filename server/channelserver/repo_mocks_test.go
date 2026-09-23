@@ -2,6 +2,7 @@ package channelserver
 
 import (
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -1192,13 +1193,28 @@ func (m *mockUserRepoGacha) GetRights(_ uint32) (uint32, error)        { return 
 // --- mockTowerRepo ---
 
 type mockTowerRepo struct {
-	towerData    TowerData
-	towerDataErr error
-	skills       string
-	skillsErr    error
-	gems         string
-	gemsErr      error
-	updatedGems  string
+	settlementErr    error
+	settlements      map[string]TowerSettlement
+	settlementGains  map[string]int32
+	settlementWrites int
+	guardianBlock1   uint32
+	guardianBlock2   uint32
+	scoutBlock1      uint32
+	scoutBlock2      uint32
+	rewardState      TowerRewardState
+	claimedRewards   []uint64
+	towerData        TowerData
+	towerDataErr     error
+	skills           string
+	skillsErr        error
+	gems             string
+	gemsErr          error
+	updatedGems      string
+	floorBlock       uint8
+	floorValue       int32
+	floorErr         error
+	addedTRP         int32
+	addTRPErr        error
 
 	progress      TenrouiraiProgressData
 	progressErr   error
@@ -1213,19 +1229,128 @@ type mockTowerRepo struct {
 	advanceCalled bool
 	donateErr     error
 	donatedRP     uint16
+
+	updatedSkills string
+	skillCost     int32
+
+	roadSkills        string
+	roadSkillsErr     error
+	updatedRoadSkills string
+	addedTSP          int32
+	towerResetRefund  int32
+	towerReset        bool
+
+	passedChar    uint32
+	passedBlock   uint8
+	passedFloor   int32
+	passedErr     error
+	surveyHistory [5]int32
+	surveyErr     error
+	dailyBin      []byte
+	savedBin      []byte
 }
 
-func (m *mockTowerRepo) GetTowerData(_ uint32) (TowerData, error)        { return m.towerData, m.towerDataErr }
-func (m *mockTowerRepo) GetSkills(_ uint32) (string, error)              { return m.skills, m.skillsErr }
-func (m *mockTowerRepo) UpdateSkills(_ uint32, _ string, _ int32) error  { return nil }
+func (m *mockTowerRepo) GetGuardianKills(_ int32) (uint32, uint32, error) {
+	return m.guardianBlock1, m.guardianBlock2, nil
+}
+func (m *mockTowerRepo) RecordGuardianKill(_ int32, _ uint8, _ string, _ uint32) error {
+	return nil
+}
+func (m *mockTowerRepo) RecordTowerRun(_ int32, _ uint32, _ uint8, _ time.Time, _ TowerMissionStats) error {
+	return nil
+}
+func (m *mockTowerRepo) RecordTowerDailyExtras(_ int32, _ uint32, _ time.Time, _ TowerMissionStats) error {
+	return nil
+}
+func (m *mockTowerRepo) GetTowerScoutScores(_ int32) (uint32, uint32, error) {
+	return m.scoutBlock1, m.scoutBlock2, nil
+}
+func (m *mockTowerRepo) GetTowerRewardState(_ int32, _ uint32, _ time.Time) (TowerRewardState, error) {
+	return m.rewardState, nil
+}
+func (m *mockTowerRepo) GetTowerSurveyHistory(_ int32, _ uint32) ([5]int32, error) {
+	return m.surveyHistory, m.surveyErr
+}
+func (m *mockTowerRepo) GetTowerDailyBin(_ uint32) ([]byte, error) { return m.dailyBin, nil }
+func (m *mockTowerRepo) SaveTowerDailyBin(_ uint32, data []byte) error {
+	m.savedBin = append([]byte(nil), data...)
+	m.dailyBin = m.savedBin
+	return nil
+}
+func (m *mockTowerRepo) RecordTowerRewardClaim(_ int32, _ uint32, kind, index int32, _ uint16, _ uint16) (bool, error) {
+	key := towerRewardKey(kind, index)
+	if m.rewardState.Claimed == nil {
+		m.rewardState.Claimed = make(map[uint64]bool)
+	}
+	if m.rewardState.Claimed[key] {
+		return false, nil
+	}
+	m.claimedRewards = append(m.claimedRewards, key)
+	m.rewardState.Claimed[key] = true
+	return true, nil
+}
+func (m *mockTowerRepo) GetTowerData(_ uint32) (TowerData, error) { return m.towerData, m.towerDataErr }
+func (m *mockTowerRepo) GetSkills(_ uint32) (string, error)       { return m.skills, m.skillsErr }
+func (m *mockTowerRepo) UpdateSkills(_ uint32, skills string, cost int32) error {
+	m.updatedSkills = skills
+	m.skillCost = cost
+	return nil
+}
+func (m *mockTowerRepo) GetRoadSkills(_ uint32) (string, error) {
+	if m.roadSkills == "" && m.roadSkillsErr == nil {
+		return EmptyTowerCSV(64), nil
+	}
+	return m.roadSkills, m.roadSkillsErr
+}
+func (m *mockTowerRepo) UpdateRoadSkills(_ uint32, skills string) error {
+	m.updatedRoadSkills = skills
+	m.roadSkills = skills
+	return nil
+}
+func (m *mockTowerRepo) AddTSP(_ uint32, tsp int32) error {
+	m.addedTSP += tsp
+	return nil
+}
+func (m *mockTowerRepo) ResetTowerSkills(_ uint32, refund int32) error {
+	m.towerReset = true
+	m.towerResetRefund = refund
+	m.skills = EmptyTowerCSV(64)
+	return nil
+}
 func (m *mockTowerRepo) UpdateProgress(_ uint32, _, _, _, _ int32) error { return nil }
-func (m *mockTowerRepo) GetGems(_ uint32) (string, error)                { return m.gems, m.gemsErr }
+func (m *mockTowerRepo) AddTowerRankPoints(_ uint32, trp, _, _ int32) (int32, error) {
+	m.addedTRP += trp
+	return m.towerData.TR, m.addTRPErr
+}
+func (m *mockTowerRepo) UpdateBlockFloors(_ uint32, block uint8, floors int32) error {
+	m.floorBlock = block
+	m.floorValue = floors
+	return m.floorErr
+}
+func (m *mockTowerRepo) PassTowerMilestone(charID uint32, block uint8, floor int32) error {
+	if m.passedErr != nil {
+		return m.passedErr
+	}
+	m.passedChar, m.passedBlock, m.passedFloor = charID, block, floor
+	if block == 1 && m.towerData.Guardian1 < floor {
+		m.towerData.Guardian1 = floor
+	} else if block == 2 && m.towerData.Guardian2 < floor {
+		m.towerData.Guardian2 = floor
+	}
+	return nil
+}
+func (m *mockTowerRepo) GetGems(_ uint32) (string, error) { return m.gems, m.gemsErr }
 func (m *mockTowerRepo) UpdateGems(_ uint32, gems string) error {
 	m.updatedGems = gems
 	return nil
 }
+func (m *mockTowerRepo) GetGemHistory(_ uint32) ([]GemHistory, error) { return nil, nil }
+func (m *mockTowerRepo) TransferGem(_, _ uint32, _, _ uint16) error   { return nil }
 func (m *mockTowerRepo) GetTenrouiraiProgress(_ uint32) (TenrouiraiProgressData, error) {
 	return m.progress, m.progressErr
+}
+func (m *mockTowerRepo) SubmitTenrouiraiProgress(_, _ uint32, _ TowerMissionStats) error {
+	return nil
 }
 func (m *mockTowerRepo) GetTenrouiraiMissionScores(_ uint32, _ uint8) ([]TenrouiraiCharScore, error) {
 	return m.scores, m.scoresErr
@@ -1578,3 +1703,54 @@ func (m *mockTournamentRepo) SubmitResult(_, _, _, _, _ uint32) error { return n
 func (m *mockTournamentRepo) GetLeaderboard(_ uint32) ([]TournamentRankEntry, error) {
 	return m.ranks, nil
 }
+
+func (m *mockTowerRepo) SettleTowerRun(_ uint32, runID string, _ int32, _ time.Time, v TowerSettlement) (int32, error) {
+	if m.settlementErr != nil {
+		return 0, m.settlementErr
+	}
+	if m.settlements == nil {
+		m.settlements = make(map[string]TowerSettlement)
+		m.settlementGains = make(map[string]int32)
+	}
+	if old, ok := m.settlements[runID]; ok {
+		if old != v {
+			return 0, fmt.Errorf("different retry")
+		}
+		return m.settlementGains[runID], nil
+	}
+	if m.floorErr != nil {
+		return 0, m.floorErr
+	}
+	gain := int32(0)
+	if v.Block == 1 {
+		gain = towerFloorGain(m.towerData.Block1, v.Floors)
+		m.towerData.Block1 += gain
+		m.floorValue = m.towerData.Block1
+	}
+	if v.Block == 2 {
+		gain = towerFloorGain(m.towerData.Block2, v.Floors)
+		m.towerData.Block2 += gain
+		m.floorValue = m.towerData.Block2
+	}
+	if gain > 0 {
+		m.floorBlock = v.Block
+	} else {
+		m.floorValue = 0
+	}
+	if v.TR > m.towerData.TR {
+		m.towerData.TR = v.TR
+	}
+	m.towerData.TRP += v.TRP
+	m.towerData.TSP += v.TSP
+	m.settlements[runID] = v
+	m.settlementGains[runID] = gain
+	m.settlementWrites++
+	return gain, nil
+}
+
+func (m *mockTowerRepo) DepositTowerGem(_ uint32, _ string, _ int32, _ int32, _ int32) error {
+	return m.gemsErr
+}
+
+func (m *mockTowerRepo) GetGemNotice(_ uint32) (int64, int64, error) { return 0, 0, m.gemsErr }
+func (m *mockTowerRepo) ReadGemNotice(_ uint32, _ int64) error       { return m.gemsErr }

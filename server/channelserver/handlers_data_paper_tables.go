@@ -29,9 +29,11 @@ var paperDataTower = []PaperData{
 	// createTowerFloorRandomNumberArray
 	{1101, 1, 2016, 500, 0, 0, 0},
 	{1101, 2, 2016, 500, 0, 0, 0},
-	// HRP/SRP/GRP/GSRP/TRP reward
-	{1103, 1, 0, 0, 3000, 0, 3000},
-	{1103, 2, 0, 0, 3000, 0, 3000},
+	// Tower base rewards: Unk2 is TRP, Unk3 HRP, Unk4 GRP (client row +4/+6/+8).
+	// D449/D450: original-service quest confirmation screenshots supplied on
+	// 2026-09-27 show 200 TRP for zone 1 and 500 TRP for zone 2.
+	{1103, 1, 200, 0, 3000, 0, 3000},
+	{1103, 2, 500, 0, 3000, 0, 3000},
 	// getTowerNextVenomLevel
 	{1104, 1, 10, 9999, 40, 0, 0},
 	{1104, 2, 10, 9999, 40, 0, 0},

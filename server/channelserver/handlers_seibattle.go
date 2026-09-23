@@ -183,6 +183,16 @@ func handleMsgMhfGetWeeklySeibatuRankingReward(s *Session, p mhfpacket.MHFPacket
 	weeklySeibatuRankingRewards := []WeeklySeibatuRankingReward{
 		{0, 0, 0, 0, 0, 0},
 	}
+	// Operation 5 uses separate Sky Corridor floor (260003) and advance
+	// contribution (260001) tables. Other event IDs retain their old response.
+	if pkt.Unk1 == 5 {
+		switch pkt.Unk2 {
+		case 260003:
+			weeklySeibatuRankingRewards = towerFloorRewards
+		case 260001:
+			weeklySeibatuRankingRewards = towerAdvanceRewards
+		}
+	}
 	for _, reward := range weeklySeibatuRankingRewards {
 		bf := byteframe.NewByteFrame()
 		bf.WriteInt32(reward.Unk0)

@@ -234,7 +234,7 @@ func CSVElems(csv string) []int {
 // or 0 if i is out of range.
 func CSVGetIndex(csv string, i int) int {
 	s := CSVElems(csv)
-	if i < len(s) {
+	if i >= 0 && i < len(s) {
 		return s[i]
 	}
 	return 0
@@ -244,7 +244,7 @@ func CSVGetIndex(csv string, i int) int {
 // with v. If i is out of range the list is returned unchanged.
 func CSVSetIndex(csv string, i int, v int) string {
 	s := CSVElems(csv)
-	if i < len(s) {
+	if i >= 0 && i < len(s) {
 		s[i] = v
 	}
 	var r []string

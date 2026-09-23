@@ -1,6 +1,8 @@
 package channelserver
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"sync"
 
 	"erupe-ce/common/byteframe"
@@ -91,6 +93,9 @@ type Stage struct {
 
 	// Stage ID string
 	id string
+	// Shared by all hunters in this quest-stage instance. A guardian defeat
+	// counts once globally even when every party member sends a result log.
+	towerGuardianRunID string
 
 	// Objects
 	objects     map[uint32]*Object
@@ -114,10 +119,19 @@ type Stage struct {
 	locked     bool
 }
 
+func newTowerGuardianRunID() string {
+	var runID [16]byte
+	if _, err := rand.Read(runID[:]); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(runID[:])
+}
+
 // NewStage creates a new stage with intialized values.
 func NewStage(ID string) *Stage {
 	s := &Stage{
 		id:                  ID,
+		towerGuardianRunID:  newTowerGuardianRunID(),
 		clients:             make(map[*Session]uint32),
 		reservedClientSlots: make(map[uint32]bool),
 		objects:             make(map[uint32]*Object),

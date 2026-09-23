@@ -100,18 +100,36 @@ func handleMsgMhfGetEarthValue(s *Session, p mhfpacket.MHFPacket) {
 	var earthValues []EarthValues
 	switch pkt.ReqType {
 	case 1:
+		var block1, block2 uint32
+		if s.server.towerRepo != nil {
+			var err error
+			block1, block2, err = s.server.towerRepo.GetGuardianKills(s.server.erupeConfig.EarthID)
+			if err != nil {
+				s.logger.Error("Failed to read tower guardian kills", zap.Error(err))
+				block1, block2 = 0, 0
+			}
+		}
 		earthValues = []EarthValues{
-			{[]uint32{1, 312, 0, 0, 0, 0}},
-			{[]uint32{2, 99, 0, 0, 0, 0}},
+			{[]uint32{1, block1, 0, 0, 0, 0}},
+			{[]uint32{2, block2, 0, 0, 0, 0}},
 		}
 	case 2:
+		var block1, block2 uint32
+		if s.server.towerRepo != nil {
+			var err error
+			block1, block2, err = s.server.towerRepo.GetTowerScoutScores(s.server.erupeConfig.EarthID)
+			if err != nil {
+				s.logger.Error("Failed to read tower scout progress", zap.Error(err))
+				block1, block2 = 0, 0
+			}
+		}
 		earthValues = []EarthValues{
-			{[]uint32{1, 5771, 0, 0, 0, 0}},
-			{[]uint32{2, 1847, 0, 0, 0, 0}},
+			{[]uint32{1, block1, 0, 0, 0, 0}},
+			{[]uint32{2, block2, 0, 0, 0, 0}},
 		}
 	case 3:
 		earthValues = []EarthValues{
-			{[]uint32{1001, 36, 0, 0, 0, 0}},
+			{[]uint32{1001, towerSurveyRound(s.server.erupeConfig.EarthID), 0, 0, 0, 0}},
 			{[]uint32{9001, 3, 0, 0, 0, 0}},
 			{[]uint32{9002, 10, 300, 0, 0, 0}},
 		}

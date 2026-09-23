@@ -280,12 +280,12 @@ func TestGetPaperData_Type0_TimetableContent(t *testing.T) {
 		if numTimetables != 1 {
 			t.Errorf("timetable count = %d, want 1", numTimetables)
 		}
-		if numData != 0 {
-			t.Errorf("mission data count = %d, want 0", numData)
+		if numData != 6 {
+			t.Errorf("mission data count = %d, want 6", numData)
 		}
 
-		// 1 timetable = 8 bytes (start uint32 + end uint32)
-		expectedLen := 4 + 8 // header + 1 timetable entry
+		// One timetable is 8 bytes and each of six missions is 10 bytes.
+		expectedLen := 4 + 8 + 6*10
 		if len(payload) != expectedLen {
 			t.Errorf("mission payload length = %d, want %d", len(payload), expectedLen)
 		}
