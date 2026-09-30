@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+### Fixed 
+- A quest stage that a client had just created could be destroyed by another session's empty-stage cleanup before the creator's reservation arrived ("Failed to get stage", communication error at departure). `destructEmptyStages` and the logout-time sweep now leave another host's transient stage alone for 30 seconds after its creation (`stageEmptyGrace`); a host's own abandoned stage is still removed on its disconnect.
 
 - Bound tower skill and ancient-treasure inputs, reject invalid ancient-treasure gifts, and require all three guild investigation goals before advancing a funded page.
 - Show the shared 76-item Diva melody catalog in the interception reward preview before welcome-period/hall eligibility, while retaining all purchase-time membership, period and wallet checks.

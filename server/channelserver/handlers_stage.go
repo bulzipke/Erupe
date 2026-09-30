@@ -341,13 +341,23 @@ func updateQuestPartyTrackingLocked(stage *Stage, joining *Session, alreadyClien
 	}
 }
 
+// stageEmptyGrace: a transient stage stays out of the empty-stage sweep this long after its creation.
+// A quest departure is MSG_SYS_CREATE_STAGE, then MSG_SYS_RESERVE_STAGE about 300 ms later; in between the
+// stage has neither clients nor reservations, and any other session's cleanup swept it (observed
+// 2026-09-30: "Destructed stage sl2Qs200p0a2u0" 54 ms after its creation, then the host's reservation
+// failed with "Failed to get stage" and the client showed a communication error). Stages the host
+// abandons are still swept by later cleanups and by destructEmptyHostedStages on its disconnect.
+var stageEmptyGrace = 30 * time.Second
+
 func destructEmptyStages(s *Session) {
+	now := time.Now()
 	s.server.stages.Range(func(id string, stage *Stage) bool {
 		kind := stageKind(id)
 		stage.Lock()
 		transient := kind == "Qs" || kind == "Ms" || kind == "Gs" || kind == "Ls"
 		isEmpty := len(stage.reservedClientSlots) == 0 && len(stage.clients) == 0
-		deleted := isEmpty && transient && s.server.stages.CompareAndDelete(id, stage)
+		fresh := !stage.createdAt.IsZero() && now.Sub(stage.createdAt) < stageEmptyGrace
+		deleted := isEmpty && transient && !fresh && s.server.stages.CompareAndDelete(id, stage)
 		stage.Unlock()
 
 		if deleted {

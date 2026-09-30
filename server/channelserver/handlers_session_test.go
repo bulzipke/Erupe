@@ -1782,6 +1782,30 @@ func TestLogoutPlayer_BasicLogout(t *testing.T) {
 	}
 }
 
+// Another player's logout must not sweep a quest stage that a host has just created and not yet reserved
+// (the same race as destructEmptyStages); an aged empty quest stage is still swept.
+func TestLogoutPlayer_KeepsFreshStageOfAnotherHost(t *testing.T) {
+	server, _, _, _ := setupLogoutServer()
+	host := createMockSession(7, server)
+	fresh := NewStage("sl2Qs200p0a2u0")
+	fresh.host = host
+	server.stages.Store(fresh.id, fresh)
+	aged := NewStage("sl2Qs200p0a3u0")
+	aged.host = host
+	aged.createdAt = time.Now().Add(-stageEmptyGrace - time.Second)
+	server.stages.Store(aged.id, aged)
+
+	session, _ := setupLogoutSession(0, server)
+	logoutPlayer(session)
+
+	if _, ok := server.stages.Get(fresh.id); !ok {
+		t.Error("another player's logout swept a freshly created quest stage before its host could reserve it")
+	}
+	if _, ok := server.stages.Get(aged.id); ok {
+		t.Error("an empty quest stage older than the grace period must still be swept on logout")
+	}
+}
+
 func TestLogoutPlayer_WithCharacter(t *testing.T) {
 	server, charRepo, sessionRepo, _ := setupLogoutServer()
 

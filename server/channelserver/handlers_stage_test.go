@@ -54,6 +54,44 @@ func TestDestructEmptyStagesShortIDDoesNotPanic(t *testing.T) {
 	destructEmptyStages(session)
 }
 
+// A quest stage that another host has just created (MSG_SYS_CREATE_STAGE acknowledged, MSG_SYS_RESERVE_STAGE
+// still on its way) must survive this session's empty-stage sweep; once the grace period is over an empty
+// transient stage is swept as before.
+func TestDestructEmptyStagesKeepsFreshStageOfAnotherHost(t *testing.T) {
+	server := createMockServer()
+	host := createMockSession(1, server)
+	other := createMockSession(2, server)
+	stage := NewStage("sl2Qs200p0a2u0")
+	stage.host = host
+	server.stages.Store(stage.id, stage)
+
+	destructEmptyStages(other)
+	if _, ok := server.stages.Get(stage.id); !ok {
+		t.Fatal("a freshly created quest stage was swept before its host could reserve it")
+	}
+	destructEmptyStages(host)
+	if _, ok := server.stages.Get(stage.id); !ok {
+		t.Fatal("the host's own cleanup swept its freshly created quest stage")
+	}
+
+	stage.Lock()
+	stage.createdAt = time.Now().Add(-stageEmptyGrace - time.Second)
+	stage.Unlock()
+	destructEmptyStages(other)
+	if _, ok := server.stages.Get(stage.id); ok {
+		t.Fatal("an empty transient stage older than the grace period must still be swept")
+	}
+
+	// a stage without a creation time (older code paths, tests) is swept as before
+	legacy := NewStage("sl2Qs200p0a3u0")
+	legacy.createdAt = time.Time{}
+	server.stages.Store(legacy.id, legacy)
+	destructEmptyStages(other)
+	if _, ok := server.stages.Get(legacy.id); ok {
+		t.Fatal("a stage without a creation time must be swept as before")
+	}
+}
+
 func TestDoStageTransferConcurrentCapacity(t *testing.T) {
 	server := createMockServer()
 	stageID := "abcde_capacity"

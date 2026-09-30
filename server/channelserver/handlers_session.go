@@ -385,6 +385,7 @@ func finalizeRuntimeLogout(s *Session) {
 	replacementReservations := reservationStagesForCharacter(remainingSessions, s, s.charID)
 
 	runLogoutCleanupPhase(s, "stage memberships", func() {
+		now := time.Now()
 		s.server.stages.Range(func(id string, stage *Stage) bool {
 			stage.Lock()
 			delete(stage.clients, s)
@@ -413,8 +414,12 @@ func finalizeRuntimeLogout(s *Session) {
 				}
 			}
 			empty := len(stage.clients) == 0 && len(stage.reservedClientSlots) == 0
-			if empty && (wasHost || stageKind(id) == "Qs" || stageKind(id) == "Ms" ||
-				stageKind(id) == "Gs" || stageKind(id) == "Ls") {
+			// Another host's transient stage is left alone right after its creation (stageEmptyGrace):
+			// its reservation may still be on the way. See destructEmptyStages.
+			fresh := !stage.createdAt.IsZero() && now.Sub(stage.createdAt) < stageEmptyGrace
+			transient := stageKind(id) == "Qs" || stageKind(id) == "Ms" ||
+				stageKind(id) == "Gs" || stageKind(id) == "Ls"
+			if empty && (wasHost || (transient && !fresh)) {
 				s.server.stages.CompareAndDelete(id, stage)
 			}
 			stage.Unlock()

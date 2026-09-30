@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"sync"
+	"time"
 
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network/mhfpacket"
@@ -117,6 +118,10 @@ type Stage struct {
 	maxPlayers uint16
 	password   string
 	locked     bool
+
+	// createdAt keeps a just-created stage out of destructEmptyStages for stageEmptyGrace:
+	// the host reserves its slot only after MSG_SYS_CREATE_STAGE has been acknowledged.
+	createdAt time.Time
 }
 
 func newTowerGuardianRunID() string {
@@ -138,6 +143,7 @@ func NewStage(ID string) *Stage {
 		objectIndex:         0,
 		rawBinaryData:       make(map[stageBinaryKey][]byte),
 		maxPlayers:          127,
+		createdAt:           time.Now(),
 	}
 	return s
 }
