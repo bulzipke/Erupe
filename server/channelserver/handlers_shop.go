@@ -231,6 +231,9 @@ func handleMsgMhfEnumerateShop(s *Session, p mhfpacket.MHFPacket) {
 	case 10: // Item shop, 0-8
 		bf := byteframe.NewByteFrame()
 		items := getShopItems(s, pkt.ShopType, pkt.ShopID)
+		if pkt.ShopID == 7 {
+			items = filterRoadShopItems(s, items)
+		}
 		if len(items) > int(pkt.Limit) {
 			items = items[:pkt.Limit]
 		}

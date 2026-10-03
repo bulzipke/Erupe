@@ -19,8 +19,13 @@ func TestRoadShopNativeCatalogRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	var count int
-	if err := db.Get(&count, "SELECT count(*) FROM shop_items WHERE shop_type=10"); err != nil || count != 0 {
-		t.Fatalf("fresh seed must leave native Road catalog intact: count=%d err=%v", count, err)
+	if err := db.Get(&count, "SELECT count(*) FROM shop_items WHERE shop_type=10"); err != nil || count != 61 {
+		t.Fatalf("fresh seed must supply only absent Road products: count=%d err=%v", count, err)
+	}
+	// Exercise the historical override-removal script against its original
+	// two-row fixture, not the newly restored limited/special catalog.
+	if _, err := db.Exec("DELETE FROM shop_items WHERE shop_type=10"); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO shop_items
 		(shop_type, shop_id, item_id, cost, quantity, min_hr, min_sr, min_gr,
@@ -88,6 +93,11 @@ func TestRoadShopNativeCatalogRestore(t *testing.T) {
 		t.Fatalf("recovery changed backed-up data: exact=%v err=%v", exact, err)
 	}
 	var sequenceAfter int64
+	// The production September backup predates the new weekly-limit column.
+	if _, err := db.Exec("ALTER TABLE road_shop_overrides_backup_20260921 DROP COLUMN road_weekly_limit"); err != nil {
+		t.Fatal(err)
+	}
+	runSQL("manual/undo_restore_native_road_shop.sql")
 	if err := db.Get(&sequenceAfter, "SELECT last_value FROM shop_items_id_seq"); err != nil || sequenceAfter != sequenceBefore {
 		t.Fatalf("sequence changed: before=%d after=%d err=%v", sequenceBefore, sequenceAfter, err)
 	}

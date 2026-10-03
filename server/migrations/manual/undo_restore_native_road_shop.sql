@@ -12,7 +12,8 @@ BEGIN
     SELECT 1
     FROM public.road_shop_overrides_backup_20260921 b
     JOIN public.shop_items s ON s.id = b.id
-    WHERE to_jsonb(s) IS DISTINCT FROM (to_jsonb(b) - 'backed_up_at')
+    WHERE to_jsonb(s) IS DISTINCT FROM ((to_jsonb(b) - 'backed_up_at') ||
+      jsonb_build_object('road_weekly_limit', COALESCE((to_jsonb(b)->>'road_weekly_limit')::boolean, false)))
   ) THEN
     RAISE EXCEPTION 'A backed-up shop ID is now occupied by a changed row; recovery aborted';
   END IF;
@@ -32,9 +33,10 @@ END $$;
 
 INSERT INTO public.shop_items
     (shop_type, shop_id, id, item_id, cost, quantity, min_hr, min_sr,
-     min_gr, store_level, max_quantity, road_floors, road_fatalis)
+     min_gr, store_level, max_quantity, road_floors, road_fatalis, road_weekly_limit)
 SELECT shop_type, shop_id, id, item_id, cost, quantity, min_hr, min_sr,
-       min_gr, store_level, max_quantity, road_floors, road_fatalis
-FROM public.road_shop_overrides_backup_20260921
+       min_gr, store_level, max_quantity, road_floors, road_fatalis,
+       COALESCE((to_jsonb(b)->>'road_weekly_limit')::boolean, false)
+FROM public.road_shop_overrides_backup_20260921 b
 ON CONFLICT (id) DO NOTHING;
 COMMIT;
