@@ -41,22 +41,22 @@ func towerD463DB(t *testing.T) *sqlx.DB {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close(); admin.Exec("DROP SCHEMA " + schema + " CASCADE"); admin.Close() })
-	ddl := `CREATE TABLE characters(id integer PRIMARY KEY,name text);CREATE TABLE guild_characters(id serial PRIMARY KEY,guild_id integer,character_id integer);
- CREATE TABLE tower(char_id integer PRIMARY KEY REFERENCES characters(id),tr integer DEFAULT 1,trp integer DEFAULT 0,tsp integer DEFAULT 0,block1 integer DEFAULT 0,block2 integer DEFAULT 0,gems text);
+	ddl := `CREATE TABLE characters(id integer PRIMARY KEY,name text);
+ CREATE TABLE guilds(id integer PRIMARY KEY,tower_mission_page integer DEFAULT 1,tower_rp integer DEFAULT 0);
+ CREATE TABLE guild_characters(id serial PRIMARY KEY,guild_id integer,character_id integer,tower_mission_1 integer,tower_mission_2 integer,tower_mission_3 integer);
+ CREATE TABLE tower(char_id integer PRIMARY KEY REFERENCES characters(id),tr integer DEFAULT 1,trp integer DEFAULT 0,tsp integer DEFAULT 0,block1 integer DEFAULT 0,block2 integer DEFAULT 0,skills text,gems text);
  INSERT INTO characters VALUES(100,'sender'),(101,'receiver'),(102,'outsider');INSERT INTO tower(char_id) VALUES(100),(101),(102);
+ INSERT INTO guilds(id) VALUES(1),(2);
  INSERT INTO guild_characters(guild_id,character_id) VALUES(1,100),(1,101),(2,102);`
 	if _, err = db.Exec(ddl); err != nil {
 		t.Fatal(err)
 	}
-	for _, file := range []string{"0063_tower_gem_history.sql", "0065_tower_event_rewards.sql", "0069_tower_settlements.sql", "0070_tower_gem_deposits.sql", "0071_tower_gem_notices.sql"} {
+	for _, file := range []string{"0063_tower_gem_history.sql", "0064_tower_guardian_kills.sql", "0065_tower_event_rewards.sql", "0066_tower_daily_bin.sql", "0068_tower_guardian_milestones.sql", "0069_tower_settlements.sql", "0070_tower_gem_deposits.sql", "0071_tower_gem_notices.sql", "0073_tower_event_lifecycle.sql"} {
 		b, e := os.ReadFile(filepath.Join("..", "migrations", "sql", file))
 		if e != nil {
 			t.Fatal(e)
 		}
 		sql := string(b)
-		if file == "0065_tower_event_rewards.sql" {
-			sql = strings.Split(sql, "ALTER TABLE tower_guardian_kills")[0]
-		}
 		if _, e = db.Exec(sql); e != nil {
 			t.Fatalf("%s: %v", file, e)
 		}

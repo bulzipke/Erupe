@@ -82,6 +82,12 @@ func (s *Session) towerDataCached(cache **TowerData) (*TowerData, bool) {
 // listed, normal zones wait for configured TRP/rank/floor requirements, and
 // Guardian arenas appear only while the matching block record is on a milestone.
 func (s *Session) allowsTowerQuest(eq EventQuest, cache **TowerData) bool {
+	if eq.QuestType == 55 && s.server.erupeConfig.TowerRotation.Enabled {
+		event, err := s.server.towerEvent(TimeAdjusted())
+		if err != nil || !event.Active(TimeAdjusted()) {
+			return false
+		}
+	}
 	// These IDs also serve Road. Only the Tower category uses Tower unlocks.
 	if eq.QuestType == 55 {
 		if eq.QuestID == towerQuestMilestone1 {
@@ -171,8 +177,12 @@ func towerSurveyRound(earthID int32) uint32 {
 // before it (Unk0) with the floors this character cleared in each (Unk1).
 func towerSurveyHistory(s *Session) TowerInfoHistory {
 	history := TowerInfoHistory{make([]int16, 5), make([]int16, 5)}
-	round := int32(towerSurveyRound(s.server.erupeConfig.EarthID))
-	floors, err := s.server.towerRepo.GetTowerSurveyHistory(s.server.erupeConfig.EarthID, s.charID)
+	event, err := s.server.towerEvent(TimeAdjusted())
+	if err != nil {
+		return history
+	}
+	round := int32(towerSurveyRound(event.ID))
+	floors, err := s.server.towerRepo.GetTowerSurveyHistory(event.ID, s.charID)
 	if err != nil {
 		s.logger.Error("Failed to read tower survey history", zap.Error(err))
 	}
@@ -187,6 +197,11 @@ func towerSurveyHistory(s *Session) TowerInfoHistory {
 
 func handleMsgMhfGetTowerInfo(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetTowerInfo)
+	event, err := s.server.towerEvent(TimeAdjusted())
+	if err != nil {
+		doAckBufFail(s, pkt.AckHandle, nil)
+		return
+	}
 	var data []*byteframe.ByteFrame
 	type TowerInfo struct {
 		TRP     []TowerInfoTRP
@@ -281,11 +296,18 @@ func handleMsgMhfGetTowerInfo(s *Session, p mhfpacket.MHFPacket) {
 			data = append(data, bf)
 		}
 	}
-	doAckEarthSucceed(s, pkt.AckHandle, data)
+	doAckTowerSucceed(s, pkt.AckHandle, event.ID, data)
 }
 
 func handleMsgMhfPostTowerInfo(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfPostTowerInfo)
+	if s.server.erupeConfig.TowerRotation.Enabled {
+		if _, err := s.server.towerEvent(TimeAdjusted()); err != nil {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+	}
+	resultEvent, hasDeparture := s.towerResultEvent()
 
 	if s.server.erupeConfig.DebugOptions.QuestTools {
 		s.logger.Debug(
@@ -381,6 +403,9 @@ func handleMsgMhfPostTowerInfo(s *Session, p mhfpacket.MHFPacket) {
 			}
 			break
 		}
+		if !hasDeparture {
+			break
+		}
 		// Floor record from the ZZ client (cComm_PostTowerInfo, verified against
 		// the client on 2026-09-24): the quest-result step sends it only when the
 		// run beat the block record it received from GetTowerInfo. Unk6 is the
@@ -390,20 +415,33 @@ func handleMsgMhfPostTowerInfo(s *Session, p mhfpacket.MHFPacket) {
 			s.logger.Warn("Tower floor report out of range, not recorded", zap.Int32("block", pkt.Unk6), zap.Int32("floors", pkt.Block1))
 			break
 		}
+		if s.server.erupeConfig.TowerRotation.Enabled {
+			// Native IT6 reports an absolute record, not a run delta. Defer the
+			// write to IT7/the investigation's atomic settlement, otherwise the
+			// same floors would be added again by the report-only fallback.
+			break
+		}
 		if _, err := s.server.towerRepo.GetTowerData(s.charID); err != nil {
 			s.logger.Error("Failed to initialize tower data for floor report", zap.Error(err))
 			break
 		}
-		if err := s.server.towerRepo.UpdateBlockFloors(s.charID, uint8(pkt.Unk6), pkt.Block1); err != nil {
+		if err := s.towerRoundRepo(resultEvent.ID).UpdateBlockFloors(s.charID, uint8(pkt.Unk6), pkt.Block1); err != nil {
 			s.logger.Error("Failed to save tower floor report", zap.Error(err))
 			break
 		}
 		s.lifecycleMu.Lock()
 		s.towerMissionBlock = uint8(pkt.Unk6)
 		s.towerMissionDayStart = towerDailyStart(TimeAdjusted())
+		if s.server.erupeConfig.TowerRotation.Enabled {
+			s.towerMissionDayStart = towerDailyStart(s.towerDepartureStarted)
+		}
 		s.lifecycleMu.Unlock()
 		s.towerMissionSubmissionReady.Store(true)
 	case 1, 7:
+		if !hasDeparture {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
 		// Tower progress from the quest-clear flow. The ZZ client builds InfoType 7
 		// in FUN_10b77aa0 (verified 2026-09-26): TR is the new Tower Rank, TRP and
 		// Cost (TSP) are what the run added, Unk6 is the tower block (1-4) and
@@ -421,6 +459,9 @@ func handleMsgMhfPostTowerInfo(s *Session, p mhfpacket.MHFPacket) {
 			s.towerSettlementRunID = newTowerGuardianRunID()
 			s.towerSettlementGeneration = s.questWeaponGeneration
 			s.towerMissionDayStart = towerDailyStart(TimeAdjusted())
+			if s.server.erupeConfig.TowerRotation.Enabled {
+				s.towerMissionDayStart = towerDailyStart(s.towerDepartureStarted)
+			}
 		}
 		// Create the legacy row if needed; never consume the generation on failure.
 		if _, err := s.server.towerRepo.GetTowerData(s.charID); err != nil {
@@ -428,7 +469,7 @@ func handleMsgMhfPostTowerInfo(s *Session, p mhfpacket.MHFPacket) {
 			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 			return
 		}
-		if _, err := s.server.towerRepo.SettleTowerRun(s.charID, s.towerSettlementRunID, s.server.erupeConfig.EarthID, s.towerMissionDayStart, v); err != nil {
+		if _, err := s.towerRoundRepo(resultEvent.ID).SettleTowerRun(s.charID, s.towerSettlementRunID, resultEvent.ID, s.towerMissionDayStart, v); err != nil {
 			s.lifecycleMu.Unlock()
 			s.logger.Error("Failed to commit tower settlement", zap.Error(err))
 			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
@@ -478,9 +519,28 @@ func towerRecordReportedFloors(s *Session, stats TowerMissionStats, dayStart tim
 	if block == 0 {
 		return
 	}
+	event, valid := s.towerResultEvent()
+	if !valid {
+		return
+	}
 	td, err := s.server.towerRepo.GetTowerData(s.charID)
 	if err != nil {
 		s.logger.Error("Failed to read tower data for reported floors", zap.Error(err))
+		return
+	}
+	if s.server.erupeConfig.TowerRotation.Enabled {
+		s.lifecycleMu.Lock()
+		if s.towerSettlementGeneration != s.questWeaponGeneration {
+			s.towerSettlementGeneration = s.questWeaponGeneration
+			s.towerSettlementRunID = newTowerGuardianRunID()
+		}
+		runID := s.towerSettlementRunID
+		s.lifecycleMu.Unlock()
+		_, err := s.towerRoundRepo(event.ID).SettleTowerRun(s.charID, runID, event.ID, dayStart,
+			TowerSettlement{Block: block, TR: td.TR, Floors: int32(stats.Floors)})
+		if err != nil {
+			s.logger.Error("Failed to commit reported Tower floors", zap.Error(err))
+		}
 		return
 	}
 	reached := td.Block1
@@ -626,6 +686,11 @@ type Tenrouirai struct {
 
 func handleMsgMhfGetTenrouirai(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetTenrouirai)
+	event, err := s.server.towerEvent(TimeAdjusted())
+	if err != nil {
+		doAckBufFail(s, pkt.AckHandle, nil)
+		return
+	}
 	var data []*byteframe.ByteFrame
 
 	tenrouirai := Tenrouirai{
@@ -713,11 +778,20 @@ func handleMsgMhfGetTenrouirai(s *Session, p mhfpacket.MHFPacket) {
 		}
 	}
 
-	doAckEarthSucceed(s, pkt.AckHandle, data)
+	doAckTowerSucceed(s, pkt.AckHandle, event.ID, data)
 }
 
 func handleMsgMhfPostTenrouirai(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfPostTenrouirai)
+	event, eventErr := s.server.towerEvent(TimeAdjusted())
+	if eventErr != nil {
+		if pkt.Op == 1 {
+			doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+		} else {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		}
+		return
+	}
 
 	if s.server.erupeConfig.DebugOptions.QuestTools {
 		s.logger.Debug(
@@ -736,6 +810,12 @@ func handleMsgMhfPostTenrouirai(s *Session, p mhfpacket.MHFPacket) {
 	}
 
 	if pkt.Op == 1 {
+		resultEvent, valid := s.towerResultEvent()
+		if !valid {
+			doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+		event = resultEvent
 		// The client posts this from its quest-end state machine (state 0x9b) and
 		// only proceeds on a success ack: a failure ack leaves it polling forever
 		// on a black screen (observed 2026-09-24 after abandoning a tower quest).
@@ -780,9 +860,20 @@ func handleMsgMhfPostTenrouirai(s *Session, p mhfpacket.MHFPacket) {
 		s.lifecycleMu.Unlock()
 		if dayStart.IsZero() {
 			dayStart = towerDailyStart(TimeAdjusted())
+			if s.server.erupeConfig.TowerRotation.Enabled {
+				s.lifecycleMu.Lock()
+				dayStart = towerDailyStart(s.towerDepartureStarted)
+				s.lifecycleMu.Unlock()
+			}
 		}
-		if err := s.server.towerRepo.RecordTowerDailyExtras(s.server.erupeConfig.EarthID, s.charID, dayStart, stats); err != nil {
-			s.logger.Error("Failed to save Tower daily bonus counters", zap.Error(err))
+		var dailyErr error
+		if r, ok := s.server.towerRepo.(TowerDailyExtrasRepository); ok && s.server.erupeConfig.TowerRotation.Enabled {
+			dailyErr = r.RecordTowerDailyExtrasWithTRP(event.ID, s.charID, dayStart, stats, !progressPosted)
+		} else {
+			dailyErr = s.server.towerRepo.RecordTowerDailyExtras(event.ID, s.charID, dayStart, stats)
+		}
+		if dailyErr != nil {
+			s.logger.Error("Failed to save Tower daily bonus counters", zap.Error(dailyErr))
 		}
 		if !progressPosted {
 			towerRecordReportedFloors(s, stats, dayStart)
@@ -793,13 +884,17 @@ func handleMsgMhfPostTenrouirai(s *Session, p mhfpacket.MHFPacket) {
 			doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 			return
 		}
-		if err := s.server.towerRepo.SubmitTenrouiraiProgress(guildID, s.charID, stats); err != nil {
+		if err := s.towerRoundRepo(event.ID).SubmitTenrouiraiProgress(guildID, s.charID, stats); err != nil {
 			s.logger.Error("Failed to save tower investigation progress", zap.Error(err))
 			doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 			return
 		}
 		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 	} else if pkt.Op == 2 {
+		if s.server.erupeConfig.TowerRotation.Enabled && !event.Active(TimeAdjusted()) {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
 		bf := byteframe.NewByteFrame()
 		if pkt.DonatedRP == 0 {
 			bf.WriteUint32(0)
@@ -828,7 +923,11 @@ func handleMsgMhfPostTenrouirai(s *Session, p mhfpacket.MHFPacket) {
 			doAckSimpleFail(s, pkt.AckHandle, bf.Data())
 			return
 		}
-		result, err := s.server.towerService.DonateGuildTowerRP(guildID, pkt.DonatedRP)
+		service := s.server.towerService
+		if s.server.erupeConfig.TowerRotation.Enabled {
+			service = NewTowerService(s.towerRoundRepo(event.ID), s.logger)
+		}
+		result, err := service.DonateGuildTowerRP(guildID, pkt.DonatedRP)
 		if err != nil {
 			s.logger.Error("Failed to process tower RP donation", zap.Error(err))
 			bf.WriteUint32(0)
@@ -874,6 +973,11 @@ type GemHistory struct {
 
 func handleMsgMhfGetGemInfo(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetGemInfo)
+	event, err := s.server.towerEvent(TimeAdjusted())
+	if err != nil {
+		doAckBufFail(s, pkt.AckHandle, nil)
+		return
+	}
 	var data []*byteframe.ByteFrame
 	gemInfo := []GemInfo{}
 	gemHistory := []GemHistory{}
@@ -925,11 +1029,17 @@ func handleMsgMhfGetGemInfo(s *Session, p mhfpacket.MHFPacket) {
 			data = append(data, bf)
 		}
 	}
-	doAckEarthSucceed(s, pkt.AckHandle, data)
+	doAckTowerSucceed(s, pkt.AckHandle, event.ID, data)
 }
 
 func handleMsgMhfPostGemInfo(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfPostGemInfo)
+	event, eventErr := s.server.towerEvent(TimeAdjusted())
+	if eventErr != nil {
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	repo := s.towerRoundRepo(event.ID)
 
 	if s.server.erupeConfig.DebugOptions.QuestTools {
 		s.logger.Debug(
@@ -953,6 +1063,14 @@ func handleMsgMhfPostGemInfo(s *Session, p mhfpacket.MHFPacket) {
 			return
 		}
 		var err error
+		if s.server.erupeConfig.TowerRotation.Enabled {
+			resultEvent, valid := s.towerResultEvent()
+			if !valid {
+				doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+				return
+			}
+			repo = s.towerRoundRepo(resultEvent.ID)
+		}
 		if pkt.Unk1 == 0xd463 {
 			s.lifecycleMu.Lock()
 			if s.towerSettlementRunID == "" || s.towerProgressGeneration != s.questWeaponGeneration || s.questWeaponGeneration == 0 {
@@ -960,10 +1078,14 @@ func handleMsgMhfPostGemInfo(s *Session, p mhfpacket.MHFPacket) {
 				doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 				return
 			}
-			err = s.server.towerRepo.DepositTowerGem(s.charID, s.towerSettlementRunID, pkt.Unk6, pkt.Gem, pkt.Quantity)
+			err = repo.DepositTowerGem(s.charID, s.towerSettlementRunID, pkt.Unk6, pkt.Gem, pkt.Quantity)
 			s.lifecycleMu.Unlock()
 		} else {
-			err = s.server.towerService.AddGem(s.charID, i, int(pkt.Quantity))
+			service := s.server.towerService
+			if s.server.erupeConfig.TowerRotation.Enabled {
+				service = NewTowerService(repo, s.logger)
+			}
+			err = service.AddGem(s.charID, i, int(pkt.Quantity))
 		}
 		if err != nil {
 			s.logger.Error("Failed to update tower gems", zap.Error(err))
@@ -976,7 +1098,7 @@ func handleMsgMhfPostGemInfo(s *Session, p mhfpacket.MHFPacket) {
 			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 			return
 		}
-		if err := s.server.towerRepo.TransferGem(s.charID, uint32(pkt.CID), uint16(pkt.Gem), uint16(pkt.Message)); err != nil {
+		if err := repo.TransferGem(s.charID, uint32(pkt.CID), uint16(pkt.Gem), uint16(pkt.Message)); err != nil {
 			s.logger.Warn("Rejected ancient treasure gift", zap.Error(err), zap.Uint32("sender", s.charID), zap.Int32("receiver", pkt.CID))
 			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 			return

@@ -29,6 +29,12 @@
   "DefaultCourses": [1, 23, 24],
   "EarthStatus": 0,
   "EarthID": 0,
+  "TowerRotation": {
+    "Enabled": false,
+    "StartAt": "",
+    "ActiveDays": 7,
+    "CycleDays": 21
+  },
   "EarthMonsters": [0, 0, 0, 0],
   "TowerZone1UnlockTRP": 1,
   "TowerZone1UnlockFloor": 0,

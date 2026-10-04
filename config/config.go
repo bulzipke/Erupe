@@ -89,6 +89,7 @@ type Config struct {
 	DefaultCourses            []uint16
 	EarthStatus               int32
 	EarthID                   int32
+	TowerRotation             TowerRotationOptions
 	EarthMonsters             []int32
 	TowerZone1UnlockTRP       int32 // Tower: zone-1 list gate; default 1 cumulative TRP (0 disables)
 	TowerZone1UnlockFloor     int32 // Tower: optional custom zone-1 floor gate; default 0 (G10 prologue adds no floors)
@@ -506,6 +507,8 @@ func registerDefaults() {
 	viper.SetDefault("TowerZone2UnlockTRP", 1)
 	viper.SetDefault("TowerZone2UnlockFloor", 0)
 	viper.SetDefault("TowerZone2UnlockTR", 51)
+	viper.SetDefault("TowerRotation.ActiveDays", 7)
+	viper.SetDefault("TowerRotation.CycleDays", 21)
 	viper.SetDefault("TowerHintSec", 1)
 	viper.SetDefault("TowerRankTRPPerRank", 600)
 	viper.SetDefault("TowerTSPPerRank", 1)

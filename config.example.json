@@ -8,6 +8,12 @@
     "Database": "erupe"
   },
   "ClientMode": "ZZ",
+  "TowerRotation": {
+    "Enabled": false,
+    "StartAt": "",
+    "ActiveDays": 7,
+    "CycleDays": 21
+  },
   "GameplayOptions": {
     "DivaBonusRandom": false,
     "DivaMapRedTreasureMode": "off"

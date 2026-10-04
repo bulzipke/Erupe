@@ -848,6 +848,13 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 		// must survive that transfer but be consumed by this matching result.
 		s.lifecycleMu.Lock()
 		guardianRunID := ""
+		guardianEarthID := s.server.erupeConfig.EarthID
+		guardianEligible := s.server.erupeConfig.EarthStatus == 21
+		if s.server.erupeConfig.TowerRotation.Enabled {
+			guardianEarthID = s.towerDepartureEvent.ID
+			guardianEligible = s.towerDepartureGeneration == s.questWeaponGeneration && s.questWeaponGeneration != 0 &&
+				s.towerDepartureEvent.Active(s.towerDepartureStarted)
+		}
 		if s.towerGuardianQuestID == questID {
 			guardianRunID = s.towerGuardianRunID
 			s.towerGuardianRunID = ""
@@ -855,10 +862,10 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 		}
 		s.lifecycleMu.Unlock()
 		if pkt.Data[questResultCodeOffset] == questResultCodeCleared &&
-			s.server.erupeConfig.EarthStatus == 21 && guardianRunID != "" && s.server.towerRepo != nil {
+			guardianEligible && guardianRunID != "" && s.server.towerRepo != nil {
 			for i, killed := range guardianKilled {
 				if killed {
-					if err := s.server.towerRepo.RecordGuardianKill(s.server.erupeConfig.EarthID, uint8(i+1), guardianRunID, s.charID); err != nil {
+					if err := s.server.towerRepo.RecordGuardianKill(guardianEarthID, uint8(i+1), guardianRunID, s.charID); err != nil {
 						s.logger.Error("Failed to record tower guardian kill", zap.Error(err), zap.Int("block", i+1))
 					}
 				}

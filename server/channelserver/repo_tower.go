@@ -15,7 +15,8 @@ import (
 // TowerRepository centralizes all database access for tower-related tables
 // (tower, guilds tower columns, guild_characters tower columns).
 type TowerRepository struct {
-	db *sqlx.DB
+	db      *sqlx.DB
+	roundID *int32
 }
 
 // NewTowerRepository creates a new TowerRepository.
@@ -129,7 +130,7 @@ func (r *TowerRepository) SaveTowerDailyBin(charID uint32, data []byte) error {
 	if charID == 0 || len(data) != towerDailyBinSize {
 		return errors.New("invalid tower daily progress")
 	}
-	_, err := r.db.Exec(`INSERT INTO tower_daily_bins (character_id, data) VALUES ($1,$2)
+	_, err := r.execTowerRound(`INSERT INTO tower_daily_bins (character_id, data) VALUES ($1,$2)
 		ON CONFLICT (character_id) DO UPDATE SET data=EXCLUDED.data, updated_at=now()`, charID, data)
 	return err
 }
@@ -266,7 +267,7 @@ func (r *TowerRepository) UpdateBlockFloors(charID uint32, block uint8, floors i
 	default:
 		return errors.New("invalid tower block")
 	}
-	result, err := r.db.Exec(
+	result, err := r.execTowerRound(
 		fmt.Sprintf(`UPDATE tower SET %s=GREATEST(COALESCE(%s, 0), $1) WHERE char_id=$2`, column, column),
 		floors, charID,
 	)
@@ -312,7 +313,7 @@ func (r *TowerRepository) GetGems(charID uint32) (string, error) {
 
 // UpdateGems saves the gems CSV string for a character.
 func (r *TowerRepository) UpdateGems(charID uint32, gems string) error {
-	_, err := r.db.Exec(`UPDATE tower SET gems=$1 WHERE char_id=$2`, gems, charID)
+	_, err := r.execTowerRound(`UPDATE tower SET gems=$1 WHERE char_id=$2`, gems, charID)
 	return err
 }
 
@@ -349,6 +350,9 @@ func (r *TowerRepository) TransferGem(senderID, receiverID uint32, gemID uint16,
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err = r.checkTowerRound(tx); err != nil {
+		return err
+	}
 	var sameGuild bool
 	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM guild_characters a JOIN guild_characters b ON a.guild_id=b.guild_id WHERE a.character_id=$1 AND b.character_id=$2 AND a.guild_id IS NOT NULL)`, senderID, receiverID).Scan(&sameGuild); err != nil {
 		return err
@@ -464,6 +468,9 @@ func (r *TowerRepository) SubmitTenrouiraiProgress(guildID, charID uint32, stats
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err = r.checkTowerRound(tx); err != nil {
+		return err
+	}
 	var page int
 	if err := tx.QueryRow(`SELECT COALESCE(tower_mission_page, 1) FROM guilds WHERE id=$1 FOR UPDATE`, guildID).Scan(&page); err != nil {
 		return err
@@ -552,6 +559,9 @@ func (r *TowerRepository) AdvanceTenrouiraiPage(guildID uint32) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err = r.checkTowerRound(tx); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(`UPDATE guilds SET tower_mission_page=tower_mission_page+1 WHERE id=$1`, guildID); err != nil {
 		return err
 	}
@@ -563,6 +573,6 @@ func (r *TowerRepository) AdvanceTenrouiraiPage(guildID uint32) error {
 
 // DonateGuildTowerRP adds RP to the guild's tower total.
 func (r *TowerRepository) DonateGuildTowerRP(guildID uint32, rp uint16) error {
-	_, err := r.db.Exec(`UPDATE guilds SET tower_rp=tower_rp+$1 WHERE id=$2`, rp, guildID)
+	_, err := r.execTowerRound(`UPDATE guilds SET tower_rp=tower_rp+$1 WHERE id=$2`, rp, guildID)
 	return err
 }

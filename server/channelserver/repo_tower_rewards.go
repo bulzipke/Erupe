@@ -88,18 +88,29 @@ func recordTowerRunTx(tx *sqlx.Tx, earthID int32, charID uint32, block uint8, da
 // The client reports chest/antique/monster counters after its Tower progress
 // packet. Floors and TRP were already recorded by RecordTowerRun.
 func (r *TowerRepository) RecordTowerDailyExtras(earthID int32, charID uint32, dayStart time.Time, stats TowerMissionStats) error {
+	return r.RecordTowerDailyExtrasWithTRP(earthID, charID, dayStart, stats, false)
+}
+
+// Report-only clients do not send IT7. Their TRP was added to permanent rank
+// through AddTowerRankPoints, but still belongs in the day's mission counters.
+func (r *TowerRepository) RecordTowerDailyExtrasWithTRP(earthID int32, charID uint32, dayStart time.Time, stats TowerMissionStats, includeTRP bool) error {
 	if charID == 0 || !stats.Valid() {
 		return errors.New("invalid tower daily counters")
 	}
+	trp := uint16(0)
+	if includeTRP {
+		trp = stats.TRP
+	}
 	_, err := r.db.Exec(`INSERT INTO tower_daily_progress
-		(earth_id, character_id, day_start, antiques, chests, cats, slays)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		(earth_id, character_id, day_start, antiques, chests, cats, slays, trp)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		ON CONFLICT (earth_id, character_id, day_start) DO UPDATE SET
 		antiques=tower_daily_progress.antiques+EXCLUDED.antiques,
 		chests=tower_daily_progress.chests+EXCLUDED.chests,
 		cats=tower_daily_progress.cats+EXCLUDED.cats,
-		slays=tower_daily_progress.slays+EXCLUDED.slays`,
-		earthID, charID, dayStart.UTC(), stats.Antiques, stats.Chests, stats.Cats, stats.Slays)
+		slays=tower_daily_progress.slays+EXCLUDED.slays,
+		trp=tower_daily_progress.trp+EXCLUDED.trp`,
+		earthID, charID, dayStart.UTC(), stats.Antiques, stats.Chests, stats.Cats, stats.Slays, trp)
 	return err
 }
 

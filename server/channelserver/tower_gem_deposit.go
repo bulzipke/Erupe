@@ -17,6 +17,9 @@ func (r *TowerRepository) DepositTowerGem(charID uint32, runID string, slot int3
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err = r.checkTowerRound(tx); err != nil {
+		return err
+	}
 	var exists bool
 	if err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM tower_settlements WHERE character_id=$1 AND run_id=$2)`, charID, runID).Scan(&exists); err != nil {
 		return err

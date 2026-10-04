@@ -85,6 +85,16 @@ func handleMsgSysCreateStage(s *Session, p mhfpacket.MHFPacket) {
 func handleMsgSysStageDestruct(s *Session, p mhfpacket.MHFPacket) {} // stub: unimplemented
 
 func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
+	admittedAt := TimeAdjusted()
+	var towerEvent TowerEvent
+	if stageKind(stageID) == "Qs" && s.server.erupeConfig.TowerRotation.Enabled {
+		var err error
+		towerEvent, err = s.server.towerEvent(admittedAt)
+		if err != nil {
+			doAckSimpleFail(s, ackHandle, make([]byte, 4))
+			return false
+		}
+	}
 	if !validStageID(stageID) {
 		s.logger.Warn("Rejected invalid stage transfer ID", zap.Int("length", len(stageID)))
 		doAckSimpleFail(s, ackHandle, make([]byte, 4))
@@ -128,6 +138,15 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	}
 	_, alreadyClient := stage.clients[s]
 	_, hasReservation := stage.reservedClientSlots[s.charID]
+	if !alreadyClient && stageKind(stageID) == "Qs" && s.server.erupeConfig.TowerRotation.Enabled {
+		setup := stage.rawBinaryData[stageBinaryKey{1, 3}]
+		qid, _, _, decoded := decodeQuestRunSetupFromStageBinary(stageID, 1, 3, setup)
+		if decoded && towerSetupIsTower(qid, setup) && !towerEvent.Active(admittedAt) {
+			stage.Unlock()
+			doAckSimpleFail(s, ackHandle, make([]byte, 4))
+			return false
+		}
+	}
 	if !alreadyClient && !hasReservation &&
 		len(stage.clients)+len(stage.reservedClientSlots) >= int(stage.maxPlayers) {
 		stage.Unlock()
@@ -201,6 +220,13 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 			s.questWeaponState.Store(0)
 			s.questWeaponGeneration++
 			weaponGeneration = s.questWeaponGeneration
+			s.towerDepartureEvent = towerEvent
+			s.towerDepartureStarted = admittedAt
+			s.towerDepartureGeneration = 0
+			s.towerMissionDayStart = time.Time{}
+			if decoded && towerSetupIsTower(questID, questSetup) {
+				s.pinTowerDeparture(towerEvent, admittedAt)
+			}
 			s.divaTacticsRun = divaInterceptionRun{Generation: weaponGeneration, StartedAt: TimeAdjusted()}
 			s.divaBattleRun = divaBattleSongRun{Generation: weaponGeneration, StartedAt: TimeAdjusted()}
 			if s.server.erupeConfig.RealClientMode != cfg.ZZ {
@@ -752,6 +778,10 @@ func handleMsgSysSetStageBinary(s *Session, p mhfpacket.MHFPacket) {
 		// to a concurrent town transfer or result packet.
 		for _, session := range questClients {
 			session.lifecycleMu.Lock()
+			if session.questWeaponPendingStage == pkt.StageID &&
+				towerSetupIsTower(questID, pkt.RawDataPayload) {
+				session.pinTowerDeparture(session.towerDepartureEvent, session.towerDepartureStarted)
+			}
 			if session.towerGuardianRunID == "" && session.questWeaponGeneration != 0 {
 				session.towerGuardianRunID = stage.towerGuardianRunID
 				session.towerGuardianQuestID = questID

@@ -111,6 +111,9 @@ type Session struct {
 	towerGemNoticeThrough        int64
 	towerSettlementGeneration    uint64 // Receipt identity retained on SQL failure.
 	towerSettlementRunID         string
+	towerDepartureEvent          TowerEvent // Guarded by lifecycleMu; survives return to town.
+	towerDepartureStarted        time.Time
+	towerDepartureGeneration     uint64
 	towerProgressGeneration      uint64    // Last quest departure credited to Tower; guarded by lifecycleMu.
 	towerMissionGeneration       uint64    // Last quest departure that recorded a guild investigation submission; guarded by lifecycleMu.
 	towerMissionBlock            uint8     // Zone of the accepted Tower run, guarded by lifecycleMu.

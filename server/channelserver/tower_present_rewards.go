@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"fmt"
 	"time"
 
 	"erupe-ce/common/byteframe"
@@ -69,6 +70,40 @@ func towerPendingRewards(state TowerRewardState, requested []uint32) []towerPres
 	return out
 }
 
+// The client's row ID is opaque. Partition it by round so a delayed receipt
+// from yesterday's closed round can never consume a reward in the new round.
+// Daily indexes repeat only after 4096 days; a supported cycle is <=365 days.
+// Detect collisions in adopted legacy history rather than silently misclaiming.
+func towerRoundRewardIDs(event TowerEvent, rewards []towerPresentReward) ([]towerPresentReward, error) {
+	if event.ID < 1 || event.ID > 65535 {
+		return nil, fmt.Errorf("invalid Tower reward round %d", event.ID)
+	}
+	seen := make(map[uint32]bool, len(rewards))
+	for i := range rewards {
+		var local uint32
+		switch rewards[i].kind {
+		case towerRewardFloor:
+			if rewards[i].index < 1 || rewards[i].index > maxTowerFloorReport {
+				return nil, fmt.Errorf("invalid Tower floor reward")
+			}
+			local = uint32(rewards[i].index)
+		case towerRewardAdvance:
+			local = 10000
+		case towerRewardDaily:
+			local = 16384 + uint32(rewards[i].index)%32768
+		default:
+			return nil, fmt.Errorf("invalid Tower reward kind")
+		}
+		id := uint32(event.ID)<<16 | local
+		if seen[id] {
+			return nil, fmt.Errorf("duplicate Tower reward row ID %d", id)
+		}
+		seen[id] = true
+		rewards[i].claimIndex = id
+	}
+	return rewards, nil
+}
+
 func towerPresentFrames(rewards []towerPresentReward) []*byteframe.ByteFrame {
 	frames := make([]*byteframe.ByteFrame, 0, len(rewards))
 	for _, reward := range rewards {
@@ -133,7 +168,12 @@ func towerClaimRequestRewards(ids []uint32, rewards []towerPresentReward) (claim
 // fails them with error 0x12) and Op=1 with an empty list.
 func towerPresentAck(s *Session, pkt *mhfpacket.MsgMhfPresentBox, value uint32, fail bool) {
 	if pkt.Unk1 != 2 && pkt.Unk1 != 3 {
-		doAckEarthSucceed(s, pkt.AckHandle, nil)
+		event, err := s.server.towerEvent(TimeAdjusted())
+		if err != nil {
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
+		doAckTowerSucceed(s, pkt.AckHandle, event.ID, nil)
 		return
 	}
 	bf := byteframe.NewByteFrame()
@@ -160,14 +200,27 @@ func towerPresentAck(s *Session, pkt *mhfpacket.MsgMhfPresentBox, value uint32, 
 // records receipts.
 func handleTowerPresentBox(s *Session, pkt *mhfpacket.MsgMhfPresentBox) {
 	if pkt.Unk1 != 1 && pkt.Unk1 != 2 && pkt.Unk1 != 3 {
-		doAckEarthSucceed(s, pkt.AckHandle, nil)
+		towerPresentAck(s, pkt, 0, false)
 		return
 	}
 	if s.server.towerRepo == nil {
 		towerPresentAck(s, pkt, 0, false)
 		return
 	}
-	earthID := s.server.erupeConfig.EarthID
+	event, err := s.server.towerEvent(TimeAdjusted())
+	if err != nil {
+		towerPresentAck(s, pkt, 0, pkt.Unk1 == 2)
+		return
+	}
+	if s.server.erupeConfig.TowerRotation.Enabled && !event.Claimable(TimeAdjusted()) {
+		if pkt.Unk1 == 1 {
+			doAckTowerSucceed(s, pkt.AckHandle, event.ID, nil)
+		} else {
+			towerPresentAck(s, pkt, 0, pkt.Unk1 == 2)
+		}
+		return
+	}
+	earthID := event.ID
 	state, err := s.server.towerRepo.GetTowerRewardState(earthID, s.charID, towerDailyStart(TimeAdjusted()))
 	if err != nil {
 		s.logger.Error("Failed to list Tower rewards", zap.Error(err))
@@ -177,22 +230,32 @@ func handleTowerPresentBox(s *Session, pkt *mhfpacket.MsgMhfPresentBox) {
 	if state.Claimed == nil {
 		state.Claimed = make(map[uint64]bool)
 	}
+	types := pkt.Unk7
+	if pkt.Unk1 == 2 {
+		types = []uint32{towerPresentFloor, towerPresentAdvance, towerPresentDaily}
+	}
+	pending := towerPendingRewards(state, types)
+	if s.server.erupeConfig.TowerRotation.Enabled {
+		pending, err = towerRoundRewardIDs(event, pending)
+		if err != nil {
+			s.logger.Error("Tower reward ID collision", zap.Error(err))
+			towerPresentAck(s, pkt, 0, pkt.Unk1 == 2)
+			return
+		}
+	}
 	switch pkt.Unk1 {
 	case 1:
-		pending := towerPendingRewards(state, pkt.Unk7)
 		page := towerPresentPage(pending, pkt.Unk3)
 		s.logger.Info("Tower present list", zap.Uint32("charID", s.charID),
 			zap.Uint32s("presentTypes", pkt.Unk7), zap.Uint32("offset", pkt.Unk3),
 			zap.Int("pending", len(pending)), zap.Int("rows", len(page)))
-		doAckEarthSucceed(s, pkt.AckHandle, towerPresentFrames(page))
+		doAckTowerSucceed(s, pkt.AckHandle, event.ID, towerPresentFrames(page))
 	case 3:
-		pending := towerPendingRewards(state, pkt.Unk7)
 		s.logger.Info("Tower present count", zap.Uint32("charID", s.charID),
 			zap.Uint32s("presentTypes", pkt.Unk7), zap.Int("pending", len(pending)))
 		towerPresentAck(s, pkt, uint32(len(pending)), false)
 	case 2:
 		// Claim indexes identify the reward, so match them against every type.
-		pending := towerPendingRewards(state, []uint32{towerPresentFloor, towerPresentAdvance, towerPresentDaily})
 		claims, unknown := towerClaimRequestRewards(pkt.Unk7, pending)
 		recorded, repeated := 0, 0
 		for _, reward := range claims {

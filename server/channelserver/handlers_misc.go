@@ -70,11 +70,23 @@ func handleMsgMhfKickExportForce(s *Session, p mhfpacket.MHFPacket) {} // stub: 
 
 func handleMsgMhfGetEarthStatus(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetEarthStatus)
+	event, err := s.server.towerEvent(TimeAdjusted())
+	if err != nil {
+		doAckBufFail(s, pkt.AckHandle, nil)
+		return
+	}
+	status := s.server.erupeConfig.EarthStatus
+	if s.server.erupeConfig.TowerRotation.Enabled {
+		status = 0
+		if event.Active(TimeAdjusted()) {
+			status = 21
+		}
+	}
 	bf := byteframe.NewByteFrame()
-	bf.WriteUint32(uint32(TimeWeekStart().Unix())) // Start
-	bf.WriteUint32(uint32(TimeWeekNext().Unix()))  // End
-	bf.WriteInt32(s.server.erupeConfig.EarthStatus)
-	bf.WriteInt32(s.server.erupeConfig.EarthID)
+	bf.WriteUint32(uint32(event.Start.Unix()))
+	bf.WriteUint32(uint32(event.End.Unix()))
+	bf.WriteInt32(status)
+	bf.WriteInt32(event.ID)
 	for i, m := range s.server.erupeConfig.EarthMonsters {
 		if s.server.erupeConfig.RealClientMode <= cfg.G9 {
 			if i == 3 {
@@ -93,6 +105,11 @@ func handleMsgMhfRegistSpabiTime(s *Session, p mhfpacket.MHFPacket) {} // stub: 
 
 func handleMsgMhfGetEarthValue(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetEarthValue)
+	event, err := s.server.towerEvent(TimeAdjusted())
+	if err != nil {
+		doAckBufFail(s, pkt.AckHandle, nil)
+		return
+	}
 	type EarthValues struct {
 		Value []uint32
 	}
@@ -103,7 +120,7 @@ func handleMsgMhfGetEarthValue(s *Session, p mhfpacket.MHFPacket) {
 		var block1, block2 uint32
 		if s.server.towerRepo != nil {
 			var err error
-			block1, block2, err = s.server.towerRepo.GetGuardianKills(s.server.erupeConfig.EarthID)
+			block1, block2, err = s.server.towerRepo.GetGuardianKills(event.ID)
 			if err != nil {
 				s.logger.Error("Failed to read tower guardian kills", zap.Error(err))
 				block1, block2 = 0, 0
@@ -117,7 +134,7 @@ func handleMsgMhfGetEarthValue(s *Session, p mhfpacket.MHFPacket) {
 		var block1, block2 uint32
 		if s.server.towerRepo != nil {
 			var err error
-			block1, block2, err = s.server.towerRepo.GetTowerScoutScores(s.server.erupeConfig.EarthID)
+			block1, block2, err = s.server.towerRepo.GetTowerScoutScores(event.ID)
 			if err != nil {
 				s.logger.Error("Failed to read tower scout progress", zap.Error(err))
 				block1, block2 = 0, 0
@@ -129,7 +146,7 @@ func handleMsgMhfGetEarthValue(s *Session, p mhfpacket.MHFPacket) {
 		}
 	case 3:
 		earthValues = []EarthValues{
-			{[]uint32{1001, towerSurveyRound(s.server.erupeConfig.EarthID), 0, 0, 0, 0}},
+			{[]uint32{1001, towerSurveyRound(event.ID), 0, 0, 0, 0}},
 			{[]uint32{9001, 3, 0, 0, 0, 0}},
 			{[]uint32{9002, 10, 300, 0, 0, 0}},
 		}
@@ -143,7 +160,7 @@ func handleMsgMhfGetEarthValue(s *Session, p mhfpacket.MHFPacket) {
 		}
 		data = append(data, bf)
 	}
-	doAckEarthSucceed(s, pkt.AckHandle, data)
+	doAckTowerSucceed(s, pkt.AckHandle, event.ID, data)
 }
 
 func handleMsgMhfDebugPostValue(s *Session, p mhfpacket.MHFPacket) {} // stub: unimplemented

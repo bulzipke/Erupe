@@ -1,0 +1,92 @@
+{
+  "scope": "가이드 이벤트 보수의 상시 HR5·HR6 돌파 포상품. 헌터 내비와 HR 돌파 특전 퀘스트는 별도 시스템이다.",
+  "verified_at": "2026-10-01",
+  "application": {
+    "database": "erupe",
+    "committed_at": "2026-10-01T11:55:42.368300+09:00",
+    "distribution_ids": {"HR5": 7, "HR6": 8},
+    "new_distribution_rows": 2,
+    "new_distribution_item_rows": 28,
+    "existing_rows_unchanged": true,
+    "post_commit_readback": "새 읽기 전용 연결에서 HR5 27행, HR6 1행 및 수령 조건 일치 확인",
+    "in_game_receipt_test": "미실행",
+    "verification": [
+      "명세 JSON과 SQL의 항목·수량·순서 완전 일치",
+      "운영 테이블을 복제한 세션 전용 임시 테이블에서 재실행 시 중복 없음",
+      "수량·랭크 변경, 배포 이름 중복, 보상 항목 중복이 있으면 전체 작업 거절",
+      "선택적 롤백은 수령 이력이나 이후 변경 사항이 있으면 거절"
+    ]
+  },
+  "official_notice_revised_at": "2016-04-21",
+  "official_notice_archived_at": "2019-06-23",
+  "source": "https://web.archive.org/web/20190623231104id_/http://cog-members.mhf-z.jp/sp/news/7883.html",
+  "id_cross_checks": [
+    "H:/Monster Hunter Frontier Z Zenith/dat/mhfdat.bin: head@0x64, body@0x68, arms@0x6C, waist@0x70, legs@0x74, items@0x100; table index = item_id",
+    "//bulzipkenas/appdata/swag/www/ferias/sozai/item.js 및 bougu의 head/body/arm/wst/leg.htm"
+  ],
+  "policy": {
+    "distribution_type": 1,
+    "character_id": null,
+    "times_acceptable": 1,
+    "deadline": null,
+    "max_hr": null,
+    "sr_restriction": null,
+    "gr_restriction": null,
+    "required_rights": 0,
+    "selection": false,
+    "notes": "기존 랭크·수령 UI 판정은 유지한다. 캐릭터 인벤토리나 기존 수령 이력을 직접 수정하지 않는다. 전송 인코딩에 맞춰 목록 이름·설명은 ASCII로 등록한다."
+  },
+  "packages": [
+    {
+      "name": "HR5 Breakthrough Reward",
+      "official_name": "HR5突破の褒賞品",
+      "display_hr": 5,
+      "stored_min_hr": 100,
+      "item_entries": 27,
+      "items": [
+        {"item_type": 7, "item_id": 13190, "quantity": 250, "name": "GP교환권"},
+        {"item_type": 7, "item_id": 1472, "quantity": 90, "name": "포르타티켓[연분홍]"},
+        {"item_type": 7, "item_id": 8174, "quantity": 15, "name": "식혈룡 토벌증표"},
+        {"item_type": 7, "item_id": 8175, "quantity": 25, "name": "휘계룡 토벌증표"},
+        {"item_type": 7, "item_id": 8143, "quantity": 36, "name": "휘계룡 갑각"},
+        {"item_type": 7, "item_id": 8146, "quantity": 6, "name": "휘계룡 꼬리"},
+        {"item_type": 7, "item_id": 8142, "quantity": 36, "name": "휘계룡 비늘"},
+        {"item_type": 7, "item_id": 1426, "quantity": 20, "name": "고룡종 두꺼운비늘"},
+        {"item_type": 7, "item_id": 1423, "quantity": 4, "name": "고룡종 억센 뿔"},
+        {"item_type": 7, "item_id": 1411, "quantity": 5, "name": "고룡종 억센 발톱"},
+        {"item_type": 7, "item_id": 1420, "quantity": 8, "name": "고룡종 억센 날개"},
+        {"item_type": 7, "item_id": 2209, "quantity": 6, "name": "고룡종 구슬"},
+        {"item_type": 7, "item_id": 1410, "quantity": 8, "name": "고룡종 첨조"},
+        {"item_type": 7, "item_id": 1408, "quantity": 6, "name": "고룡종 특급 가죽"},
+        {"item_type": 7, "item_id": 1405, "quantity": 8, "name": "고룡종 특급 털"},
+        {"item_type": 7, "item_id": 1417, "quantity": 4, "name": "고룡종 매우진한피"},
+        {"item_type": 1, "item_id": 7382, "quantity": 1, "name": "코루데FY헬름"},
+        {"item_type": 2, "item_id": 6691, "quantity": 1, "name": "코루데FY메일"},
+        {"item_type": 3, "item_id": 6684, "quantity": 1, "name": "코루데FY암"},
+        {"item_type": 4, "item_id": 6838, "quantity": 1, "name": "코루데FY폴드"},
+        {"item_type": 0, "item_id": 6684, "quantity": 1, "name": "코루데FY그리브"},
+        {"item_type": 1, "item_id": 7389, "quantity": 1, "name": "코루데FY캡"},
+        {"item_type": 2, "item_id": 6698, "quantity": 1, "name": "코루데FY레지스트"},
+        {"item_type": 3, "item_id": 6691, "quantity": 1, "name": "코루데FY가드"},
+        {"item_type": 4, "item_id": 6845, "quantity": 1, "name": "코루데FY코트"},
+        {"item_type": 0, "item_id": 6691, "quantity": 1, "name": "코루데FY레깅스"},
+        {"item_type": 7, "item_id": 910, "quantity": 8, "name": "강력주"}
+      ]
+    },
+    {
+      "name": "HR6 Breakthrough Reward",
+      "official_notice_menu_name": "HCへの招待状",
+      "official_notice_heading": "HR6突破の褒賞品について",
+      "display_hr": 6,
+      "stored_min_hr": 300,
+      "item_entries": 1,
+      "items": [{"item_type": 7, "item_id": 1472, "quantity": 300, "name": "포르타티켓[연분홍]"}]
+    }
+  ],
+  "not_part_of_these_packages": [
+    {"name": "HR5·HR6·HR7 돌파 특전 퀘스트", "quest_ids": [22027, 22028, 22029], "note": "초절의 증표 등은 원본 퀘스트의 보수다. 가이드 배포에 중복 추가하지 않는다."},
+    {"name": "HR2·HR4·HR5용 특전 무구 강화 소재", "note": "2017-01-25부터 별도로 도입된 강화 캠페인이다. 구성·수량 미검증 항목을 이번 상시 돌파 보상에 섞지 않는다.", "source": "https://dengekionline.com/elem/000/001/456/1456686/"},
+    {"name": "헌터 내비", "note": "클라이언트의 별도 목표·보상 시스템이다."},
+    {"name": "옛 SP무기·HC티켓·강종티켓 지급", "note": "최신 공식 공지에 없는 구버전 항목이다. GP교환권 대신 강종티켓을 지급하거나 HC티켓을 함께 지급하지 않는다."}
+  ]
+}

@@ -287,6 +287,12 @@ func (s *Server) Start() error {
 		return err
 	}
 	s.listener = l
+	if s.erupeConfig.TowerRotation.Enabled {
+		if _, err := s.towerEvent(TimeAdjusted()); err != nil {
+			_ = l.Close()
+			return fmt.Errorf("initialize Tower rotation: %w", err)
+		}
+	}
 
 	// Claim the TCP endpoint before recovering DB lifecycle state.  Otherwise a
 	// duplicate process that cannot bind this channel could abort the live
@@ -305,6 +311,7 @@ func (s *Server) Start() error {
 	go s.raviAutoStart()   // no-op unless GameplayOptions.RaviAutoStartSeconds > 0
 	go s.raviAutoSupport() // no-op unless a Raviente auto-support interval is enabled
 	go s.settleDivaMaps()
+	go s.rotateTowerEvents()
 
 	// Start the discord bot for chat integration.
 	if s.erupeConfig.Discord.Enabled && s.discordBot != nil {

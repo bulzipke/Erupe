@@ -16,6 +16,11 @@ func (s *Session) postTowerMilestone(pkt *mhfpacket.MsgMhfPostTowerInfo) (bool, 
 	if s.server.erupeConfig.RealClientMode != cfg.ZZ {
 		return false, nil
 	}
+	event, eventErr := s.server.towerEvent(TimeAdjusted())
+	active := s.server.erupeConfig.EarthStatus == 21
+	if s.server.erupeConfig.TowerRotation.Enabled {
+		active = eventErr == nil && event.Active(TimeAdjusted())
+	}
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
 	s.Lock()
@@ -44,7 +49,7 @@ func (s *Session) postTowerMilestone(pkt *mhfpacket.MsgMhfPostTowerInfo) (bool, 
 		if qid == towerQuestGuardian2 || qid == towerQuestMilestone2 {
 			block = 2
 		}
-		if s.closed.Load() || !host || (!member && !waiting) || s.server.erupeConfig.EarthStatus != 21 ||
+		if s.closed.Load() || !host || (!member && !waiting) || !active ||
 			pkt.Unk1 != 1 || pkt.Unk6 != int32(block) || pkt.Block1 > maxTowerFloorReport || !towerGuardianFloor(pkt.Block1) || (milestone && int32(floor) != pkt.Block1) {
 			return true, errors.New("invalid Tower milestone host, block or floor")
 		}
@@ -59,7 +64,7 @@ func (s *Session) postTowerMilestone(pkt *mhfpacket.MsgMhfPostTowerInfo) (bool, 
 		if pkt.Block1 != reached {
 			return true, fmt.Errorf("milestone floor %d does not match reached floor %d", pkt.Block1, reached)
 		}
-		return true, s.server.towerRepo.PassTowerMilestone(s.charID, block, reached)
+		return true, s.towerRoundRepo(event.ID).PassTowerMilestone(s.charID, block, reached)
 	}
 	return false, nil
 }
@@ -74,7 +79,7 @@ func (r *TowerRepository) PassTowerMilestone(charID uint32, block uint8, floor i
 	if block == 2 {
 		column, reached = "guardian2", "block2"
 	}
-	result, err := r.db.Exec(`UPDATE tower SET `+column+`=GREATEST(`+column+`, $1)
+	result, err := r.execTowerRound(`UPDATE tower SET `+column+`=GREATEST(`+column+`, $1)
 		WHERE char_id=$2 AND COALESCE(`+reached+`, 0)=$1`, floor, charID)
 	if err != nil {
 		return err

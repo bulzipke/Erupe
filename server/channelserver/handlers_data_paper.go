@@ -124,6 +124,15 @@ type PaperGift struct {
 
 func handleMsgMhfGetPaperData(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetPaperData)
+	earthID := s.server.erupeConfig.EarthID
+	if pkt.DataType == 0 || pkt.DataType == 5 || pkt.DataType == 6 {
+		event, err := s.server.towerEvent(TimeAdjusted())
+		if err != nil {
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
+		earthID = event.ID
+	}
 	var data []*byteframe.ByteFrame
 
 	var paperData []PaperData
@@ -163,7 +172,7 @@ func handleMsgMhfGetPaperData(s *Session, p mhfpacket.MHFPacket) {
 			bf.WriteUint16(gift.Unk3)
 			data = append(data, bf)
 		}
-		doAckEarthSucceed(s, pkt.AckHandle, data)
+		doAckTowerSucceed(s, pkt.AckHandle, earthID, data)
 	} else if pkt.DataType == 0 {
 		bf := byteframe.NewByteFrame()
 		bf.WriteUint16(uint16(len(paperMissions.Timetables)))
@@ -194,6 +203,6 @@ func handleMsgMhfGetPaperData(s *Session, p mhfpacket.MHFPacket) {
 			bf.WriteInt16(pdata.Unk6)
 			data = append(data, bf)
 		}
-		doAckEarthSucceed(s, pkt.AckHandle, data)
+		doAckTowerSucceed(s, pkt.AckHandle, earthID, data)
 	}
 }
