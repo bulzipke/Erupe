@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed 
+- Raviente could not be opened at Kashira ("참가 등록을 할 수 없습니다"): `EnumerateQuest` again returns the page's own offset, which the ZZ client adds to the returned count, so it stopped paging early and never received the HR Raviente quests at the end of the list. Lists are capped at the client's 512-entry table to keep #194's loop fixed.
+- Night-only event quests (e.g. 58043, shipped as n0-n2 without d0) were dropped from the event quest list; `loadQuestFile` now falls back to `n0` when `d0` is missing.
 - A quest stage that a client had just created could be destroyed by another session's empty-stage cleanup before the creator's reservation arrived ("Failed to get stage", communication error at departure). `destructEmptyStages` and the logout-time sweep now leave another host's transient stage alone for 30 seconds after its creation (`stageEmptyGrace`); a host's own abandoned stage is still removed on its disconnect.
 
 - Bound tower skill and ancient-treasure inputs, reject invalid ancient-treasure gifts, and require all three guild investigation goals before advancing a funded page.

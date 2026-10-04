@@ -276,19 +276,27 @@ func loadQuestFile(s *Session, questId int) []byte {
 		return cached
 	}
 
-	base := filepath.Join(s.server.erupeConfig.BinPath, fmt.Sprintf("quests/%05dd0", questId))
+	// Day files are preferred; a quest fixed to night (e.g. 58043) ships only
+	// n* files, and its own time flag makes the client request those.
 	var decrypted []byte
-	if data, err := os.ReadFile(base + ".bin"); err == nil {
-		decrypted = decryption.UnpackSimple(data)
-	} else if jsonData, err := os.ReadFile(base + ".json"); err == nil {
-		compiled, err := CompileQuestJSON(jsonData, lang)
-		if err != nil {
-			s.logger.Error("loadQuestFile: failed to compile quest JSON",
-				zap.Int("questId", questId), zap.Error(err))
-			return nil
+	for _, variant := range []string{"d0", "n0"} {
+		base := filepath.Join(s.server.erupeConfig.BinPath, fmt.Sprintf("quests/%05d%s", questId, variant))
+		if data, err := os.ReadFile(base + ".bin"); err == nil {
+			decrypted = decryption.UnpackSimple(data)
+			break
 		}
-		decrypted = compiled
-	} else {
+		if jsonData, err := os.ReadFile(base + ".json"); err == nil {
+			compiled, err := CompileQuestJSON(jsonData, lang)
+			if err != nil {
+				s.logger.Error("loadQuestFile: failed to compile quest JSON",
+					zap.Int("questId", questId), zap.Error(err))
+				return nil
+			}
+			decrypted = compiled
+			break
+		}
+	}
+	if decrypted == nil {
 		return nil
 	}
 
@@ -451,6 +459,7 @@ func makeEventQuest(s *Session, eq EventQuest) ([]byte, error) {
 func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfEnumerateQuest)
 	var totalCount, returnedCount uint16
+	var overCapacity int
 	bf := byteframe.NewByteFrame()
 	bf.WriteUint16(0)
 
@@ -496,6 +505,13 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 				}
 			}
 
+			// A full client table stores nothing more, so a larger advertised
+			// total would make it re-request the same offset forever (#194).
+			if totalCount >= questEnumerateClientCapacity {
+				overCapacity++
+				continue
+			}
+
 			data, err := makeEventQuest(s, eq)
 			if err != nil {
 				s.logger.Error("Failed to make event quest", zap.Error(err))
@@ -517,6 +533,10 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 
 		if err := s.server.eventRepo.UpdateEventQuestStartTimes(updates); err != nil {
 			s.logger.Error("Failed to update event quest start times", zap.Error(err))
+		}
+		if overCapacity > 0 && pkt.Offset == 0 {
+			s.logger.Warn("Event quests exceed the client table capacity; extra quests are not sent",
+				zap.Int("capacity", questEnumerateClientCapacity), zap.Int("dropped", overCapacity))
 		}
 	}
 
@@ -742,7 +762,11 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 	}
 
 	bf.WriteUint16(totalCount)
-	bf.WriteUint16(pkt.Offset + returnedCount)
+	// This page's own offset. The ZZ client requests another page only while
+	// offset + returned < total, so offset + returned here counts the page
+	// twice and stops paging early (Raviente quests at the end of the list
+	// were never received, so Kashira could not open a Raviente).
+	bf.WriteUint16(pkt.Offset)
 	_, _ = bf.Seek(0, io.SeekStart)
 	bf.WriteUint16(returnedCount)
 

@@ -234,34 +234,64 @@ func TestEnumerateQuestBasicStructure(t *testing.T) {
 	}
 }
 
-// TestEnumerateQuestNextOffsetAdvances is a regression test for issue #194:
-// the response's offset field must be pkt.Offset+returnedCount (the offset
-// the client should request next), not pkt.Offset unchanged. Returning the
-// unchanged offset causes the ZZ client to loop forever requesting the same
-// page once event_quests spans more than one page (e.g. 574 rows, page
-// boundary at offset=512).
-func TestEnumerateQuestNextOffsetAdvances(t *testing.T) {
-	tests := []struct {
-		name          string
-		requestOffset uint16
-		returnedCount uint16
-		wantNext      uint16
-	}{
-		{name: "first_page_full", requestOffset: 0, returnedCount: 512, wantNext: 512},
-		{name: "second_page_remainder", requestOffset: 512, returnedCount: 62, wantNext: 574},
-		{name: "no_results_offset_unchanged", requestOffset: 512, returnedCount: 0, wantNext: 512},
+// enumerateEventQuestsLikeClient pages through handleMsgMhfEnumerateQuest the
+// way the ZZ client does (mhfo-hd FUN_1151c610): it stores at most the table
+// capacity, requests the next page at the stored count, and continues only
+// while pageOffset + stored-this-page < total.
+func enumerateEventQuestsLikeClient(t *testing.T, s *Session) (stored, pages int) {
+	t.Helper()
+	for pages < 32 {
+		handleMsgMhfEnumerateQuest(s, &mhfpacket.MsgMhfEnumerateQuest{AckHandle: uint32(pages + 1), Offset: uint16(stored)})
+		pages++
+		payload := readAck(t, s).Payload
+		returned := int(binary.BigEndian.Uint16(payload))
+		total := int(binary.BigEndian.Uint16(payload[len(payload)-4:]))
+		pageOffset := int(binary.BigEndian.Uint16(payload[len(payload)-2:]))
+		parsed := min(returned, questEnumerateClientCapacity-stored)
+		stored += parsed
+		if total <= 0 || pageOffset+parsed >= total {
+			return stored, pages
+		}
 	}
+	t.Fatalf("client kept requesting pages (stored %d)", stored)
+	return stored, pages
+}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			nextOffset := tc.requestOffset + tc.returnedCount
-			if nextOffset != tc.wantNext {
-				t.Errorf("next offset = %d, want %d", nextOffset, tc.wantNext)
-			}
-			if tc.returnedCount > 0 && nextOffset == tc.requestOffset {
-				t.Errorf("next offset must not equal request offset when results were returned (would cause an infinite client request loop)")
-			}
-		})
+func newEnumerateQuestSession(questCount int) *Session {
+	srv := createMockServer()
+	srv.erupeConfig.RealClientMode = cfg.ZZ
+	srv.questCache = NewQuestCache(3600)
+	repo := &mockEventRepo{}
+	for i := 0; i < questCount; i++ {
+		questID := 10000 + i
+		repo.eventQuests = append(repo.eventQuests, EventQuest{ID: uint32(i + 1), QuestID: questID, QuestType: 1, MaxPlayers: 4, Flags: -1})
+		srv.questCache.Put(questID, "", make([]byte, 600))
+	}
+	srv.eventRepo = repo
+	return createMockSession(1, srv)
+}
+
+// TestEnumerateQuestClientReceivesEveryPage is a regression test for the
+// Raviente outage: the trailer's second field is this page's offset. Sending
+// offset+returned made the client stop after three of four pages, so quests
+// at the end of the list (the HR Raviente quests) never reached it.
+func TestEnumerateQuestClientReceivesEveryPage(t *testing.T) {
+	stored, pages := enumerateEventQuestsLikeClient(t, newEnumerateQuestSession(300))
+	if stored != 300 {
+		t.Fatalf("client stored %d of 300 quests", stored)
+	}
+	if pages < 4 {
+		t.Fatalf("expected the list to span several pages, got %d", pages)
+	}
+}
+
+// TestEnumerateQuestCapsAtClientCapacity covers issue #194: with more quests
+// than the client table holds, the client must still stop paging instead of
+// re-requesting the same offset forever.
+func TestEnumerateQuestCapsAtClientCapacity(t *testing.T) {
+	stored, _ := enumerateEventQuestsLikeClient(t, newEnumerateQuestSession(574))
+	if stored != questEnumerateClientCapacity {
+		t.Fatalf("client stored %d quests, want %d", stored, questEnumerateClientCapacity)
 	}
 }
 
@@ -865,6 +895,56 @@ func TestHandleMsgSysGetFile_ExistingQuestFile(t *testing.T) {
 	errorCode := parseAckFromChannel(t, s)
 	if errorCode != 0 {
 		t.Errorf("expected success ack (ErrorCode=0) for existing quest file, got ErrorCode=%d", errorCode)
+	}
+}
+
+// writeTestQuestFile writes an uncompressed quest file whose body carries the
+// given time flag byte (body offset 3) and eight one-character strings.
+func writeTestQuestFile(t *testing.T, dir, name string, timeFlag byte) {
+	t.Helper()
+	const bodyOff = 4
+	tableOff := bodyOff + questBodyLenZZ
+	stringsOff := tableOff + questStringCount*4
+	data := make([]byte, stringsOff+questStringCount*2)
+	binary.LittleEndian.PutUint32(data, bodyOff)
+	data[bodyOff+3] = timeFlag
+	binary.LittleEndian.PutUint32(data[bodyOff+questStringPointerOff:], uint32(tableOff))
+	for i := 0; i < questStringCount; i++ {
+		binary.LittleEndian.PutUint32(data[tableOff+i*4:], uint32(stringsOff+i*2))
+		data[stringsOff+i*2] = 'a'
+	}
+	if err := os.WriteFile(filepath.Join(dir, "quests", name), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestLoadQuestFileFallsBackToNight covers night-only quests such as 58043,
+// which ship n0-n2 but no d0 and were dropped from the event quest list.
+func TestLoadQuestFileFallsBackToNight(t *testing.T) {
+	srv := createMockServer()
+	srv.erupeConfig.RealClientMode = cfg.ZZ
+	srv.erupeConfig.BinPath = t.TempDir()
+	srv.questCache = NewQuestCache(0)
+	if err := os.MkdirAll(filepath.Join(srv.erupeConfig.BinPath, "quests"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := createMockSession(1, srv)
+	const dayFlag, nightFlag = 0x08, 0x10
+
+	if data := loadQuestFile(s, 58042); data != nil {
+		t.Fatalf("missing quest loaded %d bytes", len(data))
+	}
+
+	writeTestQuestFile(t, srv.erupeConfig.BinPath, "58043n0.bin", nightFlag)
+	data := loadQuestFile(s, 58043)
+	if len(data) <= questBodyLenZZ || data[3] != nightFlag {
+		t.Fatalf("night-only quest not loaded from n0: %d bytes", len(data))
+	}
+
+	writeTestQuestFile(t, srv.erupeConfig.BinPath, "58044d0.bin", dayFlag)
+	writeTestQuestFile(t, srv.erupeConfig.BinPath, "58044n0.bin", nightFlag)
+	if data := loadQuestFile(s, 58044); len(data) <= questBodyLenZZ || data[3] != dayFlag {
+		t.Fatal("d0 must stay preferred when both variants exist")
 	}
 }
 

@@ -75,3 +75,7 @@ const (
 	questDataMaxLen = 896
 	questDataMinLen = 352
 )
+
+// questEnumerateClientCapacity is the ZZ client's event quest table size
+// (0x72000 bytes / 0x390 per entry). Entries beyond it are never stored.
+const questEnumerateClientCapacity = 512
