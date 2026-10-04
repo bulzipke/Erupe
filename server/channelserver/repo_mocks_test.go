@@ -242,8 +242,12 @@ func (m *mockCharacterRepo) ResetDailyQuests(_ uint32) error                    
 func (m *mockCharacterRepo) ReadEtcPoints(_ uint32) (uint32, uint32, uint32, error) {
 	return m.etcBonusQuests, m.etcDailyQuests, m.etcPromoPoints, m.etcPointsErr
 }
-func (m *mockCharacterRepo) ResetCafeTime(_ uint32, _ time.Time) error { return nil }
-func (m *mockCharacterRepo) UpdateGuildPostChecked(_ uint32) error     { return nil }
+func (m *mockCharacterRepo) ResetCafeTime(_ uint32, cafeReset time.Time) error {
+	m.ints["cafe_time"] = 0
+	m.times["cafe_reset"] = cafeReset
+	return nil
+}
+func (m *mockCharacterRepo) UpdateGuildPostChecked(_ uint32) error { return nil }
 func (m *mockCharacterRepo) ReadGuildPostChecked(_ uint32) (time.Time, error) {
 	return time.Time{}, nil
 }
@@ -1660,6 +1664,20 @@ type mockCafeRepo struct {
 	bonusItemType uint32
 	bonusItemQty  uint32
 	bonusItemErr  error
+	claims        map[uint32]CafeBonusClaim // ClaimBonus result by bonus ID
+	claimErr      error
+	claimed       []uint32
+}
+
+func (m *mockCafeRepo) ClaimBonus(_, bonusID uint32, _ int64, _ int) (CafeBonusClaim, error) {
+	if m.claimErr != nil {
+		return CafeBonusClaim{}, m.claimErr
+	}
+	claim := m.claims[bonusID]
+	if claim.Claimed {
+		m.claimed = append(m.claimed, bonusID)
+	}
+	return claim, nil
 }
 
 func (m *mockCafeRepo) ResetAccepted(_ uint32) error             { return nil }

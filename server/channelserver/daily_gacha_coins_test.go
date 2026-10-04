@@ -38,7 +38,7 @@ func TestDailyCoinMessagesAndCalendar(t *testing.T) {
 		t.Fatal(midnight)
 	}
 	messages := dailyCoinMessages(dailyCoinResult{OnlineMS: 30*60000 + 1}, true)
-	if len(messages) != 2 || !strings.HasPrefix(messages[0], "30분") {
+	if len(messages) != 1 || !strings.HasPrefix(messages[0], "30분") {
 		t.Fatal(messages)
 	}
 	if got := dailyCoinMessages(dailyCoinResult{OnlineMS: 3599999}, true); !strings.HasPrefix(got[0], "1분") {
@@ -54,27 +54,24 @@ func TestDailyCoinMessagesAndCalendar(t *testing.T) {
 		want     []string
 	}{
 		{"first", dailyCoinResult{First: true, Balance: 130}, true, []string{
-			"오늘의 첫 접속으로 뽑기 코인 10개를 획득했습니다!",
-			"60분 더 접속하면 뽑기 코인 10개를 추가로 획득할 수 있습니다.",
-			"뽑기 코인 보유: 130개",
+			"오늘의 첫 접속으로 금빛 금화G 10개를 획득했습니다!",
+			"60분 더 접속하면 금빛 금화G 10개를 추가로 획득할 수 있습니다.",
 		}},
 		{"midnight", dailyCoinResult{First: true, Balance: 20}, false, []string{
-			"오늘의 첫 접속으로 뽑기 코인 10개를 획득했습니다!",
-			"60분 더 접속하면 뽑기 코인 10개를 추가로 획득할 수 있습니다.",
-			"뽑기 코인 보유: 20개",
+			"오늘의 첫 접속으로 금빛 금화G 10개를 획득했습니다!",
+			"60분 더 접속하면 금빛 금화G 10개를 추가로 획득할 수 있습니다.",
 		}},
 		{"retry_both", dailyCoinResult{First: true, Bonus: true, Complete: true, Balance: 20}, true, []string{
-			"오늘의 첫 접속으로 뽑기 코인 10개를 획득했습니다!",
-			"뽑기 코인 10개를 추가 획득했습니다!",
-			"뽑기 코인 보유: 20개",
+			"오늘의 첫 접속으로 금빛 금화G 10개를 획득했습니다!",
+			"금빛 금화G 10개를 추가 획득했습니다!",
 		}},
 		{"bonus", dailyCoinResult{Bonus: true, Complete: true, Balance: 140}, false, []string{
-			"뽑기 코인 10개를 추가 획득했습니다!", "뽑기 코인 보유: 140개",
+			"금빛 금화G 10개를 추가 획득했습니다!",
 		}},
 		{"returning", dailyCoinResult{OnlineMS: 30 * 60000, Balance: 110}, true, []string{
-			"30분 더 접속하면 뽑기 코인 10개를 추가로 획득할 수 있습니다.", "뽑기 코인 보유: 110개",
+			"30분 더 접속하면 금빛 금화G 10개를 추가로 획득할 수 있습니다.",
 		}},
-		{"complete", dailyCoinResult{Complete: true, Balance: 120}, true, []string{"뽑기 코인 보유: 120개"}},
+		{"complete", dailyCoinResult{Complete: true, Balance: 120}, true, nil},
 		{"complete_idle", dailyCoinResult{Complete: true, Balance: 120}, false, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -228,9 +225,9 @@ func TestDailyCoinSessionWorker(t *testing.T) {
 	defer func() { s.markClosed(); s.waitDailyCoins() }()
 	select {
 	case sent := <-s.sendPackets:
-		assertDailyCoinChatBatch(t, sent.data, []string{"뽑기 코인 10개를 추가 획득했습니다!", "뽑기 코인 보유: 20개"})
+		assertDailyCoinChatBatch(t, sent.data, []string{"금빛 금화G 10개를 추가 획득했습니다!"})
 	case <-time.After(5 * time.Second):
-		t.Fatal("worker did not emit the bonus and balance notifications")
+		t.Fatal("worker did not emit the bonus notification")
 	}
 	if err := db.Get(&balance, "SELECT gacha_premium FROM users WHERE id=$1", user); err != nil {
 		t.Fatal(err)
@@ -303,12 +300,11 @@ func TestDailyCoinDatabaseLifecycle(t *testing.T) {
 		t.Fatal(got)
 	}
 	if oldMessages := dailyCoinMessages(got[0], false); len(oldMessages) != 0 {
-		t.Fatalf("completed yesterday emitted another balance: %v", oldMessages)
+		t.Fatalf("completed yesterday emitted another notice: %v", oldMessages)
 	}
 	wantMidnight := []string{
-		"오늘의 첫 접속으로 뽑기 코인 10개를 획득했습니다!",
-		"60분 더 접속하면 뽑기 코인 10개를 추가로 획득할 수 있습니다.",
-		"뽑기 코인 보유: 30개",
+		"오늘의 첫 접속으로 금빛 금화G 10개를 획득했습니다!",
+		"60분 더 접속하면 금빛 금화G 10개를 추가로 획득할 수 있습니다.",
 	}
 	if messages := dailyCoinMessages(got[1], false); !reflect.DeepEqual(messages, wantMidnight) {
 		t.Fatalf("midnight notice = %v", messages)

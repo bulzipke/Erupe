@@ -74,22 +74,11 @@ func handleMsgMhfGetCafeDuration(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetCafeDuration)
 	bf := byteframe.NewByteFrame()
 
-	cafeReset, err := s.server.charRepo.ReadTime(s.charID, "cafe_reset", time.Time{})
-	if err != nil {
-		cafeReset = TimeWeekNext()
-		if err := s.server.charRepo.SaveTime(s.charID, "cafe_reset", cafeReset); err != nil {
-			s.logger.Error("Failed to set cafe reset time", zap.Error(err))
-		}
+	now := time.Now()
+	if err := s.syncCafeDay(now); err != nil {
+		s.logger.Error("Failed to reset cafe day", zap.Error(err))
 	}
-	if TimeAdjusted().After(cafeReset) {
-		cafeReset = TimeWeekNext()
-		if err := s.server.charRepo.ResetCafeTime(s.charID, cafeReset); err != nil {
-			s.logger.Error("Failed to reset cafe time", zap.Error(err))
-		}
-		if err := s.server.cafeRepo.ResetAccepted(s.charID); err != nil {
-			s.logger.Error("Failed to delete accepted cafe bonuses", zap.Error(err))
-		}
-	}
+	cafeReset := cafeDayNext(now)
 
 	cafeTime, err := readCharacterInt(s, "cafe_time")
 	if err != nil {
@@ -97,8 +86,8 @@ func handleMsgMhfGetCafeDuration(s *Session, p mhfpacket.MHFPacket) {
 		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
-	if mhfcourse.CourseExists(30, s.courses) {
-		cafeTime = int(TimeAdjusted().Unix()) - int(s.sessionStart) + cafeTime
+	if mhfcourse.CourseExists(cafeCourseID, s.courses) {
+		cafeTime += int(s.cafeSessionSeconds(now))
 	}
 	bf.WriteUint32(uint32(cafeTime))
 	if s.server.erupeConfig.RealClientMode >= cfg.ZZ {
@@ -147,8 +136,8 @@ func handleMsgMhfReceiveCafeDurationBonus(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfReceiveCafeDurationBonus)
 	bf := byteframe.NewByteFrame()
 	bf.WriteUint32(0)
-	claimable, err := s.server.cafeRepo.GetClaimable(s.charID, TimeAdjusted().Unix()-s.sessionStart)
-	if err != nil || !mhfcourse.CourseExists(30, s.courses) {
+	claimable, err := s.server.cafeRepo.GetClaimable(s.charID, s.cafeSessionSeconds(time.Now()))
+	if err != nil || !mhfcourse.CourseExists(cafeCourseID, s.courses) {
 		doAckBufSucceed(s, pkt.AckHandle, bf.Data())
 	} else {
 		for _, cb := range claimable {
@@ -165,17 +154,12 @@ func handleMsgMhfReceiveCafeDurationBonus(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfPostCafeDurationBonusReceived(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfPostCafeDurationBonusReceived)
+	// Each ID is checked for eligibility and prior acceptance, so a replayed
+	// or forged ID cannot credit N points twice.
+	elapsed := s.cafeSessionSeconds(time.Now())
 	for _, cbID := range pkt.CafeBonusID {
-		itemType, quantity, err := s.server.cafeRepo.GetBonusItem(cbID)
-		if err == nil {
-			if itemType == 17 {
-				if err := addPointNetcafe(s, int(quantity)); err != nil {
-					s.logger.Error("Failed to add cafe bonus netcafe points", zap.Error(err))
-				}
-			}
-		}
-		if err := s.server.cafeRepo.AcceptBonus(cbID, s.charID); err != nil {
-			s.logger.Error("Failed to insert accepted cafe bonus", zap.Error(err))
+		if _, err := s.server.cafeRepo.ClaimBonus(s.charID, cbID, elapsed, s.server.erupeConfig.GameplayOptions.MaximumNP); err != nil {
+			s.logger.Error("Failed to claim cafe bonus", zap.Uint32("bonusID", cbID), zap.Error(err))
 		}
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))

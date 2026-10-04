@@ -338,6 +338,7 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	// causing the client to timeout after 60 seconds.
 	s.QueueSend(newNotif.Data())
 	s.startDailyCoins()
+	s.startCafeBonus()
 	// Queue every transition packet before the database write, so statistics
 	// cannot hold up the client's stage transition.
 	if recordWeaponDeparture {

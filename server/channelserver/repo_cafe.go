@@ -1,6 +1,9 @@
 package channelserver
 
 import (
+	"database/sql"
+	"errors"
+
 	"github.com/jmoiron/sqlx"
 )
 
@@ -62,4 +65,66 @@ func (r *CafeRepository) GetBonusItem(bonusID uint32) (itemType, quantity uint32
 func (r *CafeRepository) AcceptBonus(bonusID, charID uint32) error {
 	_, err := r.db.Exec("INSERT INTO cafe_accepted VALUES ($1, $2)", bonusID, charID)
 	return err
+}
+
+// CafeBonusClaim is the outcome of ClaimBonus.
+type CafeBonusClaim struct {
+	Claimed  bool // Recorded as accepted.
+	Capped   bool // Not claimed: N points are already at the cap.
+	ItemType uint32
+	Granted  int // N points credited (item type 17 only).
+}
+
+// ClaimBonus accepts one eligible, not yet accepted bonus. elapsedSec is the
+// current session's uncommitted time. N point bonuses (item type 17) credit at
+// most maxPoints-current and are left unclaimed while already at the cap. The
+// character row lock serializes automatic and manual claims.
+func (r *CafeRepository) ClaimBonus(charID, bonusID uint32, elapsedSec int64, maxPoints int) (CafeBonusClaim, error) {
+	var claim CafeBonusClaim
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return claim, err
+	}
+	defer tx.Rollback() //nolint:errcheck // rollback is no-op after commit
+
+	var points, cafeTime int64
+	if err := tx.QueryRow(`SELECT COALESCE(netcafe_points, 0), COALESCE(cafe_time, 0) FROM characters WHERE id=$1 FOR UPDATE`,
+		charID).Scan(&points, &cafeTime); err != nil {
+		return claim, err
+	}
+	var timeReq int64
+	var quantity int
+	err = tx.QueryRow(`SELECT time_req, item_type, quantity FROM cafebonus WHERE id=$1`, bonusID).Scan(&timeReq, &claim.ItemType, &quantity)
+	if errors.Is(err, sql.ErrNoRows) {
+		return claim, nil
+	} else if err != nil {
+		return claim, err
+	}
+	if cafeTime+elapsedSec < timeReq {
+		return claim, nil
+	}
+	var accepted bool
+	if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM cafe_accepted WHERE cafe_id=$1 AND character_id=$2)`,
+		bonusID, charID).Scan(&accepted); err != nil || accepted {
+		return claim, err
+	}
+	if claim.ItemType == cafeBonusItemNetcafePoints {
+		room := int64(maxPoints) - points
+		if room <= 0 {
+			claim.Capped = true
+			return claim, nil
+		}
+		claim.Granted = int(min(int64(quantity), room))
+		if _, err := tx.Exec(`UPDATE characters SET netcafe_points=$2 WHERE id=$1`, charID, points+int64(claim.Granted)); err != nil {
+			return CafeBonusClaim{}, err
+		}
+	}
+	if _, err := tx.Exec(`INSERT INTO cafe_accepted VALUES ($1, $2)`, bonusID, charID); err != nil {
+		return CafeBonusClaim{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return CafeBonusClaim{}, err
+	}
+	claim.Claimed = true
+	return claim, nil
 }

@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed 
+- Net cafe duration bonuses now reset daily (KST midnight) and are granted automatically with chat notices; the stock table pays up to 5,000 N points over 12 hours (migration 0074). Manual claims re-check eligibility, so a replayed bonus ID no longer credits N points twice.
+- Daily login coin notices now call the currency 금빛 금화G and no longer send the `보유: N개` balance line.
 - Raviente could not be opened at Kashira ("참가 등록을 할 수 없습니다"): `EnumerateQuest` again returns the page's own offset, which the ZZ client adds to the returned count, so it stopped paging early and never received the HR Raviente quests at the end of the list. Lists are capped at the client's 512-entry table to keep #194's loop fixed.
 - Night-only event quests (e.g. 58043, shipped as n0-n2 without d0) were dropped from the event quest list; `loadQuestFile` now falls back to `n0` when `d0` is missing.
 - A quest stage that a client had just created could be destroyed by another session's empty-stage cleanup before the creator's reservation arrived ("Failed to get stage", communication error at departure). `destructEmptyStages` and the logout-time sweep now leave another host's transient stage alone for 30 seconds after its creation (`stageEmptyGrace`); a host's own abandoned stage is still removed on its disconnect.

@@ -417,6 +417,7 @@ type CafeRepo interface {
 	GetClaimable(charID uint32, elapsedSec int64) ([]CafeBonus, error)
 	GetBonusItem(bonusID uint32) (itemType, quantity uint32, err error)
 	AcceptBonus(bonusID, charID uint32) error
+	ClaimBonus(charID, bonusID uint32, elapsedSec int64, maxPoints int) (CafeBonusClaim, error)
 }
 
 // GoocooRepo defines the contract for goocoo (pet) data access.

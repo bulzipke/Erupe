@@ -137,19 +137,15 @@ func settleDailyCoins(ctx context.Context, db *sqlx.DB, userID uint32, from, unt
 
 func dailyCoinMessages(result dailyCoinResult, entering bool) []string {
 	var messages []string
-	balanceMessage := fmt.Sprintf("뽑기 코인 보유: %d개", result.Balance)
 	if result.First {
-		messages = append(messages, "오늘의 첫 접속으로 뽑기 코인 10개를 획득했습니다!")
+		messages = append(messages, "오늘의 첫 접속으로 금빛 금화G 10개를 획득했습니다!")
 	}
 	if result.Bonus {
-		messages = append(messages, "뽑기 코인 10개를 추가 획득했습니다!")
+		messages = append(messages, "금빛 금화G 10개를 추가 획득했습니다!")
 	}
-	if result.First || result.Bonus || entering {
-		if !result.Complete && !result.Bonus {
-			minutes := (dailyCoinRequiredMS - result.OnlineMS + 59999) / 60000
-			messages = append(messages, fmt.Sprintf("%d분 더 접속하면 뽑기 코인 10개를 추가로 획득할 수 있습니다.", minutes))
-		}
-		messages = append(messages, balanceMessage)
+	if (result.First || entering) && !result.Complete && !result.Bonus {
+		minutes := (dailyCoinRequiredMS - result.OnlineMS + 59999) / 60000
+		messages = append(messages, fmt.Sprintf("%d분 더 접속하면 금빛 금화G 10개를 추가로 획득할 수 있습니다.", minutes))
 	}
 	return messages
 }

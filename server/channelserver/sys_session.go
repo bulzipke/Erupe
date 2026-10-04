@@ -134,6 +134,10 @@ type Session struct {
 	done               chan struct{}
 	dailyCoinsDone     chan struct{} // Guarded by Session.Mutex; logout waits for final settlement.
 	dailyCoinsClosedAt atomic.Int64
+	cafeBonusDone      chan struct{} // Guarded by Session.Mutex; logout waits for the worker.
+	cafeTimeStart      atomic.Int64  // Unix start of the session time not yet in characters.cafe_time.
+	cafeCourse         atomic.Bool   // Net cafe course (30) active, mirrored from courses for the worker.
+	cafeCapNoticeDay   string        // Worker-owned: day the N point cap notice was sent.
 	ackMu              sync.Mutex
 	ackStart           map[uint32]time.Time
 	captureConn        *pcap.RecordingConn // non-nil when capture is active
@@ -164,6 +168,7 @@ func NewSession(server *Server, conn net.Conn) *Session {
 		captureCleanup:   captureCleanup,
 		currentBeadIndex: -1,
 	}
+	s.cafeTimeStart.Store(s.sessionStart)
 	return s
 }
 
