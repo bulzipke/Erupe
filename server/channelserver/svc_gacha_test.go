@@ -13,7 +13,7 @@ import (
 
 func newTestGachaService(gr GachaRepo, ur UserRepo, cr CharacterRepo) *GachaService {
 	logger, _ := zap.NewDevelopment()
-	return NewGachaService(gr, ur, cr, logger, 100000)
+	return NewGachaService(gr, ur, cr, logger)
 }
 
 func TestGachaServiceSaveItemsPreservesWrappedPendingRecords(t *testing.T) {
@@ -393,7 +393,9 @@ func TestGachaService_SpendGachaCoin_TrialFirst(t *testing.T) {
 	ur := &mockUserRepoGacha{trialCoins: 100}
 	svc := newTestGachaService(&mockGachaRepo{}, ur, newMockCharacterRepo())
 
-	svc.spendGachaCoin(1, 50)
+	if err := svc.spendGachaCoin(1, 50); err != nil {
+		t.Fatal(err)
+	}
 	// Should have used trial coins, not premium
 }
 
@@ -401,6 +403,43 @@ func TestGachaService_SpendGachaCoin_PremiumFallback(t *testing.T) {
 	ur := &mockUserRepoGacha{trialCoins: 10}
 	svc := newTestGachaService(&mockGachaRepo{}, ur, newMockCharacterRepo())
 
-	svc.spendGachaCoin(1, 50)
+	if err := svc.spendGachaCoin(1, 50); err != nil {
+		t.Fatal(err)
+	}
 	// Should have used premium coins since trial < quantity
+}
+
+// A roll whose cost the balance does not cover must fail before any reward.
+func TestGachaTransactRejectsUncoveredCost(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		itemType uint8
+		user     *mockUserRepoGacha
+		points   int
+	}{
+		{"net cafe points", 17, &mockUserRepoGacha{}, 50},
+		{"premium coins", 19, &mockUserRepoGacha{deductPremiumErr: errInsufficientBalance}, 0},
+		{"trial falls back to premium", 20, &mockUserRepoGacha{trialCoins: 100, deductTrialErr: errInsufficientBalance, deductPremiumErr: errInsufficientBalance}, 0},
+		{"frontier points", 21, &mockUserRepoGacha{deductFPErr: errInsufficientBalance}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			charRepo := newMockCharacterRepo()
+			charRepo.ints["netcafe_points"] = tc.points
+			gachaRepo := &mockGachaRepo{txItemType: tc.itemType, txItemNumber: 100, txRolls: 1}
+			svc := newTestGachaService(gachaRepo, tc.user, charRepo)
+			if rolls, err := svc.transact(1, 1, 1, 0); !errors.Is(err, errInsufficientBalance) || rolls != 0 {
+				t.Fatalf("rolls %d err %v", rolls, err)
+			}
+			if charRepo.ints["netcafe_points"] != tc.points {
+				t.Fatalf("net cafe points changed to %d", charRepo.ints["netcafe_points"])
+			}
+		})
+	}
+
+	charRepo := newMockCharacterRepo()
+	charRepo.ints["netcafe_points"] = 150
+	svc := newTestGachaService(&mockGachaRepo{txItemType: 17, txItemNumber: 100, txRolls: 3}, &mockUserRepoGacha{}, charRepo)
+	if rolls, err := svc.transact(1, 1, 1, 0); err != nil || rolls != 3 || charRepo.ints["netcafe_points"] != 50 {
+		t.Fatalf("covered roll: rolls %d err %v points %d", rolls, err, charRepo.ints["netcafe_points"])
+	}
 }

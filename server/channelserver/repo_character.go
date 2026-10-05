@@ -91,6 +91,24 @@ func (r *CharacterRepository) AdjustInt(charID uint32, column string, delta int)
 	return value, err
 }
 
+// errInsufficientBalance is returned by a conditional debit that would make
+// the balance negative; nothing is deducted.
+var errInsufficientBalance = errors.New("insufficient balance")
+
+// SpendInt deducts amount from an integer column only when the balance covers
+// it, and returns the new balance.
+func (r *CharacterRepository) SpendInt(charID uint32, column string, amount int) (int, error) {
+	var value int
+	err := r.db.QueryRow(
+		"UPDATE characters SET "+column+"=COALESCE("+column+", 0)-$1 WHERE id=$2 AND COALESCE("+column+", 0)>=$1 RETURNING "+column,
+		amount, charID,
+	).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, errInsufficientBalance
+	}
+	return value, err
+}
+
 // GetName returns the character name by ID.
 func (r *CharacterRepository) GetName(charID uint32) (string, error) {
 	var name string

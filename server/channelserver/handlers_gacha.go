@@ -76,14 +76,13 @@ func handleMsgMhfGetGachaPoint(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfUseGachaPoint(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfUseGachaPoint)
-	if pkt.TrialCoins > 0 {
-		if err := s.server.userRepo.DeductTrialCoins(s.userID, pkt.TrialCoins); err != nil {
-			s.logger.Error("Failed to deduct gacha trial coins", zap.Error(err))
-		}
-	}
-	if pkt.PremiumCoins > 0 {
-		if err := s.server.userRepo.DeductPremiumCoins(s.userID, pkt.PremiumCoins); err != nil {
-			s.logger.Error("Failed to deduct gacha premium coins", zap.Error(err))
+	if pkt.TrialCoins > 0 || pkt.PremiumCoins > 0 {
+		// Both amounts are debited together, and only when both balances cover them.
+		if err := s.server.userRepo.DeductGachaCoins(s.userID, pkt.TrialCoins, pkt.PremiumCoins); err != nil {
+			s.logger.Warn("Rejected gacha coin use", zap.Uint32("trial", pkt.TrialCoins),
+				zap.Uint32("premium", pkt.PremiumCoins), zap.Error(err))
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
 		}
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))

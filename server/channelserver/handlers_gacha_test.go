@@ -106,6 +106,25 @@ func TestHandleMsgMhfUseGachaPoint_PremiumCoins(t *testing.T) {
 	}
 }
 
+func TestHandleMsgMhfUseGachaPoint_DebitsBothOrRejects(t *testing.T) {
+	server := createMockServer()
+	userRepo := &mockUserRepoGacha{}
+	server.userRepo = userRepo
+	session := createMockSession(1, server)
+	session.userID = 1
+
+	handleMsgMhfUseGachaPoint(session, &mhfpacket.MsgMhfUseGachaPoint{AckHandle: 1, TrialCoins: 3, PremiumCoins: 5})
+	if ack := readAck(t, session); ack.ErrorCode != 0 || len(userRepo.gachaCoinDebits) != 1 || userRepo.gachaCoinDebits[0] != [2]uint32{3, 5} {
+		t.Fatalf("ack %+v debits %v", ack, userRepo.gachaCoinDebits)
+	}
+
+	userRepo.deductGachaCoinsErr = errInsufficientBalance
+	handleMsgMhfUseGachaPoint(session, &mhfpacket.MsgMhfUseGachaPoint{AckHandle: 2, PremiumCoins: 999})
+	if ack := readAck(t, session); ack.ErrorCode == 0 {
+		t.Fatal("insufficient coins must fail the ACK")
+	}
+}
+
 func TestHandleMsgMhfReceiveGachaItem_Normal(t *testing.T) {
 	server := createMockServer()
 	charRepo := newMockCharacterRepo()

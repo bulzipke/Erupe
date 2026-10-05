@@ -178,6 +178,14 @@ func (m *mockCharacterRepo) AdjustInt(_ uint32, column string, delta int) (int, 
 	return m.ints[column], nil
 }
 
+func (m *mockCharacterRepo) SpendInt(_ uint32, column string, amount int) (int, error) {
+	if m.ints[column] < amount {
+		return 0, errInsufficientBalance
+	}
+	m.ints[column] -= amount
+	return m.ints[column], nil
+}
+
 func (m *mockCharacterRepo) SaveInt(_ uint32, column string, value int) error {
 	m.ints[column] = value
 	return m.saveErr
@@ -853,6 +861,7 @@ func (m *mockUserRepoForItems) GetTrialCoins(_ uint32) (uint16, error)        { 
 func (m *mockUserRepoForItems) DeductTrialCoins(_ uint32, _ uint32) error     { return nil }
 func (m *mockUserRepoForItems) DeductPremiumCoins(_ uint32, _ uint32) error   { return nil }
 func (m *mockUserRepoForItems) AddPremiumCoins(_ uint32, _ uint32) error      { return nil }
+func (m *mockUserRepoForItems) DeductGachaCoins(_, _, _ uint32) error         { return nil }
 func (m *mockUserRepoForItems) AddTrialCoins(_ uint32, _ uint32) error        { return nil }
 func (m *mockUserRepoForItems) DeductFrontierPoints(_ uint32, _ uint32) error { return nil }
 func (m *mockUserRepoForItems) AddFrontierPoints(_ uint32, _ uint32) error    { return nil }
@@ -1162,6 +1171,8 @@ type mockUserRepoGacha struct {
 	deductPremiumErr          error
 	deductFPErr               error
 	addFPFromGachaErr         error
+	deductGachaCoinsErr       error
+	gachaCoinDebits           [][2]uint32
 
 	fpDeductBalance uint32
 	fpDeductErr     error
@@ -1182,6 +1193,10 @@ func (m *mockUserRepoGacha) DeductPremiumCoins(_ uint32, _ uint32) error {
 	return m.deductPremiumErr
 }
 func (m *mockUserRepoGacha) DeductFrontierPoints(_ uint32, _ uint32) error { return m.deductFPErr }
+func (m *mockUserRepoGacha) DeductGachaCoins(_, trial, premium uint32) error {
+	m.gachaCoinDebits = append(m.gachaCoinDebits, [2]uint32{trial, premium})
+	return m.deductGachaCoinsErr
+}
 func (m *mockUserRepoGacha) AddFrontierPointsFromGacha(_ uint32, _ uint32, _ uint8) error {
 	return m.addFPFromGachaErr
 }

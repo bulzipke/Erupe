@@ -245,7 +245,7 @@ func NewServer(config *Config) *Server {
 	s.guildService = NewGuildService(s.guildRepo, s.mailService, s.charRepo, s.logger)
 	s.guildMissionService = NewGuildMissionService(s.guildMissionRepo, s.logger)
 	s.achievementService = NewAchievementService(s.achievementRepo, s.logger)
-	s.gachaService = NewGachaService(s.gachaRepo, s.userRepo, s.charRepo, s.logger, config.ErupeConfig.GameplayOptions.MaximumNP)
+	s.gachaService = NewGachaService(s.gachaRepo, s.userRepo, s.charRepo, s.logger)
 	s.towerService = NewTowerService(s.towerRepo, s.logger)
 	s.festaService = NewFestaService(s.festaRepo, s.logger)
 

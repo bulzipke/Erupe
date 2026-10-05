@@ -85,7 +85,7 @@ func ensureAchievementService(s *Server) {
 
 // ensureGachaService wires the GachaService from the server's current repos.
 func ensureGachaService(s *Server) {
-	s.gachaService = NewGachaService(s.gachaRepo, s.userRepo, s.charRepo, s.logger, 100000)
+	s.gachaService = NewGachaService(s.gachaRepo, s.userRepo, s.charRepo, s.logger)
 }
 
 // ensureTowerService wires the TowerService from the server's current repos.

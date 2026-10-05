@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed 
+- Server-held currencies are no longer debited on the client's word: N point shop purchases must pay at least the price the client lists for the item (table extracted from mhfdat by `cmd/netcafeshopgen`), gacha coin use and gacha roll costs fail when the balance is short, and migration 0075 forbids negative N points, gacha coins and frontier points.
 - Net cafe duration bonuses now reset daily (KST midnight) and are granted automatically with chat notices; the stock table pays up to 5,000 N points over 12 hours (migration 0074). Manual claims re-check eligibility, so a replayed bonus ID no longer credits N points twice.
 - Daily login coin notices now call the currency 금빛 금화G and no longer send the `보유: N개` balance line.
 - Raviente could not be opened at Kashira ("참가 등록을 할 수 없습니다"): `EnumerateQuest` again returns the page's own offset, which the ZZ client adds to the returned count, so it stopped paging early and never received the HR Raviente quests at the end of the list. Lists are capped at the client's 512-entry table to keep #194's loop fixed.

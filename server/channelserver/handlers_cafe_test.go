@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"encoding/binary"
 	"errors"
 	"erupe-ce/common/mhfcourse"
 	cfg "erupe-ce/config"
@@ -136,30 +137,44 @@ func TestHandleMsgMhfUpdateCafepoint(t *testing.T) {
 }
 
 func TestHandleMsgMhfAcquireCafeItem(t *testing.T) {
-	server := createMockServer()
-	charMock := newMockCharacterRepo()
-	charMock.ints["netcafe_points"] = 500
-	server.charRepo = charMock
-	session := createMockSession(1, server)
+	// 0x30B2 (대암룡 심흑미) is 100 N points in the client shop.
+	for _, tc := range []struct {
+		name        string
+		balance     int
+		pkt         mhfpacket.MsgMhfAcquireCafeItem
+		wantBalance int
+		wantOK      bool
+	}{
+		{"listed price", 500, mhfpacket.MsgMhfAcquireCafeItem{ItemID: 0x30B2, Quant: 2, PointCost: 200}, 300, true},
+		{"higher table price", 2500, mhfpacket.MsgMhfAcquireCafeItem{ItemID: 0x30B2, Quant: 2, PointCost: 2000}, 500, true},
+		{"underpaid", 500, mhfpacket.MsgMhfAcquireCafeItem{ItemID: 0x30B2, Quant: 2, PointCost: 199}, 500, false},
+		{"free", 500, mhfpacket.MsgMhfAcquireCafeItem{ItemID: 0x30B2, Quant: 2, PointCost: 0}, 500, false},
+		{"unlisted item", 500, mhfpacket.MsgMhfAcquireCafeItem{ItemID: 0x0001, Quant: 1, PointCost: 100}, 500, false},
+		{"zero quantity", 500, mhfpacket.MsgMhfAcquireCafeItem{ItemID: 0x30B2, Quant: 0, PointCost: 0}, 500, false},
+		{"insufficient balance", 150, mhfpacket.MsgMhfAcquireCafeItem{ItemID: 0x30B2, Quant: 2, PointCost: 200}, 150, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := createMockServer()
+			charMock := newMockCharacterRepo()
+			charMock.ints["netcafe_points"] = tc.balance
+			server.charRepo = charMock
+			session := createMockSession(1, server)
 
-	pkt := &mhfpacket.MsgMhfAcquireCafeItem{
-		AckHandle: 100,
-		PointCost: 200,
-	}
+			pkt := tc.pkt
+			pkt.AckHandle = 100
+			handleMsgMhfAcquireCafeItem(session, &pkt)
 
-	handleMsgMhfAcquireCafeItem(session, pkt)
-
-	if charMock.ints["netcafe_points"] != 300 {
-		t.Errorf("netcafe_points = %d, want 300 (500-200)", charMock.ints["netcafe_points"])
-	}
-
-	select {
-	case p := <-session.sendPackets:
-		if len(p.data) < 4 {
-			t.Fatal("Response too short")
-		}
-	default:
-		t.Error("No response packet queued")
+			if charMock.ints["netcafe_points"] != tc.wantBalance {
+				t.Errorf("netcafe_points = %d, want %d", charMock.ints["netcafe_points"], tc.wantBalance)
+			}
+			ack := readAck(t, session)
+			if (ack.ErrorCode == 0) != tc.wantOK {
+				t.Errorf("ack error code = %d, want success %v", ack.ErrorCode, tc.wantOK)
+			}
+			if tc.wantOK && binary.BigEndian.Uint32(ack.Payload) != uint32(tc.wantBalance) {
+				t.Errorf("ack balance = %d, want %d", binary.BigEndian.Uint32(ack.Payload), tc.wantBalance)
+			}
+		})
 	}
 }
 

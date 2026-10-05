@@ -37,16 +37,39 @@ func (r *UserRepository) GetTrialCoins(userID uint32) (uint16, error) {
 	return balance, err
 }
 
-// DeductTrialCoins subtracts the given amount from the user's trial gacha coins.
+// DeductTrialCoins subtracts the given amount from the user's trial gacha
+// coins, or returns errInsufficientBalance without deducting.
 func (r *UserRepository) DeductTrialCoins(userID uint32, amount uint32) error {
-	_, err := r.db.Exec(`UPDATE users SET gacha_trial=gacha_trial-$1 WHERE id=$2`, amount, userID)
-	return err
+	return r.DeductGachaCoins(userID, amount, 0)
 }
 
-// DeductPremiumCoins subtracts the given amount from the user's premium gacha coins.
+// DeductPremiumCoins subtracts the given amount from the user's premium gacha
+// coins, or returns errInsufficientBalance without deducting.
 func (r *UserRepository) DeductPremiumCoins(userID uint32, amount uint32) error {
-	_, err := r.db.Exec(`UPDATE users SET gacha_premium=gacha_premium-$1 WHERE id=$2`, amount, userID)
-	return err
+	return r.DeductGachaCoins(userID, 0, amount)
+}
+
+// DeductGachaCoins subtracts trial and premium coins together, only when both
+// balances cover their amounts; otherwise it returns errInsufficientBalance.
+func (r *UserRepository) DeductGachaCoins(userID, trial, premium uint32) error {
+	res, err := r.db.Exec(`UPDATE users SET gacha_trial=COALESCE(gacha_trial,0)-$1, gacha_premium=COALESCE(gacha_premium,0)-$2
+		WHERE id=$3 AND COALESCE(gacha_trial,0)>=$1 AND COALESCE(gacha_premium,0)>=$2`, trial, premium, userID)
+	return debitResult(res, err)
+}
+
+// debitResult maps a conditional UPDATE that matched no row to errInsufficientBalance.
+func debitResult(res sql.Result, err error) error {
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return errInsufficientBalance
+	}
+	return nil
 }
 
 // AddPremiumCoins adds the given amount to the user's premium gacha coins.
@@ -61,10 +84,12 @@ func (r *UserRepository) AddTrialCoins(userID uint32, amount uint32) error {
 	return err
 }
 
-// DeductFrontierPoints subtracts the given amount from the user's frontier points.
+// DeductFrontierPoints subtracts the given amount from the user's frontier
+// points, or returns errInsufficientBalance without deducting.
 func (r *UserRepository) DeductFrontierPoints(userID uint32, amount uint32) error {
-	_, err := r.db.Exec(`UPDATE users SET frontier_points=frontier_points-$1 WHERE id=$2`, amount, userID)
-	return err
+	res, err := r.db.Exec(`UPDATE users SET frontier_points=COALESCE(frontier_points,0)-$1
+		WHERE id=$2 AND COALESCE(frontier_points,0)>=$1`, amount, userID)
+	return debitResult(res, err)
 }
 
 // AddFrontierPoints adds the given amount to the user's frontier points.

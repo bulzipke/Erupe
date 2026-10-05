@@ -13,6 +13,7 @@ type CharacterRepo interface {
 	SaveColumn(charID uint32, column string, data []byte) error
 	ReadInt(charID uint32, column string) (int, error)
 	AdjustInt(charID uint32, column string, delta int) (int, error)
+	SpendInt(charID uint32, column string, amount int) (int, error)
 	GetName(charID uint32) (string, error)
 	GetUserID(charID uint32) (uint32, error)
 	UpdateLastLogin(charID uint32, timestamp int64) error
@@ -192,6 +193,7 @@ type UserRepo interface {
 	GetTrialCoins(userID uint32) (uint16, error)
 	DeductTrialCoins(userID uint32, amount uint32) error
 	DeductPremiumCoins(userID uint32, amount uint32) error
+	DeductGachaCoins(userID, trial, premium uint32) error
 	AddPremiumCoins(userID uint32, amount uint32) error
 	AddTrialCoins(userID uint32, amount uint32) error
 	DeductFrontierPoints(userID uint32, amount uint32) error

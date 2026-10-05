@@ -3,6 +3,7 @@ package channelserver
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"math/rand"
 	"time"
 
@@ -13,21 +14,19 @@ import (
 
 // GachaService encapsulates business logic for the gacha lottery system.
 type GachaService struct {
-	gachaRepo        GachaRepo
-	userRepo         UserRepo
-	charRepo         CharacterRepo
-	logger           *zap.Logger
-	maxNetcafePoints int
+	gachaRepo GachaRepo
+	userRepo  UserRepo
+	charRepo  CharacterRepo
+	logger    *zap.Logger
 }
 
 // NewGachaService creates a new GachaService.
-func NewGachaService(gr GachaRepo, ur UserRepo, cr CharacterRepo, log *zap.Logger, maxNP int) *GachaService {
+func NewGachaService(gr GachaRepo, ur UserRepo, cr CharacterRepo, log *zap.Logger) *GachaService {
 	return &GachaService{
-		gachaRepo:        gr,
-		userRepo:         ur,
-		charRepo:         cr,
-		logger:           log,
-		maxNetcafePoints: maxNP,
+		gachaRepo: gr,
+		userRepo:  ur,
+		charRepo:  cr,
+		logger:    log,
 	}
 }
 
@@ -55,7 +54,8 @@ type StepupStatus struct {
 	Step uint8
 }
 
-// transact processes the cost for a gacha roll, deducting the appropriate currency.
+// transact deducts the cost of a gacha roll. A roll whose cost the balance
+// does not cover fails without deducting anything.
 func (svc *GachaService) transact(userID, charID, gachaID uint32, rollID uint8) (int, error) {
 	itemType, itemNumber, rolls, err := svc.gachaRepo.GetEntryForTransaction(gachaID, rollID)
 	if err != nil {
@@ -63,42 +63,35 @@ func (svc *GachaService) transact(userID, charID, gachaID uint32, rollID uint8) 
 	}
 	switch itemType {
 	case 17:
-		svc.deductNetcafePoints(charID, int(itemNumber))
+		if _, err := svc.charRepo.SpendInt(charID, "netcafe_points", int(itemNumber)); err != nil {
+			return 0, fmt.Errorf("deduct net cafe points: %w", err)
+		}
 	case 19, 20:
-		svc.spendGachaCoin(userID, itemNumber)
+		if err := svc.spendGachaCoin(userID, itemNumber); err != nil {
+			return 0, err
+		}
 	case 21:
 		if err := svc.userRepo.DeductFrontierPoints(userID, uint32(itemNumber)); err != nil {
-			svc.logger.Error("Failed to deduct frontier points for gacha", zap.Error(err))
+			return 0, fmt.Errorf("deduct frontier points: %w", err)
 		}
 	}
 	return rolls, nil
 }
 
-// deductNetcafePoints removes netcafe points from a character's save data.
-func (svc *GachaService) deductNetcafePoints(charID uint32, amount int) {
-	points, err := svc.charRepo.ReadInt(charID, "netcafe_points")
-	if err != nil {
-		svc.logger.Error("Failed to read netcafe points", zap.Error(err))
-		return
-	}
-	points = min(points-amount, svc.maxNetcafePoints)
-	if err := svc.charRepo.SaveInt(charID, "netcafe_points", points); err != nil {
-		svc.logger.Error("Failed to update netcafe points", zap.Error(err))
-	}
-}
-
 // spendGachaCoin deducts gacha coins, preferring trial coins over premium.
-func (svc *GachaService) spendGachaCoin(userID uint32, quantity uint16) {
-	gt, _ := svc.userRepo.GetTrialCoins(userID)
-	if quantity <= gt {
-		if err := svc.userRepo.DeductTrialCoins(userID, uint32(quantity)); err != nil {
-			svc.logger.Error("Failed to deduct gacha trial coins", zap.Error(err))
+func (svc *GachaService) spendGachaCoin(userID uint32, quantity uint16) error {
+	trial, _ := svc.userRepo.GetTrialCoins(userID)
+	if quantity <= trial {
+		err := svc.userRepo.DeductTrialCoins(userID, uint32(quantity))
+		if !errors.Is(err, errInsufficientBalance) {
+			return err
 		}
-	} else {
-		if err := svc.userRepo.DeductPremiumCoins(userID, uint32(quantity)); err != nil {
-			svc.logger.Error("Failed to deduct gacha premium coins", zap.Error(err))
-		}
+		// Trial coins were spent elsewhere since the read: use premium coins.
 	}
+	if err := svc.userRepo.DeductPremiumCoins(userID, uint32(quantity)); err != nil {
+		return fmt.Errorf("deduct gacha coins: %w", err)
+	}
+	return nil
 }
 
 // resolveRewards selects random entries and resolves them into rewards.

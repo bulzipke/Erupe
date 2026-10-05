@@ -14,13 +14,35 @@ import (
 
 func handleMsgMhfAcquireCafeItem(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfAcquireCafeItem)
-	netcafePoints, err := adjustCharacterInt(s, "netcafe_points", -int(pkt.PointCost))
+	// The client adds the item itself and declares the price, so the server
+	// checks the price against the N point shop and the balance before debiting.
+	if !netcafeShopPriceValid(pkt) {
+		s.logger.Warn("Rejected net cafe item purchase: price below the client shop price",
+			zap.Uint16("itemID", pkt.ItemID), zap.Uint16("quantity", pkt.Quant), zap.Uint32("pointCost", pkt.PointCost))
+		s.recordSecurityAudit("netcafe_purchase_price_mismatch", "warning", "rejected", map[string]interface{}{
+			"item_id": pkt.ItemID, "quantity": pkt.Quant, "point_cost": pkt.PointCost,
+		})
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	netcafePoints, err := s.server.charRepo.SpendInt(s.charID, "netcafe_points", int(pkt.PointCost))
 	if err != nil {
-		s.logger.Error("Failed to deduct netcafe points", zap.Error(err))
+		s.logger.Warn("Rejected net cafe item purchase", zap.Uint32("pointCost", pkt.PointCost), zap.Error(err))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
 	}
 	resp := byteframe.NewByteFrame()
 	resp.WriteUint32(uint32(netcafePoints))
 	doAckSimpleSucceed(s, pkt.AckHandle, resp.Data())
+}
+
+// netcafeShopPriceValid checks PointCost, which the client computes as unit
+// price x quantity from the shop table in its own mhfdat (mhfo-hd
+// FUN_104067a0), against the lowest price the client lists for the item.
+// Paying more is allowed; listing or paying less is not.
+func netcafeShopPriceValid(pkt *mhfpacket.MsgMhfAcquireCafeItem) bool {
+	price, listed := netcafeShopMinPrices[pkt.ItemID]
+	return listed && pkt.Quant != 0 && uint64(pkt.PointCost) >= uint64(price)*uint64(pkt.Quant)
 }
 
 func handleMsgMhfUpdateCafepoint(s *Session, p mhfpacket.MHFPacket) {
