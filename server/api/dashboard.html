@@ -538,20 +538,15 @@ tbody tr:last-child td{border-bottom:0}
     }
 
 	function ravienteDurationLabel(durationMs) {
-		var totalSeconds = Math.max(0, Math.floor((Number(durationMs) || 0) / 1000));
-		var hours = Math.floor(totalSeconds / 3600);
-		var minutes = Math.floor((totalSeconds % 3600) / 60);
-		var seconds = totalSeconds % 60;
-		return String(hours).padStart(2, "0") + ":" +
-			String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
+		var totalCentiseconds = Math.max(0, Math.round((Number(durationMs) || 0) / 10));
+		var minutes = Math.floor(totalCentiseconds / 6000);
+		var seconds = ((totalCentiseconds % 6000) / 100).toFixed(2).padStart(5, "0");
+		return String(minutes).padStart(2, "0") + ":" + seconds;
 	}
 
 	function ravienteDurationDescription(durationMs) {
-		var totalSeconds = Math.max(0, Math.floor((Number(durationMs) || 0) / 1000));
-		var hours = Math.floor(totalSeconds / 3600);
-		var minutes = Math.floor((totalSeconds % 3600) / 60);
-		var seconds = totalSeconds % 60;
-		return hours + "시간 " + minutes + "분 " + seconds + "초";
+		var parts = ravienteDurationLabel(durationMs).split(":");
+		return Number(parts[0]) + "분 " + Number(parts[1]) + "초";
 	}
 
 	function ravienteCompletedLabel(value) {
