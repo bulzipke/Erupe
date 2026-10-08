@@ -74,13 +74,13 @@ func debitResult(res sql.Result, err error) error {
 
 // AddPremiumCoins adds the given amount to the user's premium gacha coins.
 func (r *UserRepository) AddPremiumCoins(userID uint32, amount uint32) error {
-	_, err := r.db.Exec(`UPDATE users SET gacha_premium=gacha_premium+$1 WHERE id=$2`, amount, userID)
+	_, err := r.db.Exec(`UPDATE users SET gacha_premium=COALESCE(gacha_premium,0)+$1 WHERE id=$2`, amount, userID)
 	return err
 }
 
 // AddTrialCoins adds the given amount to the user's trial gacha coins.
 func (r *UserRepository) AddTrialCoins(userID uint32, amount uint32) error {
-	_, err := r.db.Exec(`UPDATE users SET gacha_trial=gacha_trial+$1 WHERE id=$2`, amount, userID)
+	_, err := r.db.Exec(`UPDATE users SET gacha_trial=COALESCE(gacha_trial,0)+$1 WHERE id=$2`, amount, userID)
 	return err
 }
 
@@ -94,17 +94,23 @@ func (r *UserRepository) DeductFrontierPoints(userID uint32, amount uint32) erro
 
 // AddFrontierPoints adds the given amount to the user's frontier points.
 func (r *UserRepository) AddFrontierPoints(userID uint32, amount uint32) error {
-	_, err := r.db.Exec(`UPDATE users SET frontier_points=frontier_points+$1 WHERE id=$2`, amount, userID)
+	_, err := r.db.Exec(`UPDATE users SET frontier_points=COALESCE(frontier_points,0)+$1 WHERE id=$2`, amount, userID)
 	return err
 }
 
-// AdjustFrontierPointsDeduct atomically deducts frontier points and returns the new balance.
+// AdjustFrontierPointsDeduct atomically deducts frontier points and returns
+// the new balance, or returns errInsufficientBalance without deducting when
+// the balance (NULL counts as 0) does not cover the amount.
 func (r *UserRepository) AdjustFrontierPointsDeduct(userID uint32, amount int) (uint32, error) {
 	var balance uint32
 	err := r.db.QueryRow(
-		`UPDATE users SET frontier_points=frontier_points::int - $1 WHERE id=$2 RETURNING frontier_points`,
+		`UPDATE users SET frontier_points=COALESCE(frontier_points,0)::int - $1
+		 WHERE id=$2 AND COALESCE(frontier_points,0)::int >= $1 RETURNING frontier_points`,
 		amount, userID,
 	).Scan(&balance)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, errInsufficientBalance
+	}
 	return balance, err
 }
 
@@ -121,7 +127,7 @@ func (r *UserRepository) AdjustFrontierPointsCredit(userID uint32, amount int) (
 // AddFrontierPointsFromGacha awards frontier points from a gacha entry's defined value.
 func (r *UserRepository) AddFrontierPointsFromGacha(userID uint32, gachaID uint32, entryType uint8) error {
 	_, err := r.db.Exec(
-		`UPDATE users SET frontier_points=frontier_points+(SELECT frontier_points FROM gacha_entries WHERE gacha_id = $1 AND entry_type = $2) WHERE id=$3`,
+		`UPDATE users SET frontier_points=COALESCE(frontier_points,0)+COALESCE((SELECT frontier_points FROM gacha_entries WHERE gacha_id = $1 AND entry_type = $2 LIMIT 1),0) WHERE id=$3`,
 		gachaID, entryType, userID,
 	)
 	return err

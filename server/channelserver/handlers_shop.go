@@ -3,6 +3,7 @@ package channelserver
 import (
 	"erupe-ce/common/byteframe"
 	ps "erupe-ce/common/pascalstring"
+	"erupe-ce/common/stringsupport"
 	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
 
@@ -23,6 +24,29 @@ type ShopItem struct {
 	UsedQuantity uint16 `db:"used_quantity"`
 	RoadFloors   uint16 `db:"road_floors"`
 	RoadFatalis  uint16 `db:"road_fatalis"`
+}
+
+// gachaNameMax is the longest gacha name the ZZ client keeps: the shop list
+// record holds the name in 32 bytes with its terminator (FUN_115285a0 copies
+// the sent length without a check), and a longer name runs into the banner URL
+// that follows it.
+const gachaNameMax = 31
+
+// writeGachaName writes a gacha name for the shop list in the client's text
+// encoding (EUC-KR, stringsupport.UTF8ToSJIS) with a uint8 length prefix and a
+// terminator, cut at a whole character within gachaNameMax bytes. pascalstring
+// encodes Shift-JIS, which has no Hangul and sent Korean names as empty.
+func writeGachaName(bf *byteframe.ByteFrame, name string) {
+	var out []byte
+	for _, r := range name {
+		b := stringsupport.UTF8ToSJIS(string(r))
+		if len(out)+len(b) > gachaNameMax {
+			break
+		}
+		out = append(out, b...)
+	}
+	bf.WriteUint8(uint8(len(out) + 1))
+	bf.WriteNullTerminatedBytes(out)
 }
 
 func writeShopItems(bf *byteframe.ByteFrame, items []ShopItem, mode cfg.Mode) {
@@ -105,7 +129,7 @@ func handleMsgMhfEnumerateShop(s *Session, p mhfpacket.MHFPacket) {
 				bf.WriteUint32(g.MinHR)
 				bf.WriteUint32(0) // only 0 in known packet
 			}
-			ps.Uint8(bf, g.Name, true)
+			writeGachaName(bf, g.Name)
 			if s.server.erupeConfig.RealClientMode <= cfg.GG { //For versions less than or equal to GG, each message sent to the name ends
 				continue
 			}
@@ -122,7 +146,7 @@ func handleMsgMhfEnumerateShop(s *Session, p mhfpacket.MHFPacket) {
 			}
 			bf.WriteUint8(g.GachaType)
 			if s.server.erupeConfig.RealClientMode >= cfg.G10 {
-				bf.WriteBool(g.Hidden)
+				bf.WriteUint8(gachaListFlags(g))
 			}
 		}
 		doAckBufSucceed(s, pkt.AckHandle, bf.Data())
@@ -181,8 +205,8 @@ func handleMsgMhfEnumerateShop(s *Session, p mhfpacket.MHFPacket) {
 			bf.WriteUint8(ge.ItemType)
 			bf.WriteUint32(ge.ItemNumber)
 			bf.WriteUint16(ge.ItemQuantity)
-			if gachaType >= 4 { // If box
-				bf.WriteUint16(1)
+			if gachaType >= 4 { // If box: the weight is the entry's ball count
+				bf.WriteUint16(uint16(gachaBoxBallCount(ge.Weight)))
 			} else {
 				bf.WriteUint16(uint16(ge.Weight / divisor))
 			}

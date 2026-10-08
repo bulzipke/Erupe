@@ -54,14 +54,51 @@ type StepupStatus struct {
 	Step uint8
 }
 
+// BoxDrawCount is how many balls of one box gacha reward entry a character
+// has drawn since the box was last reset.
+type BoxDrawCount struct {
+	EntryID uint32 `db:"entry_id"`
+	Count   int    `db:"count"`
+}
+
+const (
+	// gachaItemTypeZenny rewards are credited by the client itself when it
+	// shows the roll result (normal and box result screens), and the client's
+	// pending-box list leaves them out. Stored in the pending box they could
+	// never be received when they ended up after the last visible item.
+	gachaItemTypeZenny = 10
+
+	// A box reward entry holds weight balls. The client keeps each entry's
+	// drawn count in one byte, so an entry holds 1..255 balls; a weight of 0
+	// (the demo seed) counts as one ball.
+	gachaBoxMaxBalls = 255
+)
+
+var (
+	errGachaUnsupportedCost = errors.New("gacha roll cost is not a server-held currency")
+	errGachaItemsBlocked    = errors.New("pending gacha items are unreadable")
+	errGachaBoxShort        = errors.New("box gacha has fewer balls left than the roll draws")
+	errGachaBoxOneTime      = errors.New("one-time box gacha cannot be reset")
+	errGachaStepOrder       = errors.New("stepup gacha roll is not the character's current step")
+)
+
 // transact deducts the cost of a gacha roll. A roll whose cost the balance
 // does not cover fails without deducting anything.
+//
+// The ZZ client pays some cost types out of the character save itself before
+// it sends the roll (FUN_1046d200: 7 items, 10 zenny, 12/13, 14, 16), and the
+// save carries that to the server, so nothing is deducted here. The
+// server-held currencies (17 net cafe points, 19/20 gacha coins, 21 frontier
+// points) are only mirrored by the client and are deducted here. Any other
+// cost type is paid by nobody, so the roll is refused.
 func (svc *GachaService) transact(userID, charID, gachaID uint32, rollID uint8) (int, error) {
 	itemType, itemNumber, rolls, err := svc.gachaRepo.GetEntryForTransaction(gachaID, rollID)
 	if err != nil {
 		return 0, err
 	}
 	switch itemType {
+	case 7, gachaItemTypeZenny, 12, 13, 14, 16:
+		// Paid by the client from the character save.
 	case 17:
 		if _, err := svc.charRepo.SpendInt(charID, "netcafe_points", int(itemNumber)); err != nil {
 			return 0, fmt.Errorf("deduct net cafe points: %w", err)
@@ -74,8 +111,25 @@ func (svc *GachaService) transact(userID, charID, gachaID uint32, rollID uint8) 
 		if err := svc.userRepo.DeductFrontierPoints(userID, uint32(itemNumber)); err != nil {
 			return 0, fmt.Errorf("deduct frontier points: %w", err)
 		}
+	default:
+		return 0, fmt.Errorf("%w: type %d", errGachaUnsupportedCost, itemType)
 	}
 	return rolls, nil
+}
+
+// checkPendingItems refuses a roll before its cost is paid when the pending
+// gacha items blob is corrupt, because saveGachaItems would then keep the old
+// blob and drop the new rewards. A failed read keeps the old behaviour (the
+// roll goes ahead and saveGachaItems starts a fresh blob).
+func (svc *GachaService) checkPendingItems(charID uint32) error {
+	data, err := svc.charRepo.LoadColumn(charID, "gacha_items")
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+	if _, _, _, valid := inspectGachaItemBlob(data); !valid {
+		return errGachaItemsBlocked
+	}
+	return nil
 }
 
 // spendGachaCoin deducts gacha coins, preferring trial coins over premium.
@@ -122,7 +176,18 @@ func (svc *GachaService) resolveRewards(entries []GachaEntry, rolls int, isBox b
 }
 
 // saveGachaItems appends reward items to the character's gacha item storage.
+// Zenny rewards are left out: the client has already credited them.
 func (svc *GachaService) saveGachaItems(charID uint32, items []GachaItem) {
+	kept := items[:0:0]
+	for _, item := range items {
+		if item.ItemType != gachaItemTypeZenny {
+			kept = append(kept, item)
+		}
+	}
+	items = kept
+	if len(items) == 0 {
+		return
+	}
 	data, err := svc.charRepo.LoadColumn(charID, "gacha_items")
 	if err != nil {
 		svc.logger.Error("Failed to load pending gacha items before append",
@@ -181,6 +246,9 @@ func (svc *GachaService) PlayNormalGacha(userID, charID, gachaID uint32, rollTyp
 	if len(entries) == 0 {
 		return nil, errors.New("gacha has no valid reward entries")
 	}
+	if err := svc.checkPendingItems(charID); err != nil {
+		return nil, err
+	}
 	rolls, err := svc.transact(userID, charID, gachaID, rollType)
 	if err != nil {
 		return nil, err
@@ -193,13 +261,33 @@ func (svc *GachaService) PlayNormalGacha(userID, charID, gachaID uint32, rollTyp
 // PlayStepupGacha processes a stepup gacha roll: validates the reward pool,
 // deducts cost, advances step, awards frontier points, selects random +
 // guaranteed rewards, and saves items.
+//
+// The roll must be the character's current step (the same noon reset and
+// missing-next-step rules as GetStepupStatus), otherwise a client could pay
+// for and receive any step, including the last step's guaranteed rewards and
+// frontier points, out of order. A step with no random draws (rolls 0, only
+// guaranteed rewards) does not need a reward pool.
 func (svc *GachaService) PlayStepupGacha(userID, charID, gachaID uint32, rollType uint8) (*StepupPlayResult, error) {
+	status, err := svc.GetStepupStatus(gachaID, charID, TimeAdjusted())
+	if err != nil {
+		return nil, err
+	}
+	if status.Step != rollType {
+		return nil, fmt.Errorf("%w: rolled %d, current %d", errGachaStepOrder, rollType, status.Step)
+	}
+	_, _, stepRolls, err := svc.gachaRepo.GetEntryForTransaction(gachaID, rollType)
+	if err != nil {
+		return nil, err
+	}
 	entries, err := svc.gachaRepo.GetRewardPool(gachaID)
 	if err != nil {
 		return nil, err
 	}
-	if len(entries) == 0 {
+	if stepRolls > 0 && len(entries) == 0 {
 		return nil, errors.New("gacha has no valid reward entries")
+	}
+	if err := svc.checkPendingItems(charID); err != nil {
+		return nil, err
 	}
 	rolls, err := svc.transact(userID, charID, gachaID, rollType)
 	if err != nil {
@@ -216,7 +304,10 @@ func (svc *GachaService) PlayStepupGacha(userID, charID, gachaID uint32, rollTyp
 	}
 
 	guaranteedItems, _ := svc.gachaRepo.GetGuaranteedItems(rollType, gachaID)
-	randomRewards := svc.resolveRewards(entries, rolls, false)
+	var randomRewards []GachaReward
+	if rolls > 0 {
+		randomRewards = svc.resolveRewards(entries, rolls, false)
+	}
 
 	var guaranteedRewards []GachaReward
 	for _, item := range guaranteedItems {
@@ -236,9 +327,11 @@ func (svc *GachaService) PlayStepupGacha(userID, charID, gachaID uint32, rollTyp
 	}, nil
 }
 
-// PlayBoxGacha processes a box gacha roll: validates the reward pool, deducts
-// cost, selects random entries without replacement, records drawn entries,
-// saves items, and returns the result.
+// PlayBoxGacha processes a box gacha roll. Each reward entry holds
+// gachaBoxBallCount(weight) balls; a roll draws its balls without replacement
+// from the balls this character has not drawn yet (as the client shows them).
+// A roll that needs more balls than are left is refused before its cost is
+// paid. Each drawn ball is recorded, and the rewards are saved and returned.
 func (svc *GachaService) PlayBoxGacha(userID, charID, gachaID uint32, rollType uint8) (*GachaPlayResult, error) {
 	entries, err := svc.gachaRepo.GetRewardPool(gachaID)
 	if err != nil {
@@ -247,15 +340,29 @@ func (svc *GachaService) PlayBoxGacha(userID, charID, gachaID uint32, rollType u
 	if len(entries) == 0 {
 		return nil, errors.New("gacha has no valid reward entries")
 	}
+	drawn, err := svc.gachaRepo.GetBoxDrawCounts(gachaID, charID)
+	if err != nil {
+		return nil, err
+	}
+	_, _, rollsWanted, err := svc.gachaRepo.GetEntryForTransaction(gachaID, rollType)
+	if err != nil {
+		return nil, err
+	}
+	balls := gachaBoxRemainingBalls(entries, drawn)
+	if rollsWanted > len(balls) {
+		return nil, fmt.Errorf("%w: %d left, roll draws %d", errGachaBoxShort, len(balls), rollsWanted)
+	}
+	if err := svc.checkPendingItems(charID); err != nil {
+		return nil, err
+	}
 	rolls, err := svc.transact(userID, charID, gachaID, rollType)
 	if err != nil {
 		return nil, err
 	}
-	rewardEntries, err := getRandomEntries(entries, rolls, true)
-	if err != nil {
-		svc.logger.Warn("Failed to select box gacha entries", zap.Error(err))
-		return &GachaPlayResult{}, nil
+	if rolls > len(balls) {
+		rolls = len(balls)
 	}
+	rewardEntries := gachaBoxDraw(balls, rolls)
 	var rewards []GachaReward
 	for i := range rewardEntries {
 		entryItems, err := svc.gachaRepo.GetItemsForEntry(rewardEntries[i].ID)
@@ -314,14 +421,63 @@ func (svc *GachaService) GetStepupStatus(gachaID, charID uint32, now time.Time) 
 	return &StepupStatus{Step: step}, nil
 }
 
-// GetBoxInfo returns the entry IDs already drawn for a box gacha.
-func (svc *GachaService) GetBoxInfo(gachaID, charID uint32) ([]uint32, error) {
-	return svc.gachaRepo.GetBoxEntryIDs(gachaID, charID)
+// GetBoxInfo returns how many balls of each reward entry the character has
+// drawn from a box gacha.
+func (svc *GachaService) GetBoxInfo(gachaID, charID uint32) ([]BoxDrawCount, error) {
+	return svc.gachaRepo.GetBoxDrawCounts(gachaID, charID)
 }
 
-// ResetBox clears all drawn entries for a box gacha.
+// ResetBox clears all drawn entries for a box gacha. A one-time box is never
+// reset (errGachaBoxOneTime).
 func (svc *GachaService) ResetBox(gachaID, charID uint32) error {
+	oneTime, err := svc.gachaRepo.IsOneTimeBox(gachaID)
+	if err != nil {
+		return err
+	}
+	if oneTime {
+		return errGachaBoxOneTime
+	}
 	return svc.gachaRepo.DeleteBoxEntries(gachaID, charID)
+}
+
+// gachaBoxBallCount is how many balls a box reward entry of this weight holds.
+func gachaBoxBallCount(weight float64) int {
+	n := int(weight)
+	if n < 1 {
+		return 1
+	}
+	if n > gachaBoxMaxBalls {
+		return gachaBoxMaxBalls
+	}
+	return n
+}
+
+// gachaBoxRemainingBalls lists one element per ball still in the box.
+func gachaBoxRemainingBalls(entries []GachaEntry, drawn []BoxDrawCount) []GachaEntry {
+	taken := make(map[uint32]int, len(drawn))
+	for _, d := range drawn {
+		taken[d.EntryID] += d.Count
+	}
+	var balls []GachaEntry
+	for _, e := range entries {
+		for left := gachaBoxBallCount(e.Weight) - taken[e.ID]; left > 0; left-- {
+			balls = append(balls, e)
+		}
+	}
+	return balls
+}
+
+// gachaBoxDraw takes n balls at random without replacement.
+func gachaBoxDraw(balls []GachaEntry, n int) []GachaEntry {
+	pool := append([]GachaEntry(nil), balls...)
+	chosen := make([]GachaEntry, 0, n)
+	for i := 0; i < n && len(pool) > 0; i++ {
+		j := rand.Intn(len(pool))
+		chosen = append(chosen, pool[j])
+		pool[j] = pool[len(pool)-1]
+		pool = pool[:len(pool)-1]
+	}
+	return chosen
 }
 
 // getRandomEntries selects random gacha entries. In non-box mode, entries are

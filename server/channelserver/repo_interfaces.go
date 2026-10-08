@@ -241,6 +241,8 @@ type GachaRepo interface {
 	DeleteStepup(gachaID uint32, charID uint32) error
 	InsertStepup(gachaID uint32, step uint8, charID uint32) error
 	GetBoxEntryIDs(gachaID uint32, charID uint32) ([]uint32, error)
+	GetBoxDrawCounts(gachaID uint32, charID uint32) ([]BoxDrawCount, error)
+	IsOneTimeBox(gachaID uint32) (bool, error)
 	InsertBoxEntry(gachaID uint32, entryID uint32, charID uint32) error
 	DeleteBoxEntries(gachaID uint32, charID uint32) error
 	ListShop() ([]Gacha, error)

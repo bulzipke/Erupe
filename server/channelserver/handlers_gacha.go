@@ -2,6 +2,7 @@ package channelserver
 
 import (
 	"encoding/hex"
+	"errors"
 
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network/mhfpacket"
@@ -13,6 +14,11 @@ const (
 	gachaItemRecordBytes  = 5
 	gachaClientItemLimit  = 36
 	gachaMaxResponseBytes = 1 + gachaClientItemLimit*gachaItemRecordBytes
+
+	// The ZZ client keeps at most 64 reward entries per gacha (its detail
+	// parser drops the rest) and reads GET_BOX_GACHA_INFO into a 322-byte
+	// buffer: one count byte and up to 64 records of entry ID + drawn count.
+	gachaBoxClientEntryLimit = 64
 )
 
 // Gacha represents a gacha lottery definition.
@@ -28,6 +34,33 @@ type Gacha struct {
 	Recommended  bool   `db:"recommended"`
 	GachaType    uint8  `db:"gacha_type"`
 	Hidden       bool   `db:"hidden"`
+
+	// OneTime marks a box gacha that is drawn once per character and never
+	// reset (migration 0077).
+	OneTime bool `db:"one_time"`
+}
+
+const (
+	gachaListFlagHidden = 0x01
+
+	// gachaListFlagOneTimeBox tells the client that this box gacha is never
+	// reset. The ZZ client stores the byte at entry +0x1c4 and only tests it
+	// for zero in the normal-gacha list pages, which never hold box gachas;
+	// vorbis.dll (D570) reads this bit to keep an emptied box as drawn and to
+	// hide its reset button.
+	gachaListFlagOneTimeBox = 0x02
+)
+
+// gachaListFlags is the byte after gacha_type in the G10+ gacha shop list.
+func gachaListFlags(g Gacha) uint8 {
+	var flags uint8
+	if g.Hidden {
+		flags |= gachaListFlagHidden
+	}
+	if g.OneTime && (g.GachaType == 4 || g.GachaType == 5) {
+		flags |= gachaListFlagOneTimeBox
+	}
+	return flags
 }
 
 // GachaEntry represents a gacha entry (step/box).
@@ -308,17 +341,27 @@ func handleMsgMhfGetStepupStatus(s *Session, p mhfpacket.MHFPacket) {
 func handleMsgMhfGetBoxGachaInfo(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetBoxGachaInfo)
 
-	entryIDs, err := s.server.gachaService.GetBoxInfo(pkt.GachaID, s.charID)
+	counts, err := s.server.gachaService.GetBoxInfo(pkt.GachaID, s.charID)
 	if err != nil {
 		doAckBufSucceed(s, pkt.AckHandle, make([]byte, 1))
 		return
 	}
 
+	// One record per reward entry: entry ID and how many of its balls this
+	// character has drawn. The client subtracts the count from the entry's
+	// ball count (its weight) to show what is left in the box.
+	if len(counts) > gachaBoxClientEntryLimit {
+		counts = counts[:gachaBoxClientEntryLimit]
+	}
 	bf := byteframe.NewByteFrame()
-	bf.WriteUint8(uint8(len(entryIDs)))
-	for i := range entryIDs {
-		bf.WriteUint32(entryIDs[i])
-		bf.WriteBool(true)
+	bf.WriteUint8(uint8(len(counts)))
+	for _, c := range counts {
+		n := c.Count
+		if n > gachaBoxMaxBalls {
+			n = gachaBoxMaxBalls
+		}
+		bf.WriteUint32(c.EntryID)
+		bf.WriteUint8(uint8(n))
 	}
 	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
 }
@@ -346,6 +389,13 @@ func handleMsgMhfPlayBoxGacha(s *Session, p mhfpacket.MHFPacket) {
 func handleMsgMhfResetBoxGachaInfo(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfResetBoxGachaInfo)
 	if err := s.server.gachaService.ResetBox(pkt.GachaID, s.charID); err != nil {
+		if errors.Is(err, errGachaBoxOneTime) {
+			// The client shows its communication error and closes the menu.
+			s.logger.Info("Refused reset of a one-time gacha box",
+				zap.Uint32("gachaID", pkt.GachaID), zap.Uint32("charID", s.charID))
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
 		s.logger.Error("Failed to reset gacha box", zap.Error(err))
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))

@@ -192,7 +192,15 @@ func TestGachaService_PlayStepupGacha(t *testing.T) {
 		},
 		{
 			name:    "empty reward pool",
+			txRolls: 1,
 			wantErr: true,
+		},
+		{
+			name:               "guaranteed-only step needs no reward pool",
+			txRolls:            0,
+			guaranteed:         []GachaItem{{ItemType: 1, ItemID: 700, Quantity: 1}},
+			wantRandomCount:    0,
+			wantGuaranteeCount: 1,
 		},
 		{
 			name:    "success with guaranteed",

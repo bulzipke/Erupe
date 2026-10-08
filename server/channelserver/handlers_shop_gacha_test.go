@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"erupe-ce/common/byteframe"
+	"erupe-ce/common/stringsupport"
 	cfg "erupe-ce/config"
 )
 
@@ -405,5 +406,36 @@ func TestGetRandomEntries_PreservesEntryData(t *testing.T) {
 	}
 	if r.FrontierPoints != 500 {
 		t.Errorf("FrontierPoints = %d, expected 500", r.FrontierPoints)
+	}
+}
+
+func TestWriteGachaName_KoreanIsEUCKR(t *testing.T) {
+	bf := byteframe.NewByteFrame()
+	writeGachaName(bf, "대토벌뽑기")
+	want := append([]byte{11}, stringsupport.UTF8ToSJIS("대토벌뽑기")...)
+	want = append(want, 0)
+	if got := bf.Data(); string(got) != string(want) {
+		t.Fatalf("got % x, want % x", got, want)
+	}
+	if want[1] != 0xb4 || want[2] != 0xeb { // "대" in EUC-KR
+		t.Fatalf("not EUC-KR: % x", want[1:3])
+	}
+}
+
+func TestWriteGachaName_CutAtWholeCharacter(t *testing.T) {
+	bf := byteframe.NewByteFrame()
+	writeGachaName(bf, "가나다라마바사아자차카타파하가나다") // 16 Hangul = 32 bytes
+	got := bf.Data()
+	if got[0] != 31 || len(got) != 32 || got[31] != 0 {
+		t.Fatalf("length %d, prefix %d, last %#x: want 15 characters (30 bytes) + terminator", len(got), got[0], got[len(got)-1])
+	}
+}
+
+func TestWriteGachaName_ASCIIAndEmpty(t *testing.T) {
+	bf := byteframe.NewByteFrame()
+	writeGachaName(bf, "Normal Demo")
+	writeGachaName(bf, "")
+	if got, want := string(bf.Data()), "\x0cNormal Demo\x00\x01\x00"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }

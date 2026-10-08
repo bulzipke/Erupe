@@ -1066,6 +1066,8 @@ type mockGachaRepo struct {
 	boxEntryIDsErr error
 	insertedBoxIDs []uint32
 	deletedBox     bool
+	oneTimeBox     bool
+	oneTimeBoxErr  error
 
 	// Shop
 	gachas        []Gacha
@@ -1077,7 +1079,13 @@ type mockGachaRepo struct {
 }
 
 func (m *mockGachaRepo) GetEntryForTransaction(_ uint32, _ uint8) (uint8, uint16, int, error) {
-	return m.txItemType, m.txItemNumber, m.txRolls, m.txErr
+	itemType := m.txItemType
+	if itemType == 0 {
+		// Tests that do not set a cost pay zenny, which the client pays
+		// from the save, so transact deducts nothing.
+		itemType = gachaItemTypeZenny
+	}
+	return itemType, m.txItemNumber, m.txRolls, m.txErr
 }
 func (m *mockGachaRepo) GetRewardPool(_ uint32) ([]GachaEntry, error) {
 	return m.rewardPool, m.rewardPoolErr
@@ -1113,6 +1121,30 @@ func (m *mockGachaRepo) InsertStepup(_ uint32, step uint8, _ uint32) error {
 }
 func (m *mockGachaRepo) GetBoxEntryIDs(_ uint32, _ uint32) ([]uint32, error) {
 	return m.boxEntryIDs, m.boxEntryIDsErr
+}
+// GetBoxDrawCounts counts boxEntryIDs (one element per drawn ball) by entry.
+func (m *mockGachaRepo) GetBoxDrawCounts(_ uint32, _ uint32) ([]BoxDrawCount, error) {
+	if m.boxEntryIDsErr != nil {
+		return nil, m.boxEntryIDsErr
+	}
+	var counts []BoxDrawCount
+	for _, id := range m.boxEntryIDs {
+		found := false
+		for i := range counts {
+			if counts[i].EntryID == id {
+				counts[i].Count++
+				found = true
+				break
+			}
+		}
+		if !found {
+			counts = append(counts, BoxDrawCount{EntryID: id, Count: 1})
+		}
+	}
+	return counts, nil
+}
+func (m *mockGachaRepo) IsOneTimeBox(_ uint32) (bool, error) {
+	return m.oneTimeBox, m.oneTimeBoxErr
 }
 func (m *mockGachaRepo) InsertBoxEntry(_ uint32, entryID uint32, _ uint32) error {
 	m.insertedBoxIDs = append(m.insertedBoxIDs, entryID)

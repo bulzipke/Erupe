@@ -180,6 +180,43 @@ func (r *GachaRepository) GetBoxEntryIDs(gachaID uint32, charID uint32) ([]uint3
 	return ids, nil
 }
 
+// GetBoxDrawCounts returns, per reward entry, how many balls the character has
+// drawn from a box gacha (one gacha_box row per drawn ball), by entry ID.
+func (r *GachaRepository) GetBoxDrawCounts(gachaID uint32, charID uint32) ([]BoxDrawCount, error) {
+	var counts []BoxDrawCount
+	rows, err := r.db.Queryx(
+		`SELECT entry_id, COUNT(*) AS count FROM gacha_box
+		 WHERE gacha_id = $1 AND character_id = $2 AND entry_id IS NOT NULL
+		 GROUP BY entry_id ORDER BY entry_id`,
+		gachaID, charID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var c BoxDrawCount
+		if err := rows.Scan(&c.EntryID, &c.Count); err == nil {
+			counts = append(counts, c)
+		}
+	}
+	return counts, rows.Err()
+}
+
+// IsOneTimeBox reports whether a gacha is a one-time box (migration 0077).
+// An unknown gacha is not one-time.
+func (r *GachaRepository) IsOneTimeBox(gachaID uint32) (bool, error) {
+	var oneTime bool
+	err := r.db.QueryRow(
+		`SELECT COALESCE(one_time, false) FROM gacha_shop WHERE id = $1`,
+		gachaID,
+	).Scan(&oneTime)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return oneTime, err
+}
+
 // InsertBoxEntry records a drawn entry in a box gacha.
 func (r *GachaRepository) InsertBoxEntry(gachaID uint32, entryID uint32, charID uint32) error {
 	_, err := r.db.Exec(
@@ -204,7 +241,7 @@ func (r *GachaRepository) DeleteBoxEntries(gachaID uint32, charID uint32) error 
 func (r *GachaRepository) ListShop() ([]Gacha, error) {
 	var gachas []Gacha
 	rows, err := r.db.Queryx(
-		`SELECT id, min_gr, min_hr, name, url_banner, url_feature, url_thumbnail, wide, recommended, gacha_type, hidden FROM gacha_shop`,
+		`SELECT id, min_gr, min_hr, name, url_banner, url_feature, url_thumbnail, wide, recommended, gacha_type, hidden, COALESCE(one_time, false) AS one_time FROM gacha_shop`,
 	)
 	if err != nil {
 		return nil, err
