@@ -237,11 +237,13 @@ func (r *GachaRepository) DeleteBoxEntries(gachaID uint32, charID uint32) error 
 
 // Shop listing methods
 
-// ListShop returns all gacha shop definitions.
+// ListShop returns all gacha shop definitions in id order: the client lists them
+// in the order they arrive, and without ORDER BY that was the table's physical
+// row order, which moves whenever a row is updated.
 func (r *GachaRepository) ListShop() ([]Gacha, error) {
 	var gachas []Gacha
 	rows, err := r.db.Queryx(
-		`SELECT id, min_gr, min_hr, name, url_banner, url_feature, url_thumbnail, wide, recommended, gacha_type, hidden, COALESCE(one_time, false) AS one_time FROM gacha_shop`,
+		`SELECT id, min_gr, min_hr, name, url_banner, url_feature, url_thumbnail, wide, recommended, gacha_type, hidden, COALESCE(one_time, false) AS one_time FROM gacha_shop ORDER BY id`,
 	)
 	if err != nil {
 		return nil, err
@@ -270,7 +272,7 @@ func (r *GachaRepository) GetShopType(shopID uint32) (int, error) {
 func (r *GachaRepository) GetAllEntries(gachaID uint32) ([]GachaEntry, error) {
 	var entries []GachaEntry
 	rows, err := r.db.Queryx(
-		`SELECT entry_type, id, item_type, item_number, item_quantity, weight, rarity, rolls, daily_limit, frontier_points, COALESCE(name, '') AS name FROM gacha_entries WHERE gacha_id = $1 ORDER BY weight DESC`,
+		`SELECT entry_type, id, item_type, item_number, item_quantity, weight, rarity, rolls, daily_limit, frontier_points, COALESCE(name, '') AS name FROM gacha_entries WHERE gacha_id = $1 ORDER BY weight DESC, id`,
 		gachaID,
 	)
 	if err != nil {

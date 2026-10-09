@@ -59,6 +59,83 @@ func campaignRequiredStamps(stamps int) int {
 	return stamps
 }
 
+// Campaign string limits, from the client's event parser (FUN_1151b7c0 HD,
+// FUN_114f4f20 non-HD): it reads five uint8-length strings per event and copies
+// the first four only when the length (terminator included) is 1..0x3f and the
+// fifth (link) when it is 1..0x7f; a longer string is skipped and left blank.
+const (
+	campaignTextMax = 0x3f - 1
+	campaignLinkMax = 0x7f - 1
+)
+
+// writeCampaignString writes a campaign text field in the client's text
+// encoding (EUC-KR, stringsupport.UTF8ToSJIS) with a uint8 length prefix and a
+// terminator, cut at a whole character within limit bytes. pascalstring encodes
+// Shift-JIS, which has no Hangul: a Korean title failed to encode and went out
+// as a bare zero length, and the Japanese seed text drew as broken glyphs on
+// the CP949 client.
+func writeCampaignString(bf *byteframe.ByteFrame, text string, limit int) {
+	var out []byte
+	for _, r := range text {
+		b := stringsupport.UTF8ToSJIS(string(r))
+		if len(out)+len(b) > limit {
+			break
+		}
+		out = append(out, b...)
+	}
+	bf.WriteUint8(uint8(len(out) + 1))
+	bf.WriteNullTerminatedBytes(out)
+}
+
+// The client copies a category title only when its sent length is under 0x40
+// and a description only under 0x100 (FUN_1151bc30 HD).
+const (
+	campaignCategoryTitleMax = 0x3F
+	campaignCategoryDescMax  = 0xFF
+)
+
+// campaignCategoryText encodes a category title or description with its
+// terminator counted in the sent length, cut at a whole character to fit max.
+// The client copies each category into a slot it zeroes only once, and writes
+// every category of the other tab into the slot before the first category it
+// keeps; copying just the text left the tail of a longer earlier description
+// behind it ("…있습니다.다.있습니다." under 프리미엄 키트·오리지널).
+func campaignCategoryText(text string, max int) []byte {
+	var out []byte
+	for _, r := range text {
+		b := stringsupport.UTF8ToSJIS(string(r))
+		if len(out)+len(b) > max-1 {
+			break
+		}
+		out = append(out, b...)
+	}
+	return append(out, 0)
+}
+
+// writeCampaignCount writes a section count the way the client reads it: one
+// byte, or 0xFF followed by a big-endian uint16 when the byte would be 0xFF or
+// more (a plain count of 255 would be taken for the escape).
+func writeCampaignCount(bf *byteframe.ByteFrame, n int) {
+	if n >= 0xFF {
+		bf.WriteUint8(0xFF)
+		bf.WriteUint16(uint16(n))
+		return
+	}
+	bf.WriteUint8(uint8(n))
+}
+
+// writeCampaignPrefix writes one entry of the code-prefix section: campaign ID,
+// one byte the client stores but never reads, and the four prefix bytes. The
+// client matches the first four characters of an entered event code against
+// these to find its campaign (FUN_1151bec0 HD).
+func writeCampaignPrefix(bf *byteframe.ByteFrame, campaignID uint32, prefix string) {
+	b := make([]byte, 4)
+	copy(b, stringsupport.UTF8ToSJIS(prefix))
+	bf.WriteUint32(campaignID)
+	bf.WriteUint8(0)
+	bf.WriteBytes(b)
+}
+
 func handleMsgMhfEnumerateCampaign(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfEnumerateCampaign)
 	if s.server.db == nil {
@@ -86,12 +163,12 @@ func handleMsgMhfEnumerateCampaign(s *Session, p mhfpacket.MHFPacket) {
 		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
-	if len(events) > 255 {
-		bf.WriteUint8(255)
-		bf.WriteUint16(uint16(len(events)))
-	} else {
-		bf.WriteUint8(uint8(len(events)))
-	}
+	// The response has four sections in this order: events, code prefixes,
+	// categories, category links. The client parses all four (FUN_1151b7c0,
+	// FUN_1151bc30, FUN_1151bd60 HD; FUN_114f4f20.. non-HD); without the prefix
+	// section it read the category count as the prefix count and every later
+	// field out of place, so both tents drew garbage or an empty list.
+	writeCampaignCount(bf, len(events))
 	for _, event := range events {
 		bf.WriteUint32(event.ID)
 		bf.WriteUint32(0)
@@ -111,36 +188,37 @@ func handleMsgMhfEnumerateCampaign(s *Session, p mhfpacket.MHFPacket) {
 		bf.WriteUint32(uint32(event.Start.Unix()))
 		bf.WriteUint32(uint32(event.End.Unix()))
 		bf.WriteBool(event.End.Before(time.Now()))
-		ps.Uint8(bf, event.Title, true)
-		ps.Uint8(bf, event.Reward, true)
-		ps.Uint8(bf, event.Prefix, true)
+		writeCampaignString(bf, event.Title, campaignTextMax)
+		writeCampaignString(bf, event.Reward, campaignTextMax)
+		writeCampaignString(bf, event.Prefix, campaignTextMax)
 		ps.Uint8(bf, "", false)
-		ps.Uint8(bf, event.Link, true)
+		writeCampaignString(bf, event.Link, campaignLinkMax)
 	}
 
-	if len(categories) > 255 {
-		bf.WriteUint8(255)
-		bf.WriteUint16(uint16(len(categories)))
-	} else {
-		bf.WriteUint8(uint8(len(categories)))
+	var prefixed []CampaignEvent
+	for _, event := range events {
+		if event.Prefix != "" {
+			prefixed = append(prefixed, event)
+		}
 	}
+	writeCampaignCount(bf, len(prefixed))
+	for _, event := range prefixed {
+		writeCampaignPrefix(bf, event.ID, event.Prefix)
+	}
+
+	writeCampaignCount(bf, len(categories))
 	for _, category := range categories {
 		bf.WriteUint16(category.ID)
 		bf.WriteUint8(category.Type)
-		xTitle := stringsupport.UTF8ToSJIS(category.Title)
-		xDescription := stringsupport.UTF8ToSJIS(category.Description)
+		xTitle := campaignCategoryText(category.Title, campaignCategoryTitleMax)
+		xDescription := campaignCategoryText(category.Description, campaignCategoryDescMax)
 		bf.WriteUint8(uint8(len(xTitle)))
 		bf.WriteUint8(uint8(len(xDescription)))
 		bf.WriteBytes(xTitle)
 		bf.WriteBytes(xDescription)
 	}
 
-	if len(campaignLinks) > 255 {
-		bf.WriteUint8(255)
-		bf.WriteUint16(uint16(len(campaignLinks)))
-	} else {
-		bf.WriteUint8(uint8(len(campaignLinks)))
-	}
+	writeCampaignCount(bf, len(campaignLinks))
 	for _, link := range campaignLinks {
 		bf.WriteUint16(link.CategoryID)
 		bf.WriteUint32(link.CampaignID)
