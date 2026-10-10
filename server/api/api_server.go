@@ -54,6 +54,8 @@ type APIServer struct {
 	operatorTokenValue   string
 	chatMessages         []DashboardChatMessage
 	worldChatBroadcaster func(sender, message string) error
+	deliveryCatalog      dashboardDeliveryCatalog
+	deliveryMailNotifier func(uint32)
 }
 
 const (
@@ -123,6 +125,7 @@ func (s *APIServer) Start() error {
 	r.HandleFunc("/api/dashboard/stats", s.DashboardStatsJSON).Methods("GET")
 	r.HandleFunc("/api/dashboard/chat", s.DashboardChat).Methods("GET", "POST")
 	r.HandleFunc("/api/dashboard/unlock", s.DashboardUnlock).Methods("POST")
+	s.registerDashboardDeliveryRoutes(r)
 
 	// Legacy routes (unchanged, no method enforcement)
 	r.HandleFunc("/launcher", s.Launcher)

@@ -129,6 +129,43 @@ func TestLocalRegistryFindChannelForStage(t *testing.T) {
 	}
 }
 
+func TestLocalRegistryNotifySystemMail(t *testing.T) {
+	channels := createTestChannels(2)
+	registry := NewLocalChannelRegistry(channels)
+	conn := &mockConn{}
+	session := createTestSessionForServer(channels[1], conn, 42, "Recipient")
+	channels[1].sessions[conn] = session
+
+	registry.NotifySystemMailToCharID(999) // An offline recipient is a safe no-op.
+	if len(session.sendPackets) != 0 {
+		t.Fatal("offline recipient notification reached another character")
+	}
+	registry.NotifySystemMailToCharID(42)
+	select {
+	case queued := <-session.sendPackets:
+		frame := byteframe.NewByteFrameFromBytes(queued.data)
+		if network.PacketID(frame.ReadUint16()) != network.MSG_SYS_CASTED_BINARY {
+			t.Fatal("wrong notification opcode")
+		}
+		casted := &mhfpacket.MsgSysCastedBinary{}
+		if err := casted.Parse(frame, session.clientContext); err != nil {
+			t.Fatal(err)
+		}
+		if casted.CharID != systemMailWireSenderID || casted.BroadcastType != 0 || casted.MessageType != BinaryMessageTypeMailNotify {
+			t.Fatalf("system notification metadata: %+v", casted)
+		}
+		expected := byteframe.NewByteFrame()
+		if err := (&binpacket.MsgBinMailNotify{SenderName: "운영자"}).Build(expected); err != nil {
+			t.Fatal(err)
+		}
+		if string(casted.RawDataPayload) != string(expected.Data()) {
+			t.Fatalf("notification payload = %x, want %x", casted.RawDataPayload, expected.Data())
+		}
+	default:
+		t.Fatal("online recipient did not receive mail notification")
+	}
+}
+
 func TestLocalRegistryDisconnectUser(t *testing.T) {
 	channels := createTestChannels(1)
 	reg := NewLocalChannelRegistry(channels)

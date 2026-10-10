@@ -438,6 +438,7 @@ func main() {
 		}
 		if ApiServer != nil {
 			ApiServer.SetWorldChatBroadcaster(registry.BroadcastWorldChat)
+			ApiServer.SetDeliveryMailNotifier(registry.NotifySystemMailToCharID)
 			ApiServer.SetDashboardStageProvider(func() map[uint32]api.DashboardSessionInfo {
 				sessions := make(map[uint32]api.DashboardSessionInfo)
 				snapshots := registry.SearchSessions(func(channelserver.SessionSnapshot) bool { return true }, 65535)

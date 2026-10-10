@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"erupe-ce/common/byteframe"
 	"erupe-ce/network/mhfpacket"
 )
 
@@ -163,6 +164,105 @@ func TestHandleMsgMhfListMail_DBError(t *testing.T) {
 		}
 	default:
 		t.Error("No response packet queued")
+	}
+}
+
+func TestHandleMsgMhfListMail_OperatorAttachmentWireSender(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		senderID   uint32
+		system     bool
+		received   bool
+		wireID     uint32
+		wireSystem bool
+	}{
+		{"operator gift", 0, true, false, 1, false},
+		{"already received operator gift", 0, true, true, 1, false},
+		{"player mail", 56, false, false, 56, false},
+		{"player-originated system notice", 56, true, false, 56, true},
+		{"unmarked zero sender", 0, false, false, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := createMockServer()
+			server.mailRepo = &mockMailRepo{mails: []Mail{{ID: 11, SenderID: tc.senderID,
+				Subject: "Gift", SenderName: "Operator", CreatedAt: time.Now(), IsSystemMessage: tc.system,
+				AttachedItemID: 16, AttachedItemAmount: 5, AttachedItemReceived: tc.received}}}
+			session := createMockSession(56, server)
+			handleMsgMhfListMail(session, &mhfpacket.MsgMhfListMail{AckHandle: 100})
+			ack := readAck(t, session)
+			if !ack.IsBufferResponse || ack.ErrorCode != 0 {
+				t.Fatalf("mail list response: %+v", ack)
+			}
+			frame := byteframe.NewByteFrameFromBytes(ack.Payload)
+			if count := frame.ReadUint32(); count != 1 {
+				t.Fatalf("mail count = %d", count)
+			}
+			if sender := frame.ReadUint32(); sender != tc.wireID {
+				t.Fatalf("wire sender = %d, want %d", sender, tc.wireID)
+			}
+			frame.ReadUint32() // Created at.
+			frame.ReadUint8()  // AccIndex.
+			frame.ReadUint8()  // Index.
+			flags := frame.ReadUint8()
+			if (flags&4 != 0) != tc.wireSystem || (flags&8 != 0) != tc.received {
+				t.Fatalf("incorrect system/received wire flags: 0x%x", flags)
+			}
+			if !frame.ReadBool() {
+				t.Fatal("attachment missing from wire record")
+			}
+			subjectSize, senderSize := frame.ReadUint8(), frame.ReadUint8()
+			frame.ReadBytes(uint(subjectSize) + uint(senderSize))
+			if amount, item := frame.ReadUint16(), frame.ReadUint16(); amount != 5 || item != 16 {
+				t.Fatalf("attachment = %d x %d, want 16 x 5", item, amount)
+			}
+		})
+	}
+}
+
+func TestHandleMsgMhfListMail_OperatorAttachmentPickupFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		mail  Mail
+		flags byte
+	}{
+		{"unread gift", Mail{AttachedItemID: 2213, AttachedItemAmount: 1}, 0},
+		{"read gift", Mail{AttachedItemID: 16, AttachedItemAmount: 5, Read: true}, 1},
+		{"locked gift", Mail{AttachedItemID: 16, AttachedItemAmount: 5, Read: true, Locked: true}, 3},
+		{"received gift", Mail{AttachedItemID: 16, AttachedItemAmount: 5, Read: true, AttachedItemReceived: true}, 9},
+		{"system notice without attachment", Mail{Read: true}, 5},
+		{"zero quantity is not a gift", Mail{AttachedItemID: 16}, 4},
+		{"guild invitation is not a gift", Mail{AttachedItemID: 16, AttachedItemAmount: 5, IsGuildInvite: true}, 20},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mail := tc.mail
+			mail.ID, mail.SenderID, mail.IsSystemMessage = 12, 0, true
+			server := createMockServer()
+			server.mailRepo = &mockMailRepo{mails: []Mail{mail}}
+			session := createMockSession(56, server)
+			handleMsgMhfListMail(session, &mhfpacket.MsgMhfListMail{AckHandle: 100})
+			ack := readAck(t, session)
+			if !ack.IsBufferResponse || ack.ErrorCode != 0 {
+				t.Fatalf("mail list response: %+v", ack)
+			}
+			frame := byteframe.NewByteFrameFromBytes(ack.Payload)
+			frame.ReadUint32() // Count.
+			if sender := frame.ReadUint32(); sender != systemMailWireSenderID {
+				t.Fatalf("wire sender = %d", sender)
+			}
+			frame.ReadUint32() // Created at.
+			frame.ReadUint8()  // AccIndex.
+			frame.ReadUint8()  // Index.
+			if flags := frame.ReadUint8(); flags != tc.flags {
+				t.Fatalf("wire flags = 0x%x, want 0x%x", flags, tc.flags)
+			}
+			if hasAttachment := frame.ReadBool(); hasAttachment != (mail.AttachedItemID != 0) {
+				t.Fatalf("attachment presence changed: %v", hasAttachment)
+			}
+			// This must be a wire-only translation; notices and DB identity stay intact.
+			if !server.mailRepo.(*mockMailRepo).mails[0].IsSystemMessage {
+				t.Fatal("operator mail lost its stored system identity")
+			}
+		})
 	}
 }
 

@@ -177,6 +177,26 @@ tbody tr:last-child td{border-bottom:0}
 .chat-submit:disabled{cursor:wait;opacity:.55}
 .chat-feedback{min-height:20px;padding:0 18px 12px;color:var(--muted);font-size:.7rem}
 .chat-feedback.error{color:#ffaaa3}
+.delivery-panel{margin-top:18px}
+.delivery-form{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.5fr) 100px 108px;grid-template-areas:"character target item quantity submit" ". . selection . .";align-items:end;gap:6px 12px;padding:18px}
+.delivery-field{display:grid;gap:6px;min-width:0}
+.delivery-character-search{grid-area:character}
+.delivery-character-target{grid-area:target}
+.delivery-item-field{grid-area:item}
+.delivery-quantity-field{grid-area:quantity}
+.delivery-form>.chat-submit{grid-area:submit}
+.delivery-selection{grid-area:selection;min-width:0;overflow-wrap:anywhere}
+.delivery-autocomplete{position:relative}
+.delivery-suggestions{position:absolute;z-index:5;top:100%;left:0;right:0;max-height:290px;overflow-y:auto;border:1px solid var(--line);background:var(--surface-strong);box-shadow:0 8px 20px #0007}
+.delivery-suggestion{display:block;width:100%;border:0;border-bottom:1px solid var(--line-soft);padding:9px 11px;background:transparent;color:var(--text);text-align:left;cursor:pointer;font-size:.78rem;overflow-wrap:anywhere}
+.delivery-suggestion:hover,.delivery-suggestion.active{background:#33372a;color:var(--accent-soft)}
+.delivery-detail{display:block;color:var(--muted);font-size:.68rem}
+.delivery-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:0 18px 12px;font-size:.7rem;color:var(--muted)}
+.delivery-tools a{color:var(--accent-soft)}
+.delivery-refresh{border:1px solid var(--line);background:var(--surface-strong);color:var(--text);cursor:pointer;padding:4px 9px}
+.delivery-feedback{white-space:pre-line;overflow-wrap:anywhere}
+@media(max-width:900px){.delivery-form{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"character target" "item item" "selection selection" "quantity submit";row-gap:10px} }
+@media(max-width:520px){.delivery-form{grid-template-columns:minmax(0,1fr);grid-template-areas:"character" "target" "item" "selection" "quantity" "submit"} }
 .rankings{margin-top:18px;border:1px solid var(--line);background:var(--surface)}
 .rankings-header{padding:17px 18px;border-bottom:1px solid var(--line)}
 .rankings-header h2{margin:0 0 3px;font-size:.94rem}
@@ -369,6 +389,45 @@ tbody tr:last-child td{border-bottom:0}
         </section>
     </section>
 
+    <section class="panel delivery-panel" id="delivery-panel" aria-labelledby="delivery-heading" hidden>
+        <div class="panel-header">
+            <div>
+                <h2 class="panel-title" id="delivery-heading">아이템 택배 지급</h2>
+                <span class="panel-note">운영자 전용 · 인게임 메일 첨부로 수령</span>
+            </div>
+        </div>
+        <form class="delivery-form" id="delivery-form">
+            <div class="delivery-field delivery-character-search">
+                <label class="panel-note" for="delivery-character-query">캐릭터명 검색</label>
+                <input class="chat-input" id="delivery-character-query" type="search" maxlength="40" autocomplete="off" placeholder="캐릭터명을 입력하세요">
+            </div>
+            <div class="delivery-field delivery-character-target">
+                <label class="panel-note" for="delivery-character">지급 대상</label>
+                <select class="chat-input" id="delivery-character" required disabled><option value="">캐릭터명을 검색해 주세요</option></select>
+            </div>
+            <div class="delivery-field delivery-item-field">
+                <label class="panel-note" for="delivery-item-query">아이템 이름 / ID 자동완성</label>
+                <div class="delivery-autocomplete">
+                    <input class="chat-input" id="delivery-item-query" type="text" maxlength="160" autocomplete="off" placeholder="한글 이름 또는 ID를 입력하세요" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="delivery-item-suggestions" required>
+                    <div class="delivery-suggestions" id="delivery-item-suggestions" role="listbox" aria-label="아이템 후보" hidden></div>
+                </div>
+            </div>
+            <span class="panel-note delivery-selection" id="delivery-item-selection">검색한 후보를 선택해 주세요.</span>
+            <div class="delivery-field delivery-quantity-field">
+                <label class="panel-note" for="delivery-quantity">수량</label>
+                <input class="chat-input" id="delivery-quantity" type="number" min="1" max="3168" step="1" value="1" required>
+            </div>
+            <button class="chat-submit" id="delivery-submit" type="submit">택배 지급</button>
+        </form>
+        <div class="delivery-tools">
+            <a href="https://ferias.bulzipke.com/sozai/itemlist.htm" target="_blank" rel="noopener noreferrer">Ferias 아이템 목록</a>
+            <button class="delivery-refresh" id="delivery-refresh" type="button">번역명 갱신</button>
+            <span id="delivery-catalog-status">검색 시 최신 목록을 확인합니다.</span>
+            <span>99개씩 나누어 발송 · 메일함 32통 한도 확인</span>
+        </div>
+        <div class="chat-feedback delivery-feedback" id="delivery-feedback" role="status" aria-live="polite">캐릭터와 아이템을 선택하면 지급 전에 확인할 수 있습니다.</div>
+    </section>
+
     <section class="rankings">
         <div class="rankings-header">
             <h2>월드 랭킹</h2>
@@ -486,6 +545,9 @@ tbody tr:last-child td{border-bottom:0}
         operatorMode = enabled;
         byId("operator-layout").hidden = !enabled;
         byId("operator-unlock").hidden = !enabled;
+        byId("delivery-panel").hidden = !enabled;
+        if (!enabled) clearDeliverySearches();
+        if (enabled) restoreDeliveryRequest();
         if (enabled) updateChat();
     }
 
@@ -763,6 +825,274 @@ tbody tr:last-child td{border-bottom:0}
             .finally(function () {
                 submit.disabled = false;
             });
+    }
+
+    var deliveryCharacters = [];
+    var deliveryItems = [];
+    var deliverySelectedItem = null;
+    var deliveryActiveItem = -1;
+    var deliveryCharacterTimer = null;
+    var deliveryItemTimer = null;
+    var deliveryCharacterVersion = 0;
+    var deliveryItemVersion = 0;
+    var deliveryCharacterAbort = null;
+    var deliveryItemAbort = null;
+    var deliveryPendingRequest = null;
+    var deliverySending = false;
+
+    function saveDeliveryRequest() {
+        try {
+            if (deliveryPendingRequest) sessionStorage.setItem("erupe-dashboard-pending-delivery", JSON.stringify(deliveryPendingRequest));
+            else sessionStorage.removeItem("erupe-dashboard-pending-delivery");
+        } catch (_) {}
+    }
+
+    function restoreDeliveryRequest() {
+        if (!deliveryPendingRequest) {
+            try { deliveryPendingRequest = JSON.parse(sessionStorage.getItem("erupe-dashboard-pending-delivery") || "null"); } catch (_) {}
+        }
+        if (!deliveryPendingRequest) return;
+        var request = deliveryPendingRequest;
+        deliveryCharacters = [{id: request.characterId, name: request.characterName, code: request.characterCode}];
+        byId("delivery-character-query").value = request.characterName;
+        byId("delivery-character").replaceChildren(new Option(request.characterName + "(" + request.characterCode + ")", String(request.characterId)));
+        byId("delivery-item-query").value = request.itemName;
+        byId("delivery-item-selection").textContent = "확인 대기: " + request.itemName + " · ID " + request.itemId;
+        byId("delivery-quantity").value = request.quantity;
+        lockDeliveryForm(true);
+        deliveryFeedback("이전 지급 결과를 확인해야 합니다. '같은 요청 재시도'로 확인해 주세요. 중복 지급되지 않습니다.", true);
+    }
+
+    function deliveryFeedback(message, error) {
+        byId("delivery-feedback").textContent = message;
+        byId("delivery-feedback").className = "chat-feedback delivery-feedback" + (error ? " error" : "");
+    }
+
+    function deliveryJSON(url, options) {
+        return fetch(url, Object.assign({cache: "no-store", credentials: "same-origin"}, options || {}))
+            .then(function (response) {
+                return response.json().then(function (data) {
+                    if (!response.ok) {
+                        var error = new Error(data.error || "택배 요청을 처리하지 못했습니다.");
+                        error.status = response.status;
+                        throw error;
+                    }
+                    return data;
+                });
+            });
+    }
+
+    function clearDeliverySearches() {
+        clearTimeout(deliveryCharacterTimer);
+        clearTimeout(deliveryItemTimer);
+        deliveryCharacterVersion++;
+        deliveryItemVersion++;
+        if (deliveryCharacterAbort) deliveryCharacterAbort.abort();
+        if (deliveryItemAbort) deliveryItemAbort.abort();
+        deliveryCharacters = [];
+        deliveryItems = [];
+        deliverySelectedItem = null;
+        byId("delivery-character").replaceChildren(new Option("캐릭터명을 검색해 주세요", ""));
+        byId("delivery-character").disabled = true;
+        byId("delivery-item-selection").textContent = "검색한 후보를 선택해 주세요.";
+        closeDeliveryItems();
+    }
+
+    function searchDeliveryCharacters() {
+        var query = byId("delivery-character-query").value.trim();
+        var version = ++deliveryCharacterVersion;
+        if (deliveryCharacterAbort) deliveryCharacterAbort.abort();
+        deliveryCharacters = [];
+        var select = byId("delivery-character");
+        select.disabled = true;
+        select.replaceChildren(new Option(query ? "검색 중…" : "캐릭터명을 검색해 주세요", ""));
+        if (!operatorMode || !query) return;
+        deliveryCharacterAbort = new AbortController();
+        deliveryJSON("/api/dashboard/delivery/characters?q=" + encodeURIComponent(query), {signal: deliveryCharacterAbort.signal})
+            .then(function (data) {
+                if (!operatorMode || version !== deliveryCharacterVersion) return;
+                deliveryCharacters = data.characters || [];
+                select.replaceChildren(new Option(deliveryCharacters.length ? "지급 대상을 선택하세요" : "검색 결과가 없습니다", ""));
+                deliveryCharacters.forEach(function (character) {
+                    select.appendChild(new Option(character.name + "(" + character.code + ")", String(character.id)));
+                });
+                select.disabled = !deliveryCharacters.length || deliverySending || !!deliveryPendingRequest;
+            })
+            .catch(function (error) {
+                if (error.name !== "AbortError" && version === deliveryCharacterVersion && operatorMode) {
+                    select.replaceChildren(new Option("검색 실패 · 다시 입력해 주세요", ""));
+                    deliveryFeedback(error.message, true);
+                }
+            });
+    }
+
+    function closeDeliveryItems() {
+        byId("delivery-item-suggestions").hidden = true;
+        byId("delivery-item-query").setAttribute("aria-expanded", "false");
+        byId("delivery-item-query").removeAttribute("aria-activedescendant");
+        deliveryActiveItem = -1;
+    }
+
+    function chooseDeliveryItem(item) {
+        deliverySelectedItem = item;
+        byId("delivery-item-query").value = item.name;
+        byId("delivery-item-selection").textContent = "선택: " + item.name + " · ID " + item.id + " / 0x" + item.hex;
+        closeDeliveryItems();
+    }
+
+    function highlightDeliveryItem(index) {
+        deliveryActiveItem = index;
+        Array.from(byId("delivery-item-suggestions").children).forEach(function (button, i) {
+            button.classList.toggle("active", i === index);
+            button.setAttribute("aria-selected", String(i === index));
+        });
+        var button = byId("delivery-item-suggestions").children[index];
+        if (button) {
+            byId("delivery-item-query").setAttribute("aria-activedescendant", button.id);
+            button.scrollIntoView({block: "nearest"});
+        }
+    }
+
+    function searchDeliveryItems(refresh) {
+        var query = byId("delivery-item-query").value.trim();
+        var version = ++deliveryItemVersion;
+        if (deliveryItemAbort) deliveryItemAbort.abort();
+        closeDeliveryItems();
+        if (!operatorMode || (!query && !refresh)) return Promise.resolve();
+        deliveryItemAbort = new AbortController();
+        byId("delivery-catalog-status").textContent = "Ferias 목록 확인 중…";
+        return deliveryJSON("/api/dashboard/delivery/items?q=" + encodeURIComponent(query) + (refresh ? "&refresh=1" : ""), {signal: deliveryItemAbort.signal})
+            .then(function (data) {
+                if (!operatorMode || version !== deliveryItemVersion) return;
+                byId("delivery-catalog-status").textContent = numberFormatter.format(data.total) + "개 · 갱신 " + new Date(data.updatedAt).toLocaleTimeString("ko-KR");
+                deliveryItems = data.items || [];
+                var list = byId("delivery-item-suggestions");
+                list.replaceChildren();
+                deliveryItems.forEach(function (item, index) {
+                    var button = text("button", "delivery-suggestion", item.name);
+                    button.type = "button";
+                    button.id = "delivery-item-option-" + index;
+                    button.tabIndex = -1;
+                    button.setAttribute("role", "option");
+                    button.setAttribute("aria-selected", "false");
+                    button.appendChild(text("span", "delivery-detail", "ID " + item.id + " / 0x" + item.hex));
+                    button.addEventListener("click", function () { chooseDeliveryItem(item); });
+                    list.appendChild(button);
+                });
+                if (query && !deliveryItems.length) deliveryFeedback("검색 결과가 없습니다. 한글 이름이나 ID를 다시 입력해 주세요.", false);
+                list.hidden = !deliveryItems.length || deliverySending || !!deliveryPendingRequest;
+                byId("delivery-item-query").setAttribute("aria-expanded", String(!list.hidden));
+            })
+            .catch(function (error) {
+                if (error.name !== "AbortError" && version === deliveryItemVersion && operatorMode) {
+                    byId("delivery-catalog-status").textContent = "목록 확인 실패";
+                    deliveryFeedback(error.message, true);
+                }
+            });
+    }
+
+    function deliveryRequestID() {
+        if (window.crypto.randomUUID) return window.crypto.randomUUID();
+        var bytes = new Uint8Array(16);
+        window.crypto.getRandomValues(bytes);
+        bytes[6] = (bytes[6] & 15) | 64;
+        bytes[8] = (bytes[8] & 63) | 128;
+        var hex = Array.from(bytes).map(function (b) { return b.toString(16).padStart(2, "0"); }).join("");
+        return [hex.slice(0,8), hex.slice(8,12), hex.slice(12,16), hex.slice(16,20), hex.slice(20)].join("-");
+    }
+
+    function lockDeliveryForm(locked) {
+        ["delivery-character-query", "delivery-item-query", "delivery-quantity", "delivery-refresh"].forEach(function (id) { byId(id).disabled = locked; });
+        byId("delivery-character").disabled = locked || !deliveryCharacters.length;
+        byId("delivery-submit").disabled = deliverySending;
+        byId("delivery-submit").textContent = deliverySending ? "지급 중…" : deliveryPendingRequest ? "같은 요청 재시도" : "택배 지급";
+        if (locked) closeDeliveryItems();
+    }
+
+    function submitDelivery(event) {
+        event.preventDefault();
+        if (!operatorMode || deliverySending) return;
+        if (!deliveryPendingRequest) {
+            var character = deliveryCharacters.find(function (entry) { return String(entry.id) === byId("delivery-character").value; });
+            var item = deliverySelectedItem;
+            var quantity = Number(byId("delivery-quantity").value);
+            if (!character || !item || byId("delivery-item-query").value !== item.name || !Number.isInteger(quantity) || quantity < 1 || quantity > 3168) {
+                deliveryFeedback("캐릭터와 아이템을 후보에서 선택하고 수량을 1~3168개로 입력해 주세요.", true);
+                return;
+            }
+            var summary = character.name + "(" + character.code + ")\n" + item.name + " · ID " + item.id + " / 0x" + item.hex + "\n" + quantity + "개 · 메일 " + Math.ceil(quantity / 99) + "통\n\n이대로 택배를 지급할까요?";
+            if (!window.confirm(summary)) return;
+            deliveryPendingRequest = {requestId: deliveryRequestID(), characterId: character.id, characterName: character.name, characterCode: character.code, itemId: item.id, itemName: item.name, quantity: quantity};
+            saveDeliveryRequest();
+        }
+        deliverySending = true;
+        lockDeliveryForm(true);
+        deliveryFeedback("지급 결과를 확인하는 중입니다. 창을 닫지 마세요.", false);
+        var controller = new AbortController();
+        var timeout = setTimeout(function () { controller.abort(); }, 25000);
+        deliveryJSON("/api/dashboard/delivery", {method: "POST", signal: controller.signal, headers: {"Content-Type": "application/json"}, body: JSON.stringify(deliveryPendingRequest)})
+            .then(function (receipt) {
+                deliveryPendingRequest = null;
+                saveDeliveryRequest();
+                deliveryFeedback((receipt.alreadyDelivered ? "이미 처리된 지급 요청입니다. 중복 지급하지 않았습니다.\n" : "택배 지급을 완료했습니다.\n") + receipt.characterName + "(" + receipt.characterCode + ") · " + receipt.itemName + " " + receipt.quantity + "개 · 메일 " + receipt.mailCount + "통", false);
+            })
+            .catch(function (error) {
+                if (error.status && error.status < 500 && error.status !== 403) {
+                    deliveryPendingRequest = null;
+                    saveDeliveryRequest();
+                    deliveryFeedback(error.message, true);
+                } else {
+                    deliveryFeedback("지급 결과가 미확인 상태입니다. '같은 요청 재시도'로 확인해 주세요. 중복 지급되지 않습니다.\n" + (error.name === "AbortError" ? "응답 시간이 초과됐습니다." : error.message), true);
+                }
+            })
+            .finally(function () {
+                clearTimeout(timeout);
+                deliverySending = false;
+                lockDeliveryForm(!!deliveryPendingRequest);
+            });
+    }
+
+    function initDeliveryForm() {
+        byId("delivery-character-query").addEventListener("input", function (event) {
+            clearTimeout(deliveryCharacterTimer);
+            deliveryCharacterVersion++;
+            if (deliveryCharacterAbort) deliveryCharacterAbort.abort();
+            deliveryCharacters = [];
+            byId("delivery-character").disabled = true;
+            byId("delivery-character").replaceChildren(new Option("검색어를 입력하고 잠시 기다려 주세요", ""));
+            if (!event.isComposing) deliveryCharacterTimer = setTimeout(searchDeliveryCharacters, 250);
+        });
+        byId("delivery-character-query").addEventListener("compositionend", function () { clearTimeout(deliveryCharacterTimer); deliveryCharacterTimer = setTimeout(searchDeliveryCharacters, 250); });
+        byId("delivery-item-query").addEventListener("input", function (event) {
+            clearTimeout(deliveryItemTimer);
+            deliveryItemVersion++;
+            if (deliveryItemAbort) deliveryItemAbort.abort();
+            deliverySelectedItem = null;
+            deliveryItems = [];
+            closeDeliveryItems();
+            byId("delivery-item-selection").textContent = "검색한 후보를 선택해 주세요.";
+            if (!event.isComposing) deliveryItemTimer = setTimeout(function () { searchDeliveryItems(false); }, 250);
+        });
+        byId("delivery-item-query").addEventListener("compositionend", function () { clearTimeout(deliveryItemTimer); deliveryItemTimer = setTimeout(function () { searchDeliveryItems(false); }, 250); });
+        byId("delivery-item-query").addEventListener("keydown", function (event) {
+            if (event.isComposing || event.keyCode === 229) return;
+            if (event.key === "Escape") { closeDeliveryItems(); return; }
+            if (byId("delivery-item-suggestions").hidden || !deliveryItems.length) return;
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                highlightDeliveryItem(deliveryActiveItem < 0 ? (event.key === "ArrowDown" ? 0 : deliveryItems.length - 1) : (deliveryActiveItem + (event.key === "ArrowDown" ? 1 : -1) + deliveryItems.length) % deliveryItems.length);
+            } else if (event.key === "Enter") {
+                event.preventDefault();
+                chooseDeliveryItem(deliveryItems[Math.max(0, deliveryActiveItem)]);
+            }
+        });
+        document.addEventListener("click", function (event) { if (!event.target.closest(".delivery-autocomplete")) closeDeliveryItems(); });
+        byId("delivery-refresh").addEventListener("click", function () {
+            deliverySelectedItem = null;
+            byId("delivery-item-selection").textContent = "갱신된 후보에서 다시 선택해 주세요.";
+            searchDeliveryItems(true);
+        });
+        byId("delivery-form").addEventListener("submit", submitDelivery);
     }
 
     function renderRanking(targetId, entries, score) {
@@ -1310,6 +1640,7 @@ tbody tr:last-child td{border-bottom:0}
     });
 
     byId("chat-form").addEventListener("submit", submitChat);
+    initDeliveryForm();
     updateStats();
     setInterval(updateStats, 5000);
     // Chat polling is operator-only; updateChat() no-ops until the server says so.

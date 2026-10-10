@@ -16,7 +16,7 @@ func NewMailRepository(db *sqlx.DB) *MailRepository {
 
 const mailInsertQuery = `
 	INSERT INTO mail (sender_id, recipient_id, subject, body, attached_item, attached_item_amount, is_guild_invite, is_sys_message)
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	VALUES (NULLIF($1, 0), $2, $3, $4, $5, $6, $7, $8)
 `
 
 // SendMail inserts a new mail row.
@@ -30,7 +30,7 @@ func (r *MailRepository) GetListForCharacter(charID uint32) ([]Mail, error) {
 	rows, err := r.db.Queryx(`
 		SELECT
 			m.id,
-			m.sender_id,
+			COALESCE(m.sender_id, 0) AS sender_id,
 			m.recipient_id,
 			m.subject,
 			m.read,
@@ -42,9 +42,9 @@ func (r *MailRepository) GetListForCharacter(charID uint32) ([]Mail, error) {
 			m.is_sys_message,
 			m.deleted,
 			m.locked,
-			c.name as sender_name
+			COALESCE(c.name, '운영자') AS sender_name
 		FROM mail m
-			JOIN characters c ON c.id = m.sender_id
+			LEFT JOIN characters c ON c.id = m.sender_id
 		WHERE recipient_id = $1 AND m.deleted = false
 		ORDER BY m.created_at DESC, id DESC
 		LIMIT 32
@@ -70,7 +70,7 @@ func (r *MailRepository) GetByID(id int) (*Mail, error) {
 	row := r.db.QueryRowx(`
 		SELECT
 			m.id,
-			m.sender_id,
+			COALESCE(m.sender_id, 0) AS sender_id,
 			m.recipient_id,
 			m.subject,
 			m.read,
@@ -83,9 +83,9 @@ func (r *MailRepository) GetByID(id int) (*Mail, error) {
 			m.is_sys_message,
 			m.deleted,
 			m.locked,
-			c.name as sender_name
+			COALESCE(c.name, '운영자') AS sender_name
 		FROM mail m
-			JOIN characters c ON c.id = m.sender_id
+			LEFT JOIN characters c ON c.id = m.sender_id
 		WHERE m.id = $1
 		LIMIT 1
 	`, id)

@@ -29,6 +29,10 @@ type Mail struct {
 	SenderName           string    `db:"sender_name"`
 }
 
+// Both native clients exempt sender 1 from ordinary attachment trade limits
+// (mhfo-hd: 1155cf60, mhfo: 11536690). This is a wire ID, not a DB character.
+const systemMailWireSenderID uint32 = 1
+
 // SendMailNotification sends a new mail notification to a player.
 func SendMailNotification(s *Session, m *Mail, recipient *Session) {
 	bf := byteframe.NewByteFrame()
@@ -113,8 +117,14 @@ func handleMsgMhfListMail(s *Session, p mhfpacket.MHFPacket) {
 		s.mailAccIndex++
 
 		itemAttached := m.AttachedItemID != 0
+		operatorAttachment := m.SenderID == 0 && m.IsSystemMessage &&
+			itemAttached && m.AttachedItemAmount > 0 && !m.IsGuildInvite
 
-		msg.WriteUint32(m.SenderID)
+		senderID := m.SenderID
+		if senderID == 0 && m.IsSystemMessage {
+			senderID = systemMailWireSenderID
+		}
+		msg.WriteUint32(senderID)
 		msg.WriteUint32(uint32(m.CreatedAt.Unix()))
 
 		msg.WriteUint8(accIndex)
@@ -130,7 +140,11 @@ func handleMsgMhfListMail(s *Session, p mhfpacket.MHFPacket) {
 			flags |= 0x02
 		}
 
-		if m.IsSystemMessage {
+		// Native pickup uses the same 0x04-blocked action check as reply
+		// (mhfo: 105abdc5, mhfo-hd: 105c5ee5). Sending a system flag on a
+		// gift enables the menu but silently rejects pickup. Keep the DB
+		// system identity and wire sender 1, but send gifts as ordinary mail.
+		if m.IsSystemMessage && !operatorAttachment {
 			flags |= 0x04
 		}
 

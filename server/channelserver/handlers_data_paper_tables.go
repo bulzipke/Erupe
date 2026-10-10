@@ -74,9 +74,12 @@ var paperDataTower = []PaperData{
 var paperDataTowerScaling = []PaperData{
 	// updateClearTowerFloor
 	{1002, 100, 0, 0, 0, 0, 0},
-	// give_gem_func
-	{1006, 1, 10000, 10000, 0, 0, 0},
-	{1006, 2, 10000, 20000, 0, 0, 0},
+	// give_gem_func: Unk2 = start Gm, Unk3 = casual start Gm, Unk4 = the Tower entrance cat's Gm supplement.
+	// G10.1 sets the supplement flag at the cat's first talk when the hunter's Gm <= start Gm x 0.2 and pays Unk4 when the
+	// talk ends (FUN_10a3db30 / FUN_10a3cab0; wiki: 1000 Gm). ZZ removed the test (vorbis.dll D578 restores it) and the
+	// old 0 here would have paid nothing anyway.
+	{1006, 1, 10000, 10000, 1000, 0, 0},
+	{1006, 2, 10000, 20000, 1000, 0, 0},
 	{1009, 20, 0, 0, 0, 0, 0},
 	// ttcStageInitDRP
 	{1013, 1, 1, 1, 100, 200, 300},

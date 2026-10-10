@@ -241,3 +241,18 @@ func (r *LocalChannelRegistry) NotifyMailToCharID(charID uint32, sender *Session
 		SendMailNotification(sender, mail, session)
 	}
 }
+
+// NotifySystemMailToCharID uses the native mail notification without requiring a
+// player sender session. Offline recipients see the persisted mail on login.
+func (r *LocalChannelRegistry) NotifySystemMailToCharID(charID uint32) {
+	if recipient := r.FindSessionByCharID(charID); recipient != nil {
+		bf := byteframe.NewByteFrame()
+		notification := &binpacket.MsgBinMailNotify{SenderName: "운영자"}
+		if notification.Build(bf) == nil {
+			recipient.QueueSendMHFNonBlocking(&mhfpacket.MsgSysCastedBinary{
+				CharID: systemMailWireSenderID, BroadcastType: 0, MessageType: BinaryMessageTypeMailNotify,
+				RawDataPayload: bf.Data(),
+			})
+		}
+	}
+}

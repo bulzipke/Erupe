@@ -229,3 +229,25 @@ func TestRepoMailSystemMessage(t *testing.T) {
 		t.Error("Expected is_sys_message=true")
 	}
 }
+
+func TestRepoMailSystemSenderWithAttachment(t *testing.T) {
+	repo, db, _, recipientID := setupMailRepo(t)
+	if err := repo.SendMail(0, recipientID, "아이템 지급", "운영자 지급", 7, 99, false, true); err != nil {
+		t.Fatalf("SendMail with system sender: %v", err)
+	}
+	var nullSender bool
+	if err := db.Get(&nullSender, "SELECT sender_id IS NULL FROM mail WHERE recipient_id=$1", recipientID); err != nil || !nullSender {
+		t.Fatalf("system sender should be NULL: %v / %v", nullSender, err)
+	}
+	mails, err := repo.GetListForCharacter(recipientID)
+	if err != nil || len(mails) != 1 {
+		t.Fatalf("system mail list: %+v / %v", mails, err)
+	}
+	if mails[0].SenderID != 0 || mails[0].SenderName != "운영자" || !mails[0].IsSystemMessage {
+		t.Fatalf("system mail metadata: %+v", mails[0])
+	}
+	mail, err := repo.GetByID(mails[0].ID)
+	if err != nil || mail.SenderName != "운영자" || mail.AttachedItemID != 7 || mail.AttachedItemAmount != 99 {
+		t.Fatalf("system attachment detail: %+v / %v", mail, err)
+	}
+}
