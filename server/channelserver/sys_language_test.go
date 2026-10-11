@@ -129,6 +129,7 @@ func TestGetLangStringsFor(t *testing.T) {
 		{"fr", "Français", true, ""},
 		{"es", "Español", true, ""},
 		{"zh", "中文", true, ""},
+		{"ko", "한국어", true, ""},
 		{"", "English", true, ""},
 		{"xx", "English", true, ""},
 	}
@@ -146,7 +147,7 @@ func TestGetLangStringsFor(t *testing.T) {
 }
 
 func TestIsSupportedLang(t *testing.T) {
-	for _, code := range []string{"en", "jp", "fr", "es", "zh"} {
+	for _, code := range []string{"en", "jp", "fr", "es", "zh", "ko"} {
 		if !isSupportedLang(code) {
 			t.Errorf("isSupportedLang(%q) = false, want true", code)
 		}
@@ -188,6 +189,7 @@ func TestLangCompleteness(t *testing.T) {
 		"fr": langFrench(),
 		"es": langSpanish(),
 		"zh": langChinese(),
+		"ko": langKorean(),
 	}
 	for code, lang := range languages {
 		t.Run(code, func(t *testing.T) {

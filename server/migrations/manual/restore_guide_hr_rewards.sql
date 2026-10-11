@@ -2,7 +2,9 @@
 -- Complete Guide HR5/HR6 milestone packages, official Z notice revised 2016-04-21:
 -- https://web.archive.org/web/20190623231104id_/http://cog-members.mhf-z.jp/sp/news/7883.html
 -- Archived 2019-06-23. All IDs checked against the current Korean mhfdat.bin.
--- ASCII UI text: the existing distribution handler encodes it as Shift-JIS.
+-- Korean UI text (cp949): handlers_distitem.go sends name/description via stringsupport.UTF8ToSJIS (EUC-KR).
+-- If packages already exist under the old ASCII names, run localize_guide_hr_rewards_ko.sql FIRST
+-- (this script looks packages up by event_name and would otherwise create duplicates).
 -- min_hr is OLD stored HR, not the HR displayed by the ZZ client.
 -- Existing packages, acceptance history, inventory and currency are untouched.
 -- Reruns do nothing only if the complete metadata and item list still match.
@@ -15,8 +17,8 @@ CREATE TEMP TABLE guide_hr_expected_packages (
     event_name text PRIMARY KEY, description text NOT NULL, min_hr integer NOT NULL
 ) ON COMMIT DROP;
 INSERT INTO guide_hr_expected_packages VALUES
-    ('HR5 Breakthrough Reward', E'~C05Guild reward for reaching HR5.\nColude FY armor, weapon materials, jewels and tickets.\nOnce per character.', 100),
-    ('HR6 Breakthrough Reward', E'~C05Guild reward for reaching HR6 (HC Invitation).\nPorta Ticket Sakura x300.\nOnce per character. Do not sell beyond the Zenny limit.', 300);
+    ('ＨＲ５돌파의 포상품', E'~C05ＨＲ５ 달성 길드 포상품.\n코루데FY 방어구, 무기 소재, 장식품, 티켓.\n캐릭터당 1회.', 100),
+    ('ＨＲ６돌파의 포상품', E'~C05ＨＲ６ 달성 길드 포상품(HC 초대장).\n포르타티켓[연분홍] ×300.\n캐릭터당 1회. 제니 상한을 넘겨 팔지 마세요.', 300);
 
 CREATE TEMP TABLE guide_hr_expected_items (
     event_name text NOT NULL, ordinal integer NOT NULL, item_type integer NOT NULL,
@@ -25,34 +27,34 @@ CREATE TEMP TABLE guide_hr_expected_items (
     CHECK (item_id BETWEEN 1 AND 65535), CHECK (quantity BETWEEN 1 AND 65535)
 ) ON COMMIT DROP;
 INSERT INTO guide_hr_expected_items VALUES
-    ('HR5 Breakthrough Reward',  1, 7, 13190, 250), -- GP교환권 / GP交換券
-    ('HR5 Breakthrough Reward',  2, 7,  1472,  90), -- 포르타티켓[연분홍] / ポルタチケット桜
-    ('HR5 Breakthrough Reward',  3, 7,  8174,  15), -- 식혈룡 토벌증표 / 喰血竜討伐の証
-    ('HR5 Breakthrough Reward',  4, 7,  8175,  25), -- 휘계룡 토벌증표 / 輝界竜討伐の証
-    ('HR5 Breakthrough Reward',  5, 7,  8143,  36), -- 휘계룡 갑각 / 輝界竜の甲殻
-    ('HR5 Breakthrough Reward',  6, 7,  8146,   6), -- 휘계룡 꼬리 / 輝界竜の尻尾
-    ('HR5 Breakthrough Reward',  7, 7,  8142,  36), -- 휘계룡 비늘 / 輝界竜の鱗
-    ('HR5 Breakthrough Reward',  8, 7,  1426,  20), -- 고룡종 두꺼운비늘 / 古龍種の厚鱗
-    ('HR5 Breakthrough Reward',  9, 7,  1423,   4), -- 고룡종 억센 뿔 / 古龍種の剛角
-    ('HR5 Breakthrough Reward', 10, 7,  1411,   5), -- 고룡종 억센 발톱 / 古龍種の剛爪
-    ('HR5 Breakthrough Reward', 11, 7,  1420,   8), -- 고룡종 억센 날개 / 古龍種の剛翼
-    ('HR5 Breakthrough Reward', 12, 7,  2209,   6), -- 고룡종 구슬 / 古龍種の珠
-    ('HR5 Breakthrough Reward', 13, 7,  1410,   8), -- 고룡종 첨조 / 古龍種の尖爪
-    ('HR5 Breakthrough Reward', 14, 7,  1408,   6), -- 고룡종 특급 가죽 / 古龍種の特上皮
-    ('HR5 Breakthrough Reward', 15, 7,  1405,   8), -- 고룡종 특급 털 / 古龍種の特上毛
-    ('HR5 Breakthrough Reward', 16, 7,  1417,   4), -- 고룡종 매우진한피 / 古龍種の特濃血
-    ('HR5 Breakthrough Reward', 17, 1,  7382,   1), -- 코루데 FY 헬름
-    ('HR5 Breakthrough Reward', 18, 2,  6691,   1), -- 코루데 FY 메일
-    ('HR5 Breakthrough Reward', 19, 3,  6684,   1), -- 코루데 FY 암
-    ('HR5 Breakthrough Reward', 20, 4,  6838,   1), -- 코루데 FY 폴드
-    ('HR5 Breakthrough Reward', 21, 0,  6684,   1), -- 코루데 FY 그리브
-    ('HR5 Breakthrough Reward', 22, 1,  7389,   1), -- 코루데 FY 캡
-    ('HR5 Breakthrough Reward', 23, 2,  6698,   1), -- 코루데 FY 레지스트
-    ('HR5 Breakthrough Reward', 24, 3,  6691,   1), -- 코루데 FY 가드
-    ('HR5 Breakthrough Reward', 25, 4,  6845,   1), -- 코루데 FY 코트
-    ('HR5 Breakthrough Reward', 26, 0,  6691,   1), -- 코루데 FY 레깅스
-    ('HR5 Breakthrough Reward', 27, 7,   910,   8), -- 강력주 / 剛力珠
-    ('HR6 Breakthrough Reward',  1, 7,  1472, 300); -- 포르타티켓[연분홍]
+    ('ＨＲ５돌파의 포상품',  1, 7, 13190, 250), -- GP교환권 / GP交換券
+    ('ＨＲ５돌파의 포상품',  2, 7,  1472,  90), -- 포르타티켓[연분홍] / ポルタチケット桜
+    ('ＨＲ５돌파의 포상품',  3, 7,  8174,  15), -- 식혈룡 토벌증표 / 喰血竜討伐の証
+    ('ＨＲ５돌파의 포상품',  4, 7,  8175,  25), -- 휘계룡 토벌증표 / 輝界竜討伐の証
+    ('ＨＲ５돌파의 포상품',  5, 7,  8143,  36), -- 휘계룡 갑각 / 輝界竜の甲殻
+    ('ＨＲ５돌파의 포상품',  6, 7,  8146,   6), -- 휘계룡 꼬리 / 輝界竜の尻尾
+    ('ＨＲ５돌파의 포상품',  7, 7,  8142,  36), -- 휘계룡 비늘 / 輝界竜の鱗
+    ('ＨＲ５돌파의 포상품',  8, 7,  1426,  20), -- 고룡종 두꺼운비늘 / 古龍種の厚鱗
+    ('ＨＲ５돌파의 포상품',  9, 7,  1423,   4), -- 고룡종 억센 뿔 / 古龍種の剛角
+    ('ＨＲ５돌파의 포상품', 10, 7,  1411,   5), -- 고룡종 억센 발톱 / 古龍種の剛爪
+    ('ＨＲ５돌파의 포상품', 11, 7,  1420,   8), -- 고룡종 억센 날개 / 古龍種の剛翼
+    ('ＨＲ５돌파의 포상품', 12, 7,  2209,   6), -- 고룡종 구슬 / 古龍種の珠
+    ('ＨＲ５돌파의 포상품', 13, 7,  1410,   8), -- 고룡종 첨조 / 古龍種の尖爪
+    ('ＨＲ５돌파의 포상품', 14, 7,  1408,   6), -- 고룡종 특급 가죽 / 古龍種の特上皮
+    ('ＨＲ５돌파의 포상품', 15, 7,  1405,   8), -- 고룡종 특급 털 / 古龍種の特上毛
+    ('ＨＲ５돌파의 포상품', 16, 7,  1417,   4), -- 고룡종 매우진한피 / 古龍種の特濃血
+    ('ＨＲ５돌파의 포상품', 17, 1,  7382,   1), -- 코루데FY헬름
+    ('ＨＲ５돌파의 포상품', 18, 2,  6691,   1), -- 코루데FY메일
+    ('ＨＲ５돌파의 포상품', 19, 3,  6684,   1), -- 코루데FY암
+    ('ＨＲ５돌파의 포상품', 20, 4,  6838,   1), -- 코루데FY폴드
+    ('ＨＲ５돌파의 포상품', 21, 0,  6684,   1), -- 코루데FY그리브
+    ('ＨＲ５돌파의 포상품', 22, 1,  7389,   1), -- 코루데FY캡
+    ('ＨＲ５돌파의 포상품', 23, 2,  6698,   1), -- 코루데FY레지스트
+    ('ＨＲ５돌파의 포상품', 24, 3,  6691,   1), -- 코루데FY가드
+    ('ＨＲ５돌파의 포상품', 25, 4,  6845,   1), -- 코루데FY코트
+    ('ＨＲ５돌파의 포상품', 26, 0,  6691,   1), -- 코루데FY레깅스
+    ('ＨＲ５돌파의 포상품', 27, 7,   910,   8), -- 강력주 / 剛力珠
+    ('ＨＲ６돌파의 포상품',  1, 7,  1472, 300); -- 포르타티켓[연분홍]
 
 DO $$
 DECLARE p record; package_id integer; package_count integer;

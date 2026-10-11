@@ -133,7 +133,7 @@ func TestDivaNoticeTextsFitNativePanel(t *testing.T) {
 
 func TestDivaKoreanNoticesUsePlayerGuidance(t *testing.T) {
 	texts := divaNoticeTexts("ko", true, 0)
-	for _, phrase := range []string{"3시간마다 바뀝니다", "2배입니다", "기주를 선택하고 사냥하면", "개인 달성 보수와 매일 보수"} {
+	for _, phrase := range []string{"3시간마다 바뀝니다", "2배입니다", "기주를 선택하고 수렵하면", "개인 달성 보수와 매일 보수"} {
 		if !strings.Contains(texts[0], phrase) {
 			t.Fatalf("missing player-facing explanation %q", phrase)
 		}
@@ -152,7 +152,7 @@ func TestDivaKoreanNoticesUsePlayerGuidance(t *testing.T) {
 
 func TestDivaNoticeMelodyDeadlineDiffersFromMaterialRewards(t *testing.T) {
 	ko := divaNoticeTexts("ko", false, 0)[2]
-	for _, phrase := range []string{"1에리어", "선율은 가영의 장 종료 전까지", "그 외 요격 보수는 다음 요격전"} {
+	for _, phrase := range []string{"지역을 1곳 획득하면", "가영의 곡조는 가영의 장 종료 전까지", "그 외 요격전 보수는 다음 요격전"} {
 		if !strings.Contains(ko, phrase) {
 			t.Fatalf("missing special-hall/melody guidance %q", phrase)
 		}

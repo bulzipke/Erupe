@@ -49,7 +49,7 @@ func TestSettleCafeBonusGrantsReachedBonuses(t *testing.T) {
 }
 
 func TestSettleCafeBonusCapNoticeOncePerDay(t *testing.T) {
-	const capNotice = "PC방 포인트가 상한치입니다. 더 이상 획득할 수 없습니다."
+	const capNotice = "PC방 포인트가 상한에 도달하여 더 이상 획득할 수 없습니다."
 	now := time.Now()
 	s, _, _ := newCafeBonusSession(now, 3600, map[uint32]CafeBonusClaim{
 		1: {Claimed: true, ItemType: 17, Granted: 40},

@@ -121,7 +121,7 @@ func (s *Session) settleCafeBonus(now time.Time) []string {
 	} else if s.cafeCapNoticeDay != day {
 		// Once per day: a capped bonus is retried every check.
 		s.cafeCapNoticeDay = day
-		messages = append(messages, "PC방 포인트가 상한치입니다. 더 이상 획득할 수 없습니다.")
+		messages = append(messages, "PC방 포인트가 상한에 도달하여 더 이상 획득할 수 없습니다.")
 	}
 	return messages
 }

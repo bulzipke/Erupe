@@ -33,7 +33,7 @@ func TestQuestTitleForRecordPrefersManualKoreanOverride(t *testing.T) {
 	server.erupeConfig.BinPath = t.TempDir()
 	session := createMockSession(1, server)
 
-	if got := questTitleForRecord(session, 53187); got != "≪이벤트 퀘스트≫ 사냥 지원! 출발 전 사전 준비" {
+	if got := questTitleForRecord(session, 53187); got != "≪이벤트 퀘스트≫ 수렵 지원! 출발 전 사전 준비" {
 		t.Errorf("quest title = %q", got)
 	}
 }

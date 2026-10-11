@@ -10,7 +10,7 @@ func TestKoreanName(t *testing.T) {
 		{6, "얀쿡크"},
 		{27, "도스람포스"},
 		{60, "녹슨 크샬다오라"},
-		{100, "안노운"},
+		{100, "ＵＮＫＮＯＷＮ"},
 	}
 	for _, test := range tests {
 		if got := KoreanName(test.id); got != test.want {

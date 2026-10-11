@@ -287,16 +287,16 @@ func dashboardLocationForStage(stageID string) string {
 		label  string
 	}{
 		{prefix: "sl1Ns200", label: "메제포르타"},
-		{prefix: "sl1Ns211", label: "라스타 주점"},
-		{prefix: "sl1Ns260", label: "파로네 캐러밴"},
-		{prefix: "sl1Ns262", label: "캐러밴 객실 1층"},
-		{prefix: "sl1Ns263", label: "캐러밴 객실 2층"},
-		{prefix: "sl2Ns379", label: "기도의 샘"},
+		{prefix: "sl1Ns211", label: "라스터 주점"},
+		{prefix: "sl1Ns260", label: "파로네=캐러밴"},
+		{prefix: "sl1Ns262", label: "영빈관"},
+		{prefix: "sl1Ns263", label: "영빈관 2층"},
+		{prefix: "sl2Ns379", label: "기수의 샘"},
 		{prefix: "sl1Ns462", label: "메제페스"},
-		{prefix: "sl2Ls210", label: "공개 주점"},
-		{prefix: "sl2Ls286", label: "수렵 기술 대회"},
-		{prefix: "sl2Ls463", label: "토코토코 파트냐"},
-		{prefix: "sl2Ls465", label: "볼파쿤"},
+		{prefix: "sl2Ls210", label: "대중주점"},
+		{prefix: "sl2Ls286", label: "수렵기 승단 시합장"},
+		{prefix: "sl2Ls463", label: "아장아장 파트냥"},
+		{prefix: "sl2Ls465", label: "다같이 볼뻐끔"},
 	}
 	for _, location := range fixedLocations {
 		if strings.HasPrefix(stageID, location.prefix) {
@@ -309,9 +309,9 @@ func dashboardLocationForStage(stageID string) string {
 		case "Qs":
 			return "퀘스트 중"
 		case "Gs":
-			return "수렵단"
+			return "수렵단실"
 		case "Ms":
-			return "마이하우스"
+			return "마이 하우스"
 		case "Ls":
 			return "로비"
 		case "Ns":
@@ -1004,13 +1004,13 @@ func dashboardMonsterDisplayNameWithConquestLevel(monsterID int, variantKind str
 	// definitive even when the quest-wide flags look normal or hardcore.
 	switch monsterID {
 	case 163:
-		return "극도로 달리는 나르가쿠르가"
+		return "극한의 질주, 나르가쿠르가"
 	case 167:
-		return "극도로 교만하는 두레무디라"
+		return "극에 달해 오만해진 두레무디라"
 	case 172:
-		return "극도로 엄습하는 보가바도름"
+		return "극한의 습격, 보가바도름"
 	case 174:
-		return "극도로 빛나는 제르레우스"
+		return "극한의 광채, 제르레우스"
 	}
 
 	base := mhfmon.KoreanName(monsterID)
@@ -1021,19 +1021,19 @@ func dashboardMonsterDisplayNameWithConquestLevel(monsterID int, variantKind str
 	specialName := ""
 	switch variantKind {
 	case "phantom_red_rajang":
-		specialName = "붉은 라잔"
+		specialName = "환상의 라잔"
 	case "phantom_doragyurosu":
 		specialName = "환상의 드라규로스"
 	case "violent_raviente":
 		specialName = "라비엔테 광폭기"
 	case "extreme_zinogre":
-		specialName = "극도로 울부짖는 진오우거"
+		specialName = "극한으로 포효하는 진오우거"
 	case "extreme_guanzorumu":
-		specialName = "극도로 통솔하는 관조룸"
+		specialName = "극한의 통솔, 관조룸"
 	case "extreme_deviljho":
-		specialName = "극도로 먹어치우는 이블조"
+		specialName = "극한으로 먹어치우는 이블조"
 	case "extreme_elzelion":
-		specialName = "극도로 태워 얼리는 엘제리온"
+		specialName = "극한의 작열과 빙결, 엘제리온"
 	}
 	if specialName != "" {
 		return specialName

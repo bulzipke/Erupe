@@ -439,7 +439,7 @@ tbody tr:last-child td{border-bottom:0}
                 <ol class="ranking-list" id="monster-ranking"></ol>
             </article>
             <article class="ranking-block">
-                <h3 class="ranking-heading">플레이 타임</h3>
+                <h3 class="ranking-heading">플레이 시간</h3>
                 <ol class="ranking-list" id="playtime-ranking"></ol>
             </article>
             <article class="ranking-block">
@@ -617,7 +617,7 @@ tbody tr:last-child td{border-bottom:0}
 	}
 
     function channelLabel(name, land) {
-        return land > 1 ? name + " · " + land + "채널" : name;
+        return land > 1 ? name + " · 랜드" + land : name;
     }
 
     // Quest runs are capped at 50 minutes, so mm:ss is sufficient here.
@@ -699,7 +699,7 @@ tbody tr:last-child td{border-bottom:0}
         var table = document.createElement("table");
         var thead = document.createElement("thead");
         var headRow = document.createElement("tr");
-        ["헌터", "랭크", "무기", "접속 채널 / 상태"].forEach(function (label) {
+        ["헌터", "랭크", "무기", "접속 월드 / 상태"].forEach(function (label) {
             headRow.appendChild(text("th", "", label));
         });
         thead.appendChild(headRow);

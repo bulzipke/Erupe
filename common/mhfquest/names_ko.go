@@ -6,8 +6,8 @@ package mhfquest
 // embedded in the quest binary. Add entries here when a translated title is
 // preferred over the Japanese title stored in bin/quests.
 var KoreanNames = map[uint16]string{
-	23618: "≪천이★1 퀘스트≫ 극익을 갖춘 극룡",
-	53187: "≪이벤트 퀘스트≫ 사냥 지원! 출발 전 사전 준비",
+	23618: "≪천이★１퀘스트≫ 극익을 갖춘 극룡",
+	53187: "≪이벤트 퀘스트≫ 수렵 지원! 출발 전 사전 준비",
 }
 
 // KoreanName returns a manually localized quest title.

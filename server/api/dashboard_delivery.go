@@ -321,7 +321,7 @@ func (s *APIServer) deliverDashboardItem(ctx context.Context, request dashboardD
 		ItemName: request.ItemName, Quantity: request.Quantity, MailIDs: make(pq.Int64Array, 0, needed), MailCount: needed}
 	for remaining := request.Quantity; remaining > 0; {
 		amount := min(remaining, dashboardDeliveryStackSize)
-		body := fmt.Sprintf("운영자가 지급한 아이템입니다.\n%s\n아이템 ID: %d (0x%04X)\n수량: %d개\n첨부 아이템을 수령해 주세요.", request.ItemName, request.ItemID, request.ItemID, amount)
+		body := fmt.Sprintf("운영자가 지급한 아이템입니다.\n%s\n아이템 ID: %d (0x%04X)\n수량: %d개\n첨부 아이템을 받아 주세요.", request.ItemName, request.ItemID, request.ItemID, amount)
 		var mailID int64
 		if err = tx.QueryRowContext(ctx, `INSERT INTO mail
 			(sender_id,recipient_id,subject,body,attached_item,attached_item_amount,is_guild_invite,is_sys_message)

@@ -4,6 +4,7 @@ import (
 	"erupe-ce/common/byteframe"
 	"erupe-ce/common/mhfcourse"
 	ps "erupe-ce/common/pascalstring"
+	"erupe-ce/common/stringsupport"
 	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
 	"fmt"
@@ -114,7 +115,7 @@ func handleMsgMhfGetCafeDuration(s *Session, p mhfpacket.MHFPacket) {
 	bf.WriteUint32(uint32(cafeTime))
 	if s.server.erupeConfig.RealClientMode >= cfg.ZZ {
 		bf.WriteUint16(0)
-		ps.Uint16(bf, fmt.Sprintf(s.I18n().cafe.reset, int(cafeReset.Month()), cafeReset.Day()), true)
+		ps.Uint16(bf, string(stringsupport.UTF8ToSJIS(fmt.Sprintf(s.I18n().cafe.reset, int(cafeReset.Month()), cafeReset.Day()))), false)
 	}
 	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
 }

@@ -214,7 +214,7 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 	body := rec.Body.String()
 	for _, marker := range []string{
 		"접속 중인 헌터",
-		`["헌터", "랭크", "무기", "접속 채널 / 상태"]`,
+		`["헌터", "랭크", "무기", "접속 월드 / 상태"]`,
 		"online-weapon-icon",
 		"buildOnlineChannelCell",
 		`location === "퀘스트 중"`,
@@ -240,7 +240,7 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 		"참가 인원",
 		"전체 시간",
 		"완료 일시",
-		"플레이 타임",
+		"플레이 시간",
 		"가장 많이 사용한 무기",
 		"id=\"weapon-most-ranking\"",
 		"monster-time-weapon-icon",
@@ -329,7 +329,7 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 		t.Errorf("Dashboard operator sections are not ordered online, chat")
 	}
 	monsterRankIndex := strings.Index(body, "대형 몬스터 토벌")
-	playtimeRankIndex := strings.Index(body, "플레이 타임")
+	playtimeRankIndex := strings.Index(body, "플레이 시간")
 	guildRankIndex := strings.Index(body, "수렵단 RP")
 	if monsterRankIndex == -1 || playtimeRankIndex == -1 || guildRankIndex == -1 ||
 		!(monsterRankIndex < playtimeRankIndex && playtimeRankIndex < guildRankIndex) {
@@ -450,13 +450,13 @@ func TestDashboardMonsterDisplayNameSeparatesForms(t *testing.T) {
 	if got := dashboardMonsterDisplayName(93, "violent_raviente"); got != "라비엔테 광폭기" {
 		t.Fatalf("Violent Raviente display name = %q", got)
 	}
-	if got := dashboardMonsterDisplayName(146, "extreme_zinogre"); got != "극도로 울부짖는 진오우거" {
+	if got := dashboardMonsterDisplayName(146, "extreme_zinogre"); got != "극한으로 포효하는 진오우거" {
 		t.Fatalf("Extreme Zinogre display name = %q", got)
 	}
-	if got := dashboardMonsterDisplayName(167, "hardcore"); got != "극도로 교만하는 두레무디라" {
+	if got := dashboardMonsterDisplayName(167, "hardcore"); got != "극에 달해 오만해진 두레무디라" {
 		t.Fatalf("Raw-ID extreme Duremudira display name = %q", got)
 	}
-	if got := dashboardMonsterDisplayName(172, "normal"); got != "극도로 엄습하는 보가바도름" {
+	if got := dashboardMonsterDisplayName(172, "normal"); got != "극한의 습격, 보가바도름" {
 		t.Fatalf("Raw-ID extreme Bogabadorumu display name = %q", got)
 	}
 	for _, tt := range []struct {
@@ -469,8 +469,8 @@ func TestDashboardMonsterDisplayNameSeparatesForms(t *testing.T) {
 		{name: "Senyu", monsterID: 7, rankKind: "hr", variantKind: "senyu", want: "천유종 라오샨룽"},
 		{name: "Zenith", monsterID: 15, rankKind: "g", variantKind: "zenith", want: "천이종 푸루푸루"},
 		{name: "Conquest", monsterID: 107, rankKind: "hr", variantKind: "conquest", want: "극정(레벨 미확정) 디스피로아"},
-		{name: "Shiten", monsterID: 100, rankKind: "hr", variantKind: "shiten", want: "지천 안노운"},
-		{name: "Upper Shiten", monsterID: 100, rankKind: "hr", variantKind: "upper_shiten", want: "상급 지천 안노운"},
+		{name: "Shiten", monsterID: 100, rankKind: "hr", variantKind: "shiten", want: "지천 ＵＮＫＮＯＷＮ"},
+		{name: "Upper Shiten", monsterID: 100, rankKind: "hr", variantKind: "upper_shiten", want: "상급 지천 ＵＮＫＮＯＷＮ"},
 		{name: "Challenge", monsterID: 53, rankKind: "hr", variantKind: "challenge", want: "초난관 라잔"},
 		{name: "G normal", monsterID: 6, rankKind: "g", variantKind: "normal", want: "G급 얀쿡크"},
 		{name: "G hardcore", monsterID: 6, rankKind: "g", variantKind: "hardcore", want: "G급 특이개체 얀쿡크"},
@@ -823,14 +823,14 @@ func TestDashboardLocationForStage(t *testing.T) {
 	}{
 		{stageID: "", want: "접속 중"},
 		{stageID: "sl1Ns200p0a0u0", want: "메제포르타"},
-		{stageID: "sl1Ns211p0a0u0", want: "라스타 주점"},
-		{stageID: "sl1Ns260p0a0u0", want: "파로네 캐러밴"},
-		{stageID: "sl2Ns379p0a0u0", want: "기도의 샘"},
+		{stageID: "sl1Ns211p0a0u0", want: "라스터 주점"},
+		{stageID: "sl1Ns260p0a0u0", want: "파로네=캐러밴"},
+		{stageID: "sl2Ns379p0a0u0", want: "기수의 샘"},
 		{stageID: "sl1Ns462p0a0u0", want: "메제페스"},
-		{stageID: "sl2Ls210p0a0u0", want: "공개 주점"},
+		{stageID: "sl2Ls210p0a0u0", want: "대중주점"},
 		{stageID: "sl2Qs999p0a0u42", want: "퀘스트 중"},
-		{stageID: "sl2Gs999p0a0u42", want: "수렵단"},
-		{stageID: "sl2Ms999p0a0u42", want: "마이하우스"},
+		{stageID: "sl2Gs999p0a0u42", want: "수렵단실"},
+		{stageID: "sl2Ms999p0a0u42", want: "마이 하우스"},
 		{stageID: "sl2Ls999p0a0u42", want: "로비"},
 		{stageID: "sl2Ns999p0a0u42", want: "로비/시설"},
 		{stageID: "invalid", want: "기타 장소"},

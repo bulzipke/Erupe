@@ -13,11 +13,11 @@ CREATE TEMP TABLE guide_hr_undo_expected (
     description text NOT NULL, item_checksum text NOT NULL
 ) ON COMMIT DROP;
 INSERT INTO guide_hr_undo_expected VALUES
-    ('HR5 Breakthrough Reward', 100,
-     E'~C05Guild reward for reaching HR5.\nColude FY armor, weapon materials, jewels and tickets.\nOnce per character.',
+    ('ＨＲ５돌파의 포상품', 100,
+     E'~C05ＨＲ５ 달성 길드 포상품.\n코루데FY 방어구, 무기 소재, 장식품, 티켓.\n캐릭터당 1회.',
      '74ddd306b534c6d20ae03d27e3f5ca6f'),
-    ('HR6 Breakthrough Reward', 300,
-     E'~C05Guild reward for reaching HR6 (HC Invitation).\nPorta Ticket Sakura x300.\nOnce per character. Do not sell beyond the Zenny limit.',
+    ('ＨＲ６돌파의 포상품', 300,
+     E'~C05ＨＲ６ 달성 길드 포상품(HC 초대장).\n포르타티켓[연분홍] ×300.\n캐릭터당 1회. 제니 상한을 넘겨 팔지 마세요.',
      '60ab57c594d298b155aeb62aaae674b1');
 
 DO $$

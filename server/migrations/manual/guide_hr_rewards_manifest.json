@@ -34,11 +34,11 @@
     "gr_restriction": null,
     "required_rights": 0,
     "selection": false,
-    "notes": "기존 랭크·수령 UI 판정은 유지한다. 캐릭터 인벤토리나 기존 수령 이력을 직접 수정하지 않는다. 전송 인코딩에 맞춰 목록 이름·설명은 ASCII로 등록한다."
+    "notes": "기존 랭크·수령 UI 판정은 유지한다. 캐릭터 인벤토리나 기존 수령 이력을 직접 수정하지 않는다. 목록 이름·설명은 클라 공지(『ＨＲ５돌파의 포상품』)와 같은 한국어로 등록한다(handlers_distitem.go 가 cp949 로 보낸다). 옛 ASCII 이름으로 이미 등록된 DB 는 localize_guide_hr_rewards_ko.sql 로 바꾼다."
   },
   "packages": [
     {
-      "name": "HR5 Breakthrough Reward",
+      "name": "ＨＲ５돌파의 포상품",
       "official_name": "HR5突破の褒賞品",
       "display_hr": 5,
       "stored_min_hr": 100,
@@ -74,7 +74,7 @@
       ]
     },
     {
-      "name": "HR6 Breakthrough Reward",
+      "name": "ＨＲ６돌파의 포상품",
       "official_notice_menu_name": "HCへの招待状",
       "official_notice_heading": "HR6突破の褒賞品について",
       "display_hr": 6,
@@ -85,8 +85,8 @@
   ],
   "not_part_of_these_packages": [
     {"name": "HR5·HR6·HR7 돌파 특전 퀘스트", "quest_ids": [22027, 22028, 22029], "note": "초절의 증표 등은 원본 퀘스트의 보수다. 가이드 배포에 중복 추가하지 않는다."},
-    {"name": "HR2·HR4·HR5용 특전 무구 강화 소재", "note": "2017-01-25부터 별도로 도입된 강화 캠페인이다. 구성·수량 미검증 항목을 이번 상시 돌파 보상에 섞지 않는다.", "source": "https://dengekionline.com/elem/000/001/456/1456686/"},
+    {"name": "HR2·HR4·HR5용 특전 장비 강화 소재", "note": "2017-01-25부터 별도로 도입된 강화 캠페인이다. 구성·수량 미검증 항목을 이번 상시 돌파 보상에 섞지 않는다.", "source": "https://dengekionline.com/elem/000/001/456/1456686/"},
     {"name": "헌터 내비", "note": "클라이언트의 별도 목표·보상 시스템이다."},
-    {"name": "옛 SP무기·HC티켓·강종티켓 지급", "note": "최신 공식 공지에 없는 구버전 항목이다. GP교환권 대신 강종티켓을 지급하거나 HC티켓을 함께 지급하지 않는다."}
+    {"name": "옛 SP무기·HC티켓·강종 티켓 지급", "note": "최신 공식 공지에 없는 구버전 항목이다. GP교환권 대신 강종 티켓을 지급하거나 HC티켓을 함께 지급하지 않는다."}
   ]
 }
