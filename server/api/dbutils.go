@@ -16,8 +16,8 @@ func (s *APIServer) createNewUser(ctx context.Context, username string, password
 	if err != nil {
 		return 0, 0, err
 	}
-	// No returning-player status for a new account: it is earned by being away for
-	// 90 days (see getReturnExpiry), not by registering. The zero time stores NULL.
+	// Registration alone does not start the newcomer window. Migration 0080
+	// grants it on the first character insert; 90-day absence remains separate.
 	return s.userRepo.Register(ctx, username, string(passwordHash), time.Time{})
 }
 

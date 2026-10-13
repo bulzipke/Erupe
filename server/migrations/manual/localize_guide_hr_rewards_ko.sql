@@ -17,7 +17,7 @@ INSERT INTO guide_hr_rename VALUES
     ('HR5 Breakthrough Reward', E'~C05Guild reward for reaching HR5.\nColude FY armor, weapon materials, jewels and tickets.\nOnce per character.',
      'ＨＲ５돌파의 포상품', E'~C05ＨＲ５ 달성 길드 포상품.\n코루데FY 방어구, 무기 소재, 장식품, 티켓.\n캐릭터당 1회.'),
     ('HR6 Breakthrough Reward', E'~C05Guild reward for reaching HR6 (HC Invitation).\nPorta Ticket Sakura x300.\nOnce per character. Do not sell beyond the Zenny limit.',
-     'ＨＲ６돌파의 포상품', E'~C05ＨＲ６ 달성 길드 포상품(HC 초대장).\n포르타티켓[연분홍] ×300.\n캐릭터당 1회. 제니 상한을 넘겨 팔지 마세요.');
+     'ＨＲ６돌파의 포상품', E'~C05ＨＲ６ 달성 길드 포상품(HC 초대장).\n포르타 티켓[벚꽃] ×300.\n캐릭터당 1회. 제니 상한을 넘겨 팔지 마세요.');
 
 DO $$
 DECLARE p record; n_old integer; n_new integer;

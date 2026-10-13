@@ -18,7 +18,7 @@ CREATE TEMP TABLE guide_hr_expected_packages (
 ) ON COMMIT DROP;
 INSERT INTO guide_hr_expected_packages VALUES
     ('ＨＲ５돌파의 포상품', E'~C05ＨＲ５ 달성 길드 포상품.\n코루데FY 방어구, 무기 소재, 장식품, 티켓.\n캐릭터당 1회.', 100),
-    ('ＨＲ６돌파의 포상품', E'~C05ＨＲ６ 달성 길드 포상품(HC 초대장).\n포르타티켓[연분홍] ×300.\n캐릭터당 1회. 제니 상한을 넘겨 팔지 마세요.', 300);
+    ('ＨＲ６돌파의 포상품', E'~C05ＨＲ６ 달성 길드 포상품(HC 초대장).\n포르타 티켓[벚꽃] ×300.\n캐릭터당 1회. 제니 상한을 넘겨 팔지 마세요.', 300);
 
 CREATE TEMP TABLE guide_hr_expected_items (
     event_name text NOT NULL, ordinal integer NOT NULL, item_type integer NOT NULL,
@@ -28,7 +28,7 @@ CREATE TEMP TABLE guide_hr_expected_items (
 ) ON COMMIT DROP;
 INSERT INTO guide_hr_expected_items VALUES
     ('ＨＲ５돌파의 포상품',  1, 7, 13190, 250), -- GP교환권 / GP交換券
-    ('ＨＲ５돌파의 포상품',  2, 7,  1472,  90), -- 포르타티켓[연분홍] / ポルタチケット桜
+    ('ＨＲ５돌파의 포상품',  2, 7,  1472,  90), -- 포르타 티켓[벚꽃] / ポルタチケット桜
     ('ＨＲ５돌파의 포상품',  3, 7,  8174,  15), -- 식혈룡 토벌증표 / 喰血竜討伐の証
     ('ＨＲ５돌파의 포상품',  4, 7,  8175,  25), -- 휘계룡 토벌증표 / 輝界竜討伐の証
     ('ＨＲ５돌파의 포상품',  5, 7,  8143,  36), -- 휘계룡 갑각 / 輝界竜の甲殻
@@ -54,7 +54,7 @@ INSERT INTO guide_hr_expected_items VALUES
     ('ＨＲ５돌파의 포상품', 25, 4,  6845,   1), -- 코루데FY코트
     ('ＨＲ５돌파의 포상품', 26, 0,  6691,   1), -- 코루데FY레깅스
     ('ＨＲ５돌파의 포상품', 27, 7,   910,   8), -- 강력주 / 剛力珠
-    ('ＨＲ６돌파의 포상품',  1, 7,  1472, 300); -- 포르타티켓[연분홍]
+    ('ＨＲ６돌파의 포상품',  1, 7,  1472, 300); -- 포르타 티켓[벚꽃]
 
 DO $$
 DECLARE p record; package_id integer; package_count integer;

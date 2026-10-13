@@ -25,8 +25,8 @@ func (r *SignUserRepository) GetCredentials(username string) (uint32, string, er
 }
 
 // Register creates an account. A zero returnExpires stores NULL, which is what a
-// brand-new account gets: returning-player status is earned by being away, not by
-// signing up. Passing a real time is still supported for admin-granted status.
+// brand-new account gets until its first character starts the 30-day window
+// (migration 0080). A real time is still supported for admin-granted status.
 func (r *SignUserRepository) Register(username, passwordHash string, returnExpires time.Time) (uint32, error) {
 	var expiry any
 	if !returnExpires.IsZero() {

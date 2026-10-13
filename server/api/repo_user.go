@@ -19,8 +19,8 @@ func NewAPIUserRepository(db *sqlx.DB) *APIUserRepository {
 }
 
 // Register creates an account. A zero returnExpires stores NULL, which is what a
-// brand-new account gets: returning-player status is earned by being away, not by
-// signing up. Passing a real time is still supported for admin-granted status.
+// brand-new account gets until its first character starts the 30-day window
+// (migration 0080). A real time is still supported for admin-granted status.
 func (r *APIUserRepository) Register(ctx context.Context, username, passwordHash string, returnExpires time.Time) (uint32, uint32, error) {
 	var (
 		id     uint32

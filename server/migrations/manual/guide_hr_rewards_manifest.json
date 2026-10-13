@@ -45,7 +45,7 @@
       "item_entries": 27,
       "items": [
         {"item_type": 7, "item_id": 13190, "quantity": 250, "name": "GP교환권"},
-        {"item_type": 7, "item_id": 1472, "quantity": 90, "name": "포르타티켓[연분홍]"},
+        {"item_type": 7, "item_id": 1472, "quantity": 90, "name": "포르타 티켓[벚꽃]"},
         {"item_type": 7, "item_id": 8174, "quantity": 15, "name": "식혈룡 토벌증표"},
         {"item_type": 7, "item_id": 8175, "quantity": 25, "name": "휘계룡 토벌증표"},
         {"item_type": 7, "item_id": 8143, "quantity": 36, "name": "휘계룡 갑각"},
@@ -80,7 +80,7 @@
       "display_hr": 6,
       "stored_min_hr": 300,
       "item_entries": 1,
-      "items": [{"item_type": 7, "item_id": 1472, "quantity": 300, "name": "포르타티켓[연분홍]"}]
+      "items": [{"item_type": 7, "item_id": 1472, "quantity": 300, "name": "포르타 티켓[벚꽃]"}]
     }
   ],
   "not_part_of_these_packages": [

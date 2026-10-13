@@ -466,6 +466,7 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 	quests, err := s.server.eventRepo.GetEventQuests()
 	if err == nil {
 		quests = s.appendBuiltInCollabQuests(quests)
+		quests = s.withReturnWorldQuests(quests)
 		currentTime := time.Now()
 		var updates []EventQuestUpdate
 		var towerData *TowerData // per-character tower row, read once per enumeration

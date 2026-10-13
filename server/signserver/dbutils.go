@@ -35,8 +35,8 @@ func (s *Server) registerDBAccount(username string, password string) (uint32, er
 		return 0, err
 	}
 
-	// No returning-player status for a new account: it is earned by being away for
-	// 90 days (see getReturnExpiry), not by registering. The zero time stores NULL.
+	// Registration alone does not start the newcomer window. Migration 0080
+	// grants it on the first character insert; 90-day absence remains separate.
 	uid, err := s.userRepo.Register(username, string(passwordHash), time.Time{})
 	if err != nil {
 		return 0, err
