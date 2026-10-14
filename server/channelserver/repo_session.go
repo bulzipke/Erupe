@@ -44,8 +44,22 @@ func (r *SessionRepository) ValidateLoginToken(token string, sessionID uint32, c
 
 // BindSession associates a sign session token with a server and character.
 func (r *SessionRepository) BindSession(token string, serverID uint16, charID uint32) error {
-	_, err := r.db.Exec("UPDATE sign_sessions SET server_id=$1, char_id=$2, last_used_at=NOW() WHERE token=$3", serverID, charID, token)
-	return err
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// Dashboard currency grants hold this account row through their offline
+	// check and commit. Serialize login publication with that same check.
+	var userID uint32
+	if err = tx.QueryRow(`SELECT u.id FROM users u JOIN sign_sessions ss ON ss.user_id=u.id
+		WHERE ss.token=$1 FOR UPDATE OF u`, token).Scan(&userID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec("UPDATE sign_sessions SET server_id=$1, char_id=$2, last_used_at=NOW() WHERE token=$3", serverID, charID, token); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ClearSession removes the server and character association from a sign session.

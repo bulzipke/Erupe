@@ -28,7 +28,12 @@ func newDeliveryPostgresServer(t *testing.T) *APIServer {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	t.Cleanup(func() { db.Close() })
-	_, err = db.Exec(`CREATE TEMP TABLE characters (id integer PRIMARY KEY,name text,
+	_, err = db.Exec(`CREATE TEMP TABLE users (id integer PRIMARY KEY,gacha_premium integer,gacha_trial integer);
+		INSERT INTO users VALUES (1,100,50),(2,500,0);
+		CREATE TEMP TABLE sign_sessions (user_id integer,char_id integer,server_id integer,
+			token text,last_used_at timestamptz);
+		CREATE TEMP TABLE characters (id integer PRIMARY KEY,name text,user_id integer DEFAULT 1,
+			savedata bytea DEFAULT '\x0102'::bytea,
 		deleted boolean NOT NULL DEFAULT false,is_new_character boolean NOT NULL DEFAULT false);
 		CREATE TEMP TABLE mail (id serial PRIMARY KEY,sender_id integer NOT NULL REFERENCES characters(id),
 		recipient_id integer NOT NULL REFERENCES characters(id),subject text NOT NULL,body text NOT NULL,
@@ -45,6 +50,13 @@ func newDeliveryPostgresServer(t *testing.T) *APIServer {
 		t.Fatal(err)
 	}
 	if _, err = db.Exec(strings.Replace(string(migration), "CREATE TABLE dashboard_item_deliveries", "CREATE TEMP TABLE dashboard_item_deliveries", 1)); err != nil {
+		t.Fatal(err)
+	}
+	migration, err = os.ReadFile("../migrations/sql/0081_dashboard_currency_delivery.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(string(migration)); err != nil {
 		t.Fatal(err)
 	}
 	server := newOperatorChatServer()
@@ -215,4 +227,135 @@ func TestDashboardDeliveryPostgresCharacterSearch(t *testing.T) {
 func urlQueryForDeliveryTest(value string) string {
 	// Keep Unicode fixture names readable; escape only URL query separators.
 	return strings.NewReplacer("%", "%25", "_", "%5F", " ", "%20").Replace(value)
+}
+
+func TestDashboardDeliveryPostgresCoinsAndReplay(t *testing.T) {
+	server := newDeliveryPostgresServer(t)
+	server.deliveryCatalog.fetch = func(context.Context) ([]dashboardDeliveryItem, error) {
+		t.Fatal("currency delivery must not depend on Ferias")
+		return nil, errors.New("unavailable")
+	}
+	server.SetDeliveryMailNotifier(func(uint32) { t.Fatal("currency delivery must not notify an item mail") })
+	request := testCoinDeliveryRequest()
+	response := postDeliveryTest(server, request)
+	if response.Code != http.StatusCreated {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	var receipt dashboardDeliveryReceipt
+	if err := json.Unmarshal(response.Body.Bytes(), &receipt); err != nil || receipt.Kind != dashboardDeliveryCoins ||
+		receipt.MailCount != 0 || receipt.CoinBalance == nil || *receipt.CoinBalance != 299 {
+		t.Fatal(receipt, err)
+	}
+	var premium, trial int
+	if err := server.db.QueryRow(`SELECT gacha_premium,gacha_trial FROM users WHERE id=1`).Scan(&premium, &trial); err != nil || premium != 299 || trial != 50 {
+		t.Fatal(premium, trial, err)
+	}
+	var unchanged bool
+	if err := server.db.Get(&unchanged, `SELECT bool_and(savedata='\x0102'::bytea) FROM characters`); err != nil || !unchanged {
+		t.Fatal("character save changed", err)
+	}
+	// A replay must still succeed after login and never credit the coins again.
+	if _, err := server.db.Exec(`INSERT INTO sign_sessions(user_id,char_id,server_id) VALUES(1,11,1)`); err != nil {
+		t.Fatal(err)
+	}
+	if retry := postDeliveryTest(server, request); retry.Code != 200 || !strings.Contains(retry.Body.String(), `"alreadyDelivered":true`) {
+		t.Fatal(retry.Code, retry.Body.String())
+	}
+	if err := server.db.Get(&premium, `SELECT gacha_premium FROM users WHERE id=1`); err != nil || premium != 299 {
+		t.Fatal(premium, err)
+	}
+	if conflict := postDeliveryTest(server, testDeliveryRequest()); conflict.Code != 409 {
+		t.Fatal(conflict.Code, conflict.Body.String())
+	}
+	if mails, receipts := deliveryTestCounts(t, server); mails != 0 || receipts != 1 {
+		t.Fatal(mails, receipts)
+	}
+}
+
+func TestDashboardDeliveryPostgresCoinsRejectAndRollback(t *testing.T) {
+	for _, scenario := range []string{"online target", "online sibling", "overflow", "negative", "renamed", "deleted", "new", "receipt failure"} {
+		t.Run(scenario, func(t *testing.T) {
+			server := newDeliveryPostgresServer(t)
+			request := testCoinDeliveryRequest()
+			status, before := http.StatusConflict, int64(100)
+			var err error
+			switch scenario {
+			case "online target":
+				_, err = server.db.Exec(`INSERT INTO sign_sessions(user_id,char_id,server_id) VALUES(1,10,1)`)
+			case "online sibling":
+				_, err = server.db.Exec(`INSERT INTO sign_sessions(user_id,char_id,server_id) VALUES(1,11,1)`)
+			case "overflow":
+				before = dashboardDeliveryMaxCoins
+				_, err = server.db.Exec(`UPDATE users SET gacha_premium=$1 WHERE id=1`, before)
+			case "negative":
+				before = -1
+				_, err = server.db.Exec(`UPDATE users SET gacha_premium=-1 WHERE id=1`)
+			case "renamed":
+				request.CharacterName = "변경된 이름"
+			case "deleted":
+				request.CharacterID, request.CharacterName, request.CharacterCode = 14, "삭제됨", dashboardCharacterCode(14)
+				status = http.StatusNotFound
+			case "new":
+				request.CharacterID, request.CharacterName, request.CharacterCode = 13, "새 캐릭터", dashboardCharacterCode(13)
+				status = http.StatusNotFound
+			case "receipt failure":
+				_, err = server.db.Exec(`ALTER TABLE dashboard_item_deliveries ADD CHECK (quantity<>199)`)
+				status = http.StatusServiceUnavailable
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			response := postDeliveryTest(server, request)
+			if response.Code != status {
+				t.Fatal(response.Code, response.Body.String())
+			}
+			var balance int64
+			if err := server.db.Get(&balance, `SELECT gacha_premium FROM users WHERE id=1`); err != nil || balance != before {
+				t.Fatal("partial currency delivery", balance, before, err)
+			}
+			if mails, receipts := deliveryTestCounts(t, server); mails != 0 || receipts != 0 {
+				t.Fatal(mails, receipts)
+			}
+		})
+	}
+}
+
+func TestDashboardDeliveryPostgresCoinsNullBalanceAndUnboundLogin(t *testing.T) {
+	server := newDeliveryPostgresServer(t)
+	if _, err := server.db.Exec(`UPDATE users SET gacha_premium=NULL WHERE id=1;
+		INSERT INTO sign_sessions(user_id) VALUES(1);
+		INSERT INTO sign_sessions(user_id,char_id,server_id) VALUES(2,12,1)`); err != nil {
+		t.Fatal(err)
+	}
+	response := postDeliveryTest(server, testCoinDeliveryRequest())
+	if response.Code != http.StatusCreated {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	var balance int
+	if err := server.db.Get(&balance, `SELECT gacha_premium FROM users WHERE id=1`); err != nil || balance != 199 {
+		t.Fatal(balance, err)
+	}
+}
+
+func TestDashboardDeliveryPostgresCoinsConcurrentReplay(t *testing.T) {
+	server := newDeliveryPostgresServer(t)
+	var wait sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			response := postDeliveryTest(server, testCoinDeliveryRequest())
+			if response.Code != 200 && response.Code != 201 {
+				t.Error(response.Code, response.Body.String())
+			}
+		}()
+	}
+	wait.Wait()
+	var balance int
+	if err := server.db.Get(&balance, `SELECT gacha_premium FROM users WHERE id=1`); err != nil || balance != 299 {
+		t.Fatal(balance, err)
+	}
+	if mails, receipts := deliveryTestCounts(t, server); mails != 0 || receipts != 1 {
+		t.Fatal(mails, receipts)
+	}
 }

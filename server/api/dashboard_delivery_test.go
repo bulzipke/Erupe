@@ -20,6 +20,45 @@ func testDeliveryRequest() dashboardDeliveryRequest {
 		CharacterName: "테스트", CharacterCode: dashboardCharacterCode(10), ItemID: 7, ItemName: "회복약", Quantity: 199}
 }
 
+func testCoinDeliveryRequest() dashboardDeliveryRequest {
+	request := testDeliveryRequest()
+	request.Kind, request.ItemID, request.ItemName = dashboardDeliveryCoins, 0, ""
+	return request
+}
+
+func TestDashboardDeliveryKindsAndReplay(t *testing.T) {
+	for _, request := range []dashboardDeliveryRequest{testDeliveryRequest(), testCoinDeliveryRequest()} {
+		if err := validateDashboardDeliveryRequest(request); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, change := range []func(*dashboardDeliveryRequest){
+		func(r *dashboardDeliveryRequest) { r.Kind = "unknown" },
+		func(r *dashboardDeliveryRequest) { r.ItemID = 7 },
+		func(r *dashboardDeliveryRequest) { r.ItemName = "금빛 금화G" },
+		func(r *dashboardDeliveryRequest) { r.Quantity = 0 },
+		func(r *dashboardDeliveryRequest) { r.Quantity = dashboardDeliveryMaxAmount + 1 },
+		func(r *dashboardDeliveryRequest) { r.CharacterCode = "wrong" },
+	} {
+		request := testCoinDeliveryRequest()
+		change(&request)
+		if validateDashboardDeliveryRequest(request) == nil {
+			t.Fatalf("accepted invalid currency request: %+v", request)
+		}
+	}
+	request := testDeliveryRequest()
+	receipt := dashboardDeliveryReceipt{Kind: dashboardDeliveryKindItem, CharacterID: request.CharacterID,
+		CharacterName: request.CharacterName, CharacterCode: request.CharacterCode, ItemID: request.ItemID,
+		ItemName: request.ItemName, Quantity: request.Quantity}
+	if err := matchDashboardDelivery(receipt, request); err != nil {
+		t.Fatal("legacy item request must remain replayable:", err)
+	}
+	request.Kind = dashboardDeliveryCoins
+	if matchDashboardDelivery(receipt, request) == nil {
+		t.Fatal("a request ID must not be reusable for a different delivery kind")
+	}
+}
+
 func TestDashboardDeliveryCharacterCodes(t *testing.T) {
 	for _, id := range []uint32{1, 9, 10, 31, 32, 42, 9999, (1 << 30) - 1} {
 		code := dashboardCharacterCode(id)

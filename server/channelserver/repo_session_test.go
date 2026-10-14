@@ -131,6 +131,43 @@ func TestRepoSessionClearSession(t *testing.T) {
 	}
 }
 
+func TestRepoSessionBindWaitsForCurrencyAccountLock(t *testing.T) {
+	repo, db, userID, charID, _, token := setupSessionRepo(t)
+	CreateTestServer(t, db, 1)
+	tx, err := db.Beginx()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	var lockedID uint32
+	if err := tx.QueryRow(`SELECT id FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(&lockedID); err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	result := make(chan error, 1)
+	go func() {
+		close(started)
+		result <- repo.BindSession(token, 1, charID)
+	}()
+	<-started
+	select {
+	case err := <-result:
+		t.Fatalf("login bypassed the currency grant lock: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("login did not resume after the account lock was released")
+	}
+}
+
 func TestRepoSessionUpdatePlayerCount(t *testing.T) {
 	repo, db, _, _, _, _ := setupSessionRepo(t)
 

@@ -188,3 +188,82 @@ test("delivery validation failures clear pending request, while loss of operator
         assert.equal(h.byId("delivery-item-query").disabled, status === 403);
     }
 });
+
+test("currency selection disables item autocomplete and grants without an item or mail", async () => {
+    assert.match(html, /id="delivery-character"[\s\S]*?id="delivery-kind"[\s\S]*?id="delivery-item-query"/);
+    assert.match(html, /<option value="gacha_premium">금빛 금화G<\/option>/);
+    const h = harness();
+    prepare(h);
+    h.byId("delivery-kind").value = "gacha_premium";
+    h.byId("delivery-kind").emit("change");
+    assert.equal(h.byId("delivery-item-query").disabled, true);
+    assert.equal(h.byId("delivery-item-query").required, false);
+    assert.equal(h.byId("delivery-item-query").value, "");
+    assert.equal(h.run("deliverySelectedItem"), null);
+    assert.equal(h.byId("delivery-refresh").disabled, true);
+    assert.equal(h.byId("delivery-item-tools").hidden, true);
+    assert.equal(h.byId("delivery-submit").textContent, "금화 지급");
+    h.run("searchDeliveryItems(true)");
+    assert.equal(h.requests.length, 0);
+    h.byId("delivery-form").emit("submit");
+    const payload = JSON.parse(h.requests[0].options.body);
+    assert.equal(payload.kind, "gacha_premium");
+    assert.equal(payload.itemId, 0);
+    assert.equal(payload.itemName, "");
+    assert.equal(payload.quantity, 199);
+    assert.equal(h.byId("delivery-kind").disabled, true);
+    h.respond(h.requests[0], { ...payload, alreadyDelivered: false, mailCount: 0, coinBalance: 299 });
+    await flush();
+    assert.match(h.byId("delivery-feedback").textContent, /금화 지급을 완료/);
+    assert.match(h.byId("delivery-feedback").textContent, /지급 후 계정 보유: 299개/);
+    assert.doesNotMatch(h.byId("delivery-feedback").textContent, /메일/);
+    assert.equal(h.byId("delivery-item-query").disabled, true);
+    assert.equal(h.byId("delivery-kind").disabled, false);
+});
+
+test("switching to currency cancels stale item suggestions and switching back restores autocomplete", async () => {
+    const h = harness();
+    h.byId("delivery-item-query").value = "회";
+    h.run("searchDeliveryItems(false)");
+    h.byId("delivery-kind").value = "gacha_premium";
+    h.byId("delivery-kind").emit("change");
+    assert.equal(h.requests[0].options.signal.aborted, true);
+    h.respond(h.requests[0], { items: [item], total: 1, updatedAt: new Date().toISOString() });
+    await flush();
+    assert.equal(h.byId("delivery-item-suggestions").hidden, true);
+    assert.equal(h.run("deliveryItems.length"), 0);
+    h.byId("delivery-kind").value = "item";
+    h.byId("delivery-kind").emit("change");
+    assert.equal(h.byId("delivery-item-query").disabled, false);
+    assert.equal(h.byId("delivery-item-query").required, true);
+    assert.equal(h.byId("delivery-refresh").disabled, false);
+    assert.equal(h.byId("delivery-item-tools").hidden, false);
+    h.byId("delivery-item-query").value = "회복";
+    h.byId("delivery-item-query").emit("input");
+    h.tick();
+    assert.equal(h.requests.length, 2);
+});
+
+test("currency pending request survives reload, and offline rejection does not re-enable the item field", async () => {
+    const h = harness();
+    prepare(h);
+    h.byId("delivery-kind").value = "gacha_premium";
+    h.byId("delivery-kind").emit("change");
+    h.byId("delivery-form").emit("submit");
+    const payload = h.requests[0].options.body;
+    h.requests[0].reject(new Error("response lost"));
+    await flush();
+    const reloaded = harness(h.storage);
+    reloaded.run("restoreDeliveryRequest()");
+    assert.equal(reloaded.byId("delivery-kind").value, "gacha_premium");
+    assert.equal(reloaded.byId("delivery-kind").disabled, true);
+    assert.equal(reloaded.byId("delivery-item-query").value, "");
+    reloaded.byId("delivery-form").emit("submit");
+    assert.equal(reloaded.requests[0].options.body, payload);
+    reloaded.respond(reloaded.requests[0], { error: "계정의 모든 캐릭터가 로그아웃해야 합니다." }, 409);
+    await flush();
+    assert.equal(reloaded.storage.size, 0);
+    assert.equal(reloaded.byId("delivery-kind").disabled, false);
+    assert.equal(reloaded.byId("delivery-item-query").disabled, true);
+    assert.match(reloaded.byId("delivery-feedback").textContent, /로그아웃/);
+});
