@@ -101,8 +101,14 @@ func handleMsgMhfInfoGuild(s *Session, p mhfpacket.MHFPacket) {
 		bf.WriteInt8(int8(FestivalColorCodes[guild.FestivalColor]))
 		bf.WriteUint32(guild.RankRP)
 		bf.WriteBytes(guildLeaderName)
-		bf.WriteUint32(0)                  // Unk
-		bf.WriteBool(guild.ReturnType > 0) // isReturnGuild
+		bf.WriteUint32(0) // Unk
+		// Type 1 targets the removed rookie camp and crashes modern clients.
+		// Expose legacy rookie guilds as returning guilds too; never send 1.
+		guildType := uint8(0)
+		if guild.ReturnType > 0 {
+			guildType = 2
+		}
+		bf.WriteUint8(guildType) // 0=ordinary, 2=returning
 		bf.WriteBool(divaGuildSpecialHall(s, guild.ID, characterGuildData))
 		bf.WriteUint8(2)
 		bf.WriteUint8(2)

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"erupe-ce/common/byteframe"
+	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
 )
 
@@ -17,6 +18,59 @@ func guildInfoServer() *Server {
 }
 
 // --- handleMsgMhfInfoGuild tests ---
+
+func TestInfoGuild_ReturnType(t *testing.T) {
+	for _, client := range []struct {
+		name string
+		mode cfg.Mode
+	}{
+		{"G10", cfg.G10},
+		{"ZZ", cfg.ZZ},
+	} {
+		t.Run(client.name, func(t *testing.T) {
+			for _, tc := range []struct {
+				name       string
+				returnType uint8
+				want       uint8
+			}{
+				{"ordinary", 0, 0},
+				{"legacy rookie uses returning guild", 1, 2},
+				{"returning", 2, 2},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					server := guildInfoServer()
+					server.erupeConfig.RealClientMode = client.mode
+					now := time.Now()
+					guild := &Guild{
+						ID: 10, Name: "Guild", Comment: "Comment", ReturnType: tc.returnType,
+						CreatedAt: now, RoomExpiry: now, EventRP: 1234,
+					}
+					guild.LeaderName = "Leader"
+					server.guildRepo = &mockGuildRepo{
+						guild:      guild,
+						membership: &GuildMember{GuildID: 10, CharID: 1, JoinedAt: &now},
+					}
+					session := createMockSession(1, server)
+
+					// GuildID=0 matches the authenticated character's login refresh.
+					handleMsgMhfInfoGuild(session, &mhfpacket.MsgMhfInfoGuild{AckHandle: 100})
+					ack := readAck(t, session)
+					offset := 44 + len(guild.Name) + len(guild.Comment) + len(guild.LeaderName)
+					if ack.AckHandle != 100 || ack.ErrorCode != 0 || !ack.IsBufferResponse || len(ack.Payload) < offset+8 {
+						t.Fatalf("invalid guild info response: %+v", ack)
+					}
+					bf := byteframe.NewByteFrameFromBytes(ack.Payload[offset:])
+					if got := bf.ReadUint8(); got != tc.want {
+						t.Fatalf("guild type = %d, want %d; obsolete rookie type 1 must never be sent", got, tc.want)
+					}
+					if bf.ReadBool() || bf.ReadUint8() != 2 || bf.ReadUint8() != 2 || bf.ReadUint32() != guild.EventRP {
+						t.Fatal("guild type must remain one byte without changing subsequent fields")
+					}
+				})
+			}
+		})
+	}
+}
 
 func TestInfoGuild_ByGuildID(t *testing.T) {
 	server := guildInfoServer()
