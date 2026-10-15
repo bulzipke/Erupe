@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"erupe-ce/common/mhfcourse"
@@ -25,6 +26,8 @@ import (
 type packet struct {
 	data        []byte
 	nonBlocking bool
+	sent        chan error      // Optional receipt after the socket write, never a render ACK.
+	sendContext context.Context // Do not emit an expired one-time notice later.
 }
 
 // Session holds state for the channel server connection.
@@ -58,6 +61,7 @@ type Session struct {
 	sessionStart           int64
 	courses                []mhfcourse.Course
 	token                  string
+	dashboardCoinSessionID string // Connection lease retained until the final logout save.
 	kqf                    []byte
 	kqfOverride            bool
 
@@ -125,23 +129,24 @@ type Session struct {
 	// Live quest run, published to the dashboard. Set on entering a quest stage
 	// and cleared on leaving one; the title is resolved once here rather than on
 	// every dashboard poll, which would re-read the quest file each time.
-	activeQuestID      atomic.Uint32
-	activeQuestStart   atomic.Int64 // unix seconds, 0 when not in a quest
-	activeQuestName    atomic.Value // string
-	closeOnce          sync.Once
-	logoutOnce         sync.Once
-	lifecycleMu        sync.Mutex
-	done               chan struct{}
-	dailyCoinsDone     chan struct{} // Guarded by Session.Mutex; logout waits for final settlement.
-	dailyCoinsClosedAt atomic.Int64
-	cafeBonusDone      chan struct{} // Guarded by Session.Mutex; logout waits for the worker.
-	cafeTimeStart      atomic.Int64  // Unix start of the session time not yet in characters.cafe_time.
-	cafeCourse         atomic.Bool   // Net cafe course (30) active, mirrored from courses for the worker.
-	cafeCapNoticeDay   string        // Worker-owned: day the N point cap notice was sent.
-	ackMu              sync.Mutex
-	ackStart           map[uint32]time.Time
-	captureConn        *pcap.RecordingConn // non-nil when capture is active
-	captureCleanup     func()              // Called on session close to flush/close capture file
+	activeQuestID        atomic.Uint32
+	activeQuestStart     atomic.Int64 // unix seconds, 0 when not in a quest
+	activeQuestName      atomic.Value // string
+	closeOnce            sync.Once
+	logoutOnce           sync.Once
+	lifecycleMu          sync.Mutex
+	done                 chan struct{}
+	dailyCoinsDone       chan struct{} // Guarded by Session.Mutex; logout waits for final settlement.
+	dailyCoinsClosedAt   atomic.Int64
+	cafeBonusDone        chan struct{} // Guarded by Session.Mutex; logout waits for the worker.
+	dashboardNoticesDone chan struct{} // Guarded by Session.Mutex.
+	cafeTimeStart        atomic.Int64  // Unix start of the session time not yet in characters.cafe_time.
+	cafeCourse           atomic.Bool   // Net cafe course (30) active, mirrored from courses for the worker.
+	cafeCapNoticeDay     string        // Worker-owned: day the N point cap notice was sent.
+	ackMu                sync.Mutex
+	ackStart             map[uint32]time.Time
+	captureConn          *pcap.RecordingConn // non-nil when capture is active
+	captureCleanup       func()              // Called on session close to flush/close capture file
 }
 
 // NewSession creates a new Session type.
@@ -245,7 +250,7 @@ func (s *Session) QueueSend(data []byte) {
 		s.logMessage(binary.BigEndian.Uint16(data[0:2]), data, "Server", s.Name)
 	}
 	select {
-	case s.sendPackets <- packet{data, true}:
+	case s.sendPackets <- packet{data: data, nonBlocking: true}:
 	case <-s.done:
 	}
 }
@@ -256,7 +261,7 @@ func (s *Session) QueueSendNonBlocking(data []byte) {
 		return
 	}
 	select {
-	case s.sendPackets <- packet{data, true}:
+	case s.sendPackets <- packet{data: data, nonBlocking: true}:
 		if len(data) >= 2 {
 			s.logMessage(binary.BigEndian.Uint16(data[0:2]), data, "Server", s.Name)
 		}
@@ -312,6 +317,12 @@ func (s *Session) sendLoop() {
 		// Send each packet individually with its own terminator
 		for len(s.sendPackets) > 0 {
 			pkt := <-s.sendPackets
+			if pkt.sendContext != nil && pkt.sendContext.Err() != nil {
+				if pkt.sent != nil {
+					pkt.sent <- pkt.sendContext.Err()
+				}
+				continue
+			}
 			if s.rawConn != nil {
 				if err := s.rawConn.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
 					s.logger.Debug("Failed to set channel write deadline", zap.Error(err))
@@ -322,6 +333,9 @@ func (s *Session) sendLoop() {
 			framed[len(pkt.data)] = 0x00
 			framed[len(pkt.data)+1] = 0x10
 			err := s.cryptConn.SendPacket(framed)
+			if pkt.sent != nil {
+				pkt.sent <- err
+			}
 			if err != nil {
 				s.logger.Warn("Failed to send packet", zap.Error(err))
 				s.markClosed()

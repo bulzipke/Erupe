@@ -287,6 +287,15 @@ func (s *Server) Start() error {
 		return err
 	}
 	s.listener = l
+	if repo, ok := s.sessionRepo.(*SessionRepository); ok && s.db != nil && s.erupeConfig.DebugOptions.ProxyPort == 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err = repo.RecoverDashboardCoinSessions(ctx, s.ID)
+		cancel()
+		if err != nil {
+			_ = l.Close()
+			return fmt.Errorf("recover dashboard coin queue: %w", err)
+		}
+	}
 	if s.erupeConfig.TowerRotation.Enabled {
 		if _, err := s.towerEvent(TimeAdjusted()); err != nil {
 			_ = l.Close()

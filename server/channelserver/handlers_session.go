@@ -177,7 +177,7 @@ func handleMsgSysLogin(s *Session, p mhfpacket.MHFPacket) {
 		return
 	}
 
-	err = s.server.sessionRepo.BindSession(s.token, s.server.ID, s.charID)
+	err = s.bindDashboardCoinSession()
 	if err != nil {
 		s.logger.Error("Failed to update sign session", zap.Error(err))
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
@@ -355,6 +355,7 @@ func logoutPlayer(s *Session) {
 		}()
 		s.waitDailyCoins()
 		s.waitCafeBonus()
+		s.waitDashboardCoinNotices()
 		logoutPlayerOnce(s)
 	})
 }
@@ -486,6 +487,7 @@ func logoutPlayerOnce(s *Session) {
 	var timePlayed int
 	var sessionTime int
 	var rpGained int
+	characterSaved := false
 
 	if s.charID != 0 {
 		if val, err := s.server.charRepo.ReadInt(s.charID, "time_played"); err != nil {
@@ -522,6 +524,8 @@ func logoutPlayerOnce(s *Session) {
 				zap.String("name", s.Name),
 			)
 			// Continue with logout even if save fails
+		} else {
+			characterSaved = true
 		}
 
 		// Update time_played and guild treasure hunt
@@ -579,7 +583,7 @@ func logoutPlayerOnce(s *Session) {
 
 	// Update sign sessions and server player count
 	if s.server.db != nil {
-		if err := s.server.sessionRepo.ClearSession(s.token); err != nil {
+		if err := s.finishDashboardCoinSession(characterSaved); err != nil {
 			s.logger.Error("Failed to clear sign session", zap.Error(err))
 		}
 

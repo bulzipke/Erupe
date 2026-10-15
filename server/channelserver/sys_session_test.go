@@ -228,7 +228,7 @@ func TestPacketQueueIndividualSending(t *testing.T) {
 			// Queue multiple packets
 			for i := 0; i < tt.packetCount; i++ {
 				testData := []byte{0x00, byte(i), 0xAA, 0xBB}
-				s.sendPackets <- packet{testData, true}
+				s.sendPackets <- packet{data: testData, nonBlocking: true}
 			}
 
 			// Wait for packets to be processed
@@ -289,9 +289,9 @@ func TestPacketQueueNoConcatenation(t *testing.T) {
 	packet2 := []byte{0x00, 0x02, 0xBB}
 	packet3 := []byte{0x00, 0x03, 0xCC}
 
-	s.sendPackets <- packet{packet1, true}
-	s.sendPackets <- packet{packet2, true}
-	s.sendPackets <- packet{packet3, true}
+	s.sendPackets <- packet{data: packet1, nonBlocking: true}
+	s.sendPackets <- packet{data: packet2, nonBlocking: true}
+	s.sendPackets <- packet{data: packet3, nonBlocking: true}
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -381,7 +381,7 @@ func TestPacketTerminatorFormat(t *testing.T) {
 	go s.sendLoop()
 
 	testData := []byte{0x00, 0x01, 0xAA, 0xBB}
-	s.sendPackets <- packet{testData, true}
+	s.sendPackets <- packet{data: testData, nonBlocking: true}
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {

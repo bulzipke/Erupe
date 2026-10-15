@@ -339,6 +339,7 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	s.QueueSend(newNotif.Data())
 	s.startDailyCoins()
 	s.startCafeBonus()
+	s.startDashboardCoinNotices()
 	// Queue every transition packet before the database write, so statistics
 	// cannot hold up the client's stage transition.
 	if recordWeaponDeparture {

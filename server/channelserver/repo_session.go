@@ -1,6 +1,10 @@
 package channelserver
 
 import (
+	"context"
+	"database/sql"
+	"errors"
+	"erupe-ce/server/dashboarddelivery"
 	"fmt"
 	"time"
 
@@ -44,6 +48,15 @@ func (r *SessionRepository) ValidateLoginToken(token string, sessionID uint32, c
 
 // BindSession associates a sign session token with a server and character.
 func (r *SessionRepository) BindSession(token string, serverID uint16, charID uint32) error {
+	return r.bindSession(token, serverID, charID, "")
+}
+
+// BindTrackedSession publishes a connection lease under the account lock.
+func (r *SessionRepository) BindTrackedSession(token string, serverID uint16, charID uint32, id string) error {
+	return r.bindSession(token, serverID, charID, id)
+}
+
+func (r *SessionRepository) bindSession(token string, serverID uint16, charID uint32, id string) error {
 	tx, err := r.db.Beginx()
 	if err != nil {
 		return err
@@ -56,10 +69,113 @@ func (r *SessionRepository) BindSession(token string, serverID uint16, charID ui
 		WHERE ss.token=$1 FOR UPDATE OF u`, token).Scan(&userID); err != nil {
 		return err
 	}
+	if id != "" {
+		// Recover any already-offline queue before the client reads its balance.
+		if err = dashboarddelivery.SettleLocked(context.Background(), tx, userID); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(`INSERT INTO dashboard_coin_sessions(id,user_id,character_id,server_id,token)
+			VALUES($1::uuid,$2,$3,$4,$5)`, id, userID, charID, serverID, token); err != nil {
+			return err
+		}
+	}
 	if _, err = tx.Exec("UPDATE sign_sessions SET server_id=$1, char_id=$2, last_used_at=NOW() WHERE token=$3", serverID, charID, token); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+// FinishTrackedSession runs only AFTER the logout save. The last successful
+// saver releases the queue in the same transaction as the offline transition.
+func (r *SessionRepository) FinishTrackedSession(ctx context.Context, id string, userID, charID uint32, token string, saved bool) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var lockedID uint32
+	if err = tx.QueryRowContext(ctx, `SELECT id FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(&lockedID); err != nil {
+		return err
+	}
+	var exists bool
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM dashboard_coin_sessions
+		WHERE id=$1::uuid AND user_id=$2 AND character_id=$3 AND token=$4)`, id, userID, charID, token).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	} // Ambiguous successful COMMIT retry: do not touch newer bindings.
+	if saved {
+		// A later successful save of the same character also clears failed-save
+		// tombstones left by an earlier disconnect. Do not clear live siblings.
+		_, err = tx.ExecContext(ctx, `DELETE FROM dashboard_coin_sessions WHERE user_id=$2
+			AND (id=$1::uuid OR (character_id=$3 AND save_failed))`, id, userID, charID)
+	} else {
+		_, err = tx.ExecContext(ctx, `UPDATE dashboard_coin_sessions SET save_failed=true WHERE id=$1::uuid AND user_id=$2`, id, userID)
+	}
+	if err != nil {
+		return err
+	}
+	// A channel transfer can rebind the same token before the old saver finishes.
+	// Preserve its remaining live connection instead of clearing that binding.
+	var serverID uint16
+	var activeCharID uint32
+	err = tx.QueryRowContext(ctx, `SELECT server_id,character_id FROM dashboard_coin_sessions
+		WHERE token=$1 AND user_id=$2 AND NOT save_failed ORDER BY created_at DESC,id DESC LIMIT 1`, token, userID).Scan(&serverID, &activeCharID)
+	if errors.Is(err, sql.ErrNoRows) {
+		_, err = tx.ExecContext(ctx, `UPDATE sign_sessions SET server_id=NULL,char_id=NULL WHERE token=$1 AND user_id=$2`, token, userID)
+	} else if err == nil {
+		_, err = tx.ExecContext(ctx, `UPDATE sign_sessions SET server_id=$3,char_id=$4 WHERE token=$1 AND user_id=$2`, token, userID, serverID, activeCharID)
+	}
+	if err != nil {
+		return err
+	}
+	if saved {
+		if err = dashboarddelivery.SettleLocked(ctx, tx, userID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// Called only after owning the channel's listening socket. On process restart
+// there are no more in-flight saves from this channel; its last committed DB
+// snapshot is authoritative. Other channels' leases remain untouched.
+func (r *SessionRepository) RecoverDashboardCoinSessions(ctx context.Context, serverID uint16) error {
+	var users []uint32
+	if err := r.db.SelectContext(ctx, &users, `SELECT DISTINCT user_id FROM dashboard_coin_sessions WHERE server_id=$1 ORDER BY user_id`, serverID); err != nil {
+		return err
+	}
+	for _, userID := range users {
+		err := func() error {
+			tx, err := r.db.BeginTxx(ctx, nil)
+			if err != nil {
+				return err
+			}
+			defer tx.Rollback()
+			var locked uint32
+			if err = tx.QueryRowContext(ctx, `SELECT id FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(&locked); errors.Is(err, sql.ErrNoRows) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if _, err = tx.ExecContext(ctx, `DELETE FROM dashboard_coin_sessions WHERE user_id=$1 AND server_id=$2`, userID, serverID); err != nil {
+				return err
+			}
+			if _, err = tx.ExecContext(ctx, `UPDATE sign_sessions SET server_id=NULL,char_id=NULL WHERE user_id=$1 AND server_id=$2`, userID, serverID); err != nil {
+				return err
+			}
+			if err = dashboarddelivery.SettleLocked(ctx, tx, userID); err != nil {
+				return err
+			}
+			return tx.Commit()
+		}()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ClearSession removes the server and character association from a sign session.

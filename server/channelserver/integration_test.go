@@ -441,7 +441,7 @@ func IntegrationTest_QueueBackpressure(t *testing.T) {
 	for i := 0; i < attemptCount; i++ {
 		testData := []byte{0x00, byte(i), 0xAA}
 		select {
-		case s.sendPackets <- packet{testData, true}:
+		case s.sendPackets <- packet{data: testData, nonBlocking: true}:
 			successCount++
 		default:
 			// Queue full, packet dropped

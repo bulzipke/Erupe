@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 
+	"erupe-ce/server/dashboarddelivery"
+
 	"github.com/jmoiron/sqlx"
 )
 
@@ -57,6 +59,13 @@ func newDeliveryPostgresServer(t *testing.T) *APIServer {
 		t.Fatal(err)
 	}
 	if _, err = db.Exec(string(migration)); err != nil {
+		t.Fatal(err)
+	}
+	migration, err = os.ReadFile("../migrations/sql/0082_dashboard_coin_queue.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(strings.Replace(string(migration), "CREATE TABLE dashboard_coin_sessions", "CREATE TEMP TABLE dashboard_coin_sessions", 1)); err != nil {
 		t.Fatal(err)
 	}
 	server := newOperatorChatServer()
@@ -273,17 +282,13 @@ func TestDashboardDeliveryPostgresCoinsAndReplay(t *testing.T) {
 }
 
 func TestDashboardDeliveryPostgresCoinsRejectAndRollback(t *testing.T) {
-	for _, scenario := range []string{"online target", "online sibling", "overflow", "negative", "renamed", "deleted", "new", "receipt failure"} {
+	for _, scenario := range []string{"overflow", "negative", "renamed", "deleted", "new", "receipt failure"} {
 		t.Run(scenario, func(t *testing.T) {
 			server := newDeliveryPostgresServer(t)
 			request := testCoinDeliveryRequest()
 			status, before := http.StatusConflict, int64(100)
 			var err error
 			switch scenario {
-			case "online target":
-				_, err = server.db.Exec(`INSERT INTO sign_sessions(user_id,char_id,server_id) VALUES(1,10,1)`)
-			case "online sibling":
-				_, err = server.db.Exec(`INSERT INTO sign_sessions(user_id,char_id,server_id) VALUES(1,11,1)`)
 			case "overflow":
 				before = dashboardDeliveryMaxCoins
 				_, err = server.db.Exec(`UPDATE users SET gacha_premium=$1 WHERE id=1`, before)
@@ -357,5 +362,165 @@ func TestDashboardDeliveryPostgresCoinsConcurrentReplay(t *testing.T) {
 	}
 	if mails, receipts := deliveryTestCounts(t, server); mails != 0 || receipts != 1 {
 		t.Fatal(mails, receipts)
+	}
+}
+
+func settleDeliveryTestCoins(t *testing.T, server *APIServer) {
+	t.Helper()
+	tx, err := server.db.Beginx()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	var id int
+	if err = tx.QueryRow(`SELECT id FROM users WHERE id=1 FOR UPDATE`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	if err = dashboarddelivery.SettleLocked(context.Background(), tx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDashboardDeliveryPostgresCoinsQueueAndNotices(t *testing.T) {
+	for _, sibling := range []bool{false, true} {
+		t.Run(map[bool]string{false: "target", true: "sibling"}[sibling], func(t *testing.T) {
+			server := newDeliveryPostgresServer(t)
+			charID := 10
+			if sibling {
+				charID = 11
+			}
+			if _, err := server.db.Exec(`INSERT INTO sign_sessions(user_id,char_id,server_id) VALUES(1,$1,1)`, charID); err != nil {
+				t.Fatal(err)
+			}
+			request := testCoinDeliveryRequest()
+			first := postDeliveryTest(server, request)
+			var receipt dashboardDeliveryReceipt
+			if err := json.Unmarshal(first.Body.Bytes(), &receipt); err != nil || first.Code != 201 || !receipt.Pending || receipt.CoinBalance != nil {
+				t.Fatal(first.Code, first.Body.String(), err)
+			}
+			if retry := postDeliveryTest(server, request); retry.Code != 200 || !strings.Contains(retry.Body.String(), `"pending":true`) {
+				t.Fatal(retry.Code, retry.Body.String())
+			}
+			request.RequestID = "10000000-0000-4000-8000-000000000002"
+			request.Quantity = 50
+			if second := postDeliveryTest(server, request); second.Code != 201 {
+				t.Fatal(second.Body.String())
+			}
+			settleDeliveryTestCoins(t, server)
+			var balance int
+			if err := server.db.Get(&balance, `SELECT gacha_premium FROM users WHERE id=1`); err != nil || balance != 100 {
+				t.Fatal(balance, err)
+			}
+			if more, err := dashboarddelivery.SendNextNotice(context.Background(), server.db, 1, 10, func(string) error { t.Fatal("pending grant announced"); return nil }); err != nil || more {
+				t.Fatal(more, err)
+			}
+			if _, err := server.db.Exec(`DELETE FROM sign_sessions`); err != nil {
+				t.Fatal(err)
+			}
+			settleDeliveryTestCoins(t, server)
+			settleDeliveryTestCoins(t, server) // Retrying a completion cannot re-credit.
+			if err := server.db.Get(&balance, `SELECT gacha_premium FROM users WHERE id=1`); err != nil || balance != 349 {
+				t.Fatal(balance, err)
+			}
+			retry := postDeliveryTest(server, testCoinDeliveryRequest())
+			if retry.Code != 200 || strings.Contains(retry.Body.String(), `"pending":true`) {
+				t.Fatal(retry.Body.String())
+			}
+			if more, err := dashboarddelivery.SendNextNotice(context.Background(), server.db, 1, 11, func(string) error { t.Fatal("wrong character announced"); return nil }); err != nil || more {
+				t.Fatal(more, err)
+			}
+			if _, err := dashboarddelivery.SendNextNotice(context.Background(), server.db, 1, 10, func(string) error { return errors.New("socket failure") }); err == nil {
+				t.Fatal("failed send was consumed")
+			}
+			var messages []string
+			for {
+				more, err := dashboarddelivery.SendNextNotice(context.Background(), server.db, 1, 10, func(message string) error { messages = append(messages, message); return nil })
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !more {
+					break
+				}
+			}
+			if len(messages) != 2 {
+				t.Fatal(messages)
+			}
+			seen := map[string]bool{}
+			for _, message := range messages {
+				seen[message] = true
+			}
+			if !seen["보상으로 금빛 금화G가 199개 지급되었습니다."] || !seen["보상으로 금빛 금화G가 50개 지급되었습니다."] {
+				t.Fatal(messages)
+			}
+			var unread int
+			if err := server.db.Get(&unread, `SELECT count(*) FROM dashboard_item_deliveries WHERE notified_at IS NULL`); err != nil || unread != 0 {
+				t.Fatal(unread, err)
+			}
+		})
+	}
+}
+
+func TestDashboardDeliveryPostgresImmediateCoinNotice(t *testing.T) {
+	server := newDeliveryPostgresServer(t)
+	if response := postDeliveryTest(server, testCoinDeliveryRequest()); response.Code != 201 {
+		t.Fatal(response.Body.String())
+	}
+	var messages []string
+	for i := 0; i < 2; i++ {
+		more, err := dashboarddelivery.SendNextNotice(context.Background(), server.db, 1, 10, func(message string) error { messages = append(messages, message); return nil })
+		if err != nil || more != (i == 0) {
+			t.Fatal(more, err)
+		}
+	}
+	if len(messages) != 1 || messages[0] != dashboarddelivery.CoinNotice(199) {
+		t.Fatal(messages)
+	}
+}
+
+func TestDashboardDeliveryPostgresQueueReservationsAndFailure(t *testing.T) {
+	server := newDeliveryPostgresServer(t)
+	if _, err := server.db.Exec(`INSERT INTO sign_sessions(user_id,char_id,server_id) VALUES(1,10,1)`); err != nil {
+		t.Fatal(err)
+	}
+	if response := postDeliveryTest(server, testCoinDeliveryRequest()); response.Code != 201 {
+		t.Fatal(response.Body.String())
+	}
+	if _, err := server.db.Exec(`UPDATE users SET gacha_premium=2147483448 WHERE id=1`); err != nil {
+		t.Fatal(err)
+	}
+	request := testCoinDeliveryRequest()
+	request.RequestID = "10000000-0000-4000-8000-000000000002"
+	request.Quantity = 1
+	if response := postDeliveryTest(server, request); response.Code != 409 {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	// Another source can fill the balance after reservation; retain the grant.
+	if _, err := server.db.Exec(`DELETE FROM sign_sessions;UPDATE users SET gacha_premium=2147483647 WHERE id=1`); err != nil {
+		t.Fatal(err)
+	}
+	settleDeliveryTestCoins(t, server)
+	var pending bool
+	if err := server.db.Get(&pending, `SELECT pending FROM dashboard_item_deliveries`); err != nil || !pending {
+		t.Fatal(pending, err)
+	}
+	// Receipt failure must roll the balance update back with it.
+	if _, err := server.db.Exec(`UPDATE users SET gacha_premium=100 WHERE id=1;ALTER TABLE dashboard_item_deliveries ADD CHECK(pending)`); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := server.db.Beginx()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dashboarddelivery.SettleLocked(context.Background(), tx, 1); err == nil {
+		tx.Rollback()
+		t.Fatal("expected receipt failure")
+	}
+	tx.Rollback()
+	var balance int
+	if err := server.db.Get(&balance, `SELECT gacha_premium FROM users WHERE id=1`); err != nil || balance != 100 {
+		t.Fatal(balance, err)
 	}
 }

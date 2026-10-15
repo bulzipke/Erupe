@@ -863,14 +863,14 @@ tbody tr:last-child td{border-bottom:0}
         var coins = deliveryKind() === "gacha_premium";
         var query = byId("delivery-item-query");
         query.required = !coins;
-        query.placeholder = coins ? "금빛 금화G는 계정 잔액으로 지급됩니다" : "한글 이름 또는 ID를 입력하세요";
+        query.placeholder = coins ? "금빛 금화G는 계정 잔액에 추가됩니다" : "한글 이름 또는 ID를 입력하세요";
         if (coins) {
             deliverySelectedItem = null;
             query.value = "";
         }
         byId("delivery-item-tools").hidden = coins;
-        byId("delivery-mode-note").textContent = coins ? "운영자 전용 · 로그아웃한 계정의 금화 잔액에 직접 지급" : "운영자 전용 · 아이템은 인게임 메일 첨부로 수령";
-        byId("delivery-item-selection").textContent = coins ? "계정 공용 재화 · 대상 계정의 모든 캐릭터가 로그아웃해야 합니다." : deliverySelectedItem ? "선택: " + deliverySelectedItem.name + " · ID " + deliverySelectedItem.id + " / 0x" + deliverySelectedItem.hex : "검색한 후보를 선택해 주세요.";
+        byId("delivery-mode-note").textContent = coins ? "운영자 전용 · 오프라인 즉시 지급 / 접속 중이면 저장 완료 후 지급" : "운영자 전용 · 아이템은 인게임 메일 첨부로 수령";
+        byId("delivery-item-selection").textContent = coins ? "계정 공용 재화 · 모든 캐릭터의 로그아웃·저장 후 지급하며, 대상 캐릭터의 다음 접속 때 안내합니다." : deliverySelectedItem ? "선택: " + deliverySelectedItem.name + " · ID " + deliverySelectedItem.id + " / 0x" + deliverySelectedItem.hex : "검색한 후보를 선택해 주세요.";
         lockDeliveryForm(deliverySending || !!deliveryPendingRequest);
     }
 
@@ -1065,7 +1065,7 @@ tbody tr:last-child td{border-bottom:0}
                 deliveryFeedback("아이템을 자동완성 후보에서 선택해 주세요.", true);
                 return;
             }
-            var summary = character.name + "(" + character.code + ")\n" + (coins ? "금빛 금화G " + quantity + "개\n계정 공용 잔액에 직접 지급 · 로그아웃 필요\n\n이대로 금화를 지급할까요?" : item.name + " · ID " + item.id + " / 0x" + item.hex + "\n" + quantity + "개 · 메일 " + Math.ceil(quantity / 99) + "통\n\n이대로 택배를 지급할까요?");
+            var summary = character.name + "(" + character.code + ")\n" + (coins ? "금빛 금화G " + quantity + "개\n오프라인이면 즉시 지급, 접속 중이면 로그아웃·저장 후 지급\n다음 접속 시 지급 안내\n\n이대로 금화를 지급할까요?" : item.name + " · ID " + item.id + " / 0x" + item.hex + "\n" + quantity + "개 · 메일 " + Math.ceil(quantity / 99) + "통\n\n이대로 택배를 지급할까요?");
             if (!window.confirm(summary)) return;
             deliveryPendingRequest = {requestId: deliveryRequestID(), kind: coins ? "gacha_premium" : "item", characterId: character.id, characterName: character.name, characterCode: character.code, itemId: coins ? 0 : item.id, itemName: coins ? "" : item.name, quantity: quantity};
             saveDeliveryRequest();
@@ -1080,8 +1080,8 @@ tbody tr:last-child td{border-bottom:0}
                 deliveryPendingRequest = null;
                 saveDeliveryRequest();
                 var coins = receipt.kind === "gacha_premium";
-                var details = receipt.characterName + "(" + receipt.characterCode + ") · " + (coins ? "금빛 금화G " + receipt.quantity + "개\n지급 후 계정 보유: " + numberFormatter.format(receipt.coinBalance) + "개" : receipt.itemName + " " + receipt.quantity + "개 · 메일 " + receipt.mailCount + "통");
-                deliveryFeedback((receipt.alreadyDelivered ? "이미 처리된 지급 요청입니다. 중복 지급하지 않았습니다.\n" : coins ? "금화 지급을 완료했습니다.\n" : "택배 지급을 완료했습니다.\n") + details, false);
+                var details = receipt.characterName + "(" + receipt.characterCode + ") · " + (coins ? "금빛 금화G " + receipt.quantity + "개\n" + (receipt.pending ? "지급 대기 · 계정 전체 로그아웃·저장이 완료되면 반영됩니다." : "지급 후 계정 보유: " + numberFormatter.format(receipt.coinBalance) + "개") : receipt.itemName + " " + receipt.quantity + "개 · 메일 " + receipt.mailCount + "통");
+                deliveryFeedback((receipt.alreadyDelivered ? "이미 처리된 지급 요청입니다. 중복 지급하지 않았습니다.\n" : coins ? receipt.pending ? "금화 지급 요청을 대기 목록에 등록했습니다.\n" : "금화 지급을 완료했습니다.\n" : "택배 지급을 완료했습니다.\n") + details, false);
             })
             .catch(function (error) {
                 if (error.status && error.status < 500 && error.status !== 403) {

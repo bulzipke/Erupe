@@ -16,6 +16,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"erupe-ce/server/dashboarddelivery"
+
 	"github.com/gorilla/mux"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
@@ -55,6 +57,7 @@ type dashboardDeliveryReceipt struct {
 	Kind          string        `json:"kind" db:"delivery_kind"`
 	UserID        *uint32       `json:"-" db:"user_id"`
 	CoinBalance   *int64        `json:"coinBalance,omitempty" db:"coin_balance"`
+	Pending       bool          `json:"pending" db:"pending"`
 	CharacterID   uint32        `json:"characterId" db:"character_id"`
 	CharacterName string        `json:"characterName" db:"character_name"`
 	CharacterCode string        `json:"characterCode" db:"character_code"`
@@ -272,6 +275,7 @@ func (s *APIServer) DashboardDelivery(w http.ResponseWriter, r *http.Request) {
 	if !receipt.Repeated {
 		if s.logger != nil {
 			s.logger.Info("Dashboard operator delivery", zap.String("requestID", receipt.RequestID), zap.String("kind", receipt.Kind),
+				zap.Bool("pending", receipt.Pending),
 				zap.Uint32("characterID", receipt.CharacterID), zap.String("characterName", receipt.CharacterName),
 				zap.Uint16("itemID", receipt.ItemID), zap.String("itemName", receipt.ItemName), zap.Int("quantity", receipt.Quantity))
 		}
@@ -290,7 +294,7 @@ func (s *APIServer) DashboardDelivery(w http.ResponseWriter, r *http.Request) {
 }
 
 const dashboardDeliveryReceiptQuery = `SELECT request_id::text,character_id,character_name,character_code,
-	delivery_kind,user_id,coin_balance,item_id,item_name,quantity,mail_ids,created_at FROM dashboard_item_deliveries WHERE request_id=$1::uuid`
+	delivery_kind,user_id,coin_balance,pending,item_id,item_name,quantity,mail_ids,created_at FROM dashboard_item_deliveries WHERE request_id=$1::uuid`
 
 func readDashboardDelivery(ctx context.Context, db sqlx.QueryerContext, requestID string) (dashboardDeliveryReceipt, error) {
 	var receipt dashboardDeliveryReceipt
@@ -376,10 +380,8 @@ func (s *APIServer) deliverDashboardItem(ctx context.Context, request dashboardD
 	return receipt, nil
 }
 
-// Coins are an account currency, not an item attachment or a character save
-// field. Persist the balance and receipt together. Channel BindSession takes
-// the same users-row lock before publishing an online session, so a login
-// cannot slip between the offline check and this commit.
+// Online accounts get a durable pending receipt. Offline accounts are credited
+// together with the receipt. Both branches create the same next-login notice.
 func (s *APIServer) deliverDashboardCoins(ctx context.Context, request dashboardDeliveryRequest) (dashboardDeliveryReceipt, error) {
 	var receipt dashboardDeliveryReceipt
 	tx, err := s.db.BeginTxx(ctx, nil)
@@ -421,30 +423,38 @@ func (s *APIServer) deliverDashboardCoins(ctx context.Context, request dashboard
 	if name != request.CharacterName {
 		return receipt, &dashboardDeliveryError{http.StatusConflict, "캐릭터 이름이 변경됐습니다. 다시 검색해 주세요."}
 	}
-	var online bool
-	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sign_sessions
-		WHERE user_id=$1 AND (server_id IS NOT NULL OR char_id>0))`, userID).Scan(&online); err != nil {
+	online, err := dashboarddelivery.Online(ctx, tx, userID)
+	if err != nil {
 		return receipt, err
 	}
-	if online {
-		return receipt, &dashboardDeliveryError{http.StatusConflict, "금빛 금화G는 대상 계정의 모든 캐릭터가 로그아웃한 상태에서만 지급할 수 있습니다."}
+	var pendingAmount int64
+	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(quantity),0) FROM dashboard_item_deliveries
+		WHERE user_id=$1 AND delivery_kind='gacha_premium' AND pending`, userID).Scan(&pendingAmount); err != nil {
+		return receipt, err
 	}
-	if balance < 0 || balance > dashboardDeliveryMaxCoins-int64(request.Quantity) {
+	if balance < 0 || pendingAmount > dashboardDeliveryMaxCoins-int64(request.Quantity)-balance {
 		return receipt, &dashboardDeliveryError{http.StatusConflict, "계정의 금빛 금화G 잔액이 유효하지 않거나 보유 상한을 초과합니다."}
 	}
-	if err = tx.QueryRowContext(ctx, `UPDATE users SET gacha_premium=COALESCE(gacha_premium,0)+$2
-		WHERE id=$1 RETURNING gacha_premium`, userID, request.Quantity).Scan(&balance); err != nil {
+	// Settle any earlier deferred grants before a new offline grant.
+	if err = dashboarddelivery.SettleLocked(ctx, tx, userID); err != nil {
 		return receipt, err
 	}
 	receipt = dashboardDeliveryReceipt{RequestID: request.RequestID, Kind: dashboardDeliveryCoins,
-		UserID: &userID, CoinBalance: &balance, CharacterID: request.CharacterID,
+		UserID: &userID, Pending: online, CharacterID: request.CharacterID,
 		CharacterName: name, CharacterCode: request.CharacterCode, Quantity: request.Quantity,
 		MailIDs: make(pq.Int64Array, 0)}
+	if !online {
+		if err = tx.QueryRowContext(ctx, `UPDATE users SET gacha_premium=COALESCE(gacha_premium,0)+$2
+			WHERE id=$1 RETURNING gacha_premium`, userID, request.Quantity).Scan(&balance); err != nil {
+			return receipt, err
+		}
+		receipt.CoinBalance = &balance
+	}
 	if err = tx.QueryRowContext(ctx, `INSERT INTO dashboard_item_deliveries
-		(request_id,delivery_kind,user_id,coin_balance,character_id,character_name,character_code,item_id,item_name,quantity,mail_ids)
-		VALUES ($1::uuid,$2,$3,$4,$5,$6,$7,0,'',$8,$9) RETURNING created_at`, receipt.RequestID,
-		receipt.Kind, userID, balance, receipt.CharacterID, receipt.CharacterName, receipt.CharacterCode,
-		receipt.Quantity, receipt.MailIDs).Scan(&receipt.CreatedAt); err != nil {
+		(request_id,delivery_kind,user_id,coin_balance,character_id,character_name,character_code,item_id,item_name,quantity,mail_ids,pending,credited_at)
+		VALUES ($1::uuid,$2,$3,$4,$5,$6,$7,0,'',$8,$9,$10,CASE WHEN $10 THEN NULL ELSE NOW() END) RETURNING created_at`, receipt.RequestID,
+		receipt.Kind, userID, receipt.CoinBalance, receipt.CharacterID, receipt.CharacterName, receipt.CharacterCode,
+		receipt.Quantity, receipt.MailIDs, online).Scan(&receipt.CreatedAt); err != nil {
 		return dashboardDeliveryReceipt{}, err
 	}
 	if err = tx.Commit(); err != nil {

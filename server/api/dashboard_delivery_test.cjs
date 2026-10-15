@@ -244,7 +244,7 @@ test("switching to currency cancels stale item suggestions and switching back re
     assert.equal(h.requests.length, 2);
 });
 
-test("currency pending request survives reload, and offline rejection does not re-enable the item field", async () => {
+test("currency pending request survives reload and shows a durable waiting grant", async () => {
     const h = harness();
     prepare(h);
     h.byId("delivery-kind").value = "gacha_premium";
@@ -260,10 +260,24 @@ test("currency pending request survives reload, and offline rejection does not r
     assert.equal(reloaded.byId("delivery-item-query").value, "");
     reloaded.byId("delivery-form").emit("submit");
     assert.equal(reloaded.requests[0].options.body, payload);
-    reloaded.respond(reloaded.requests[0], { error: "계정의 모든 캐릭터가 로그아웃해야 합니다." }, 409);
+    reloaded.respond(reloaded.requests[0], { ...JSON.parse(payload), pending: true, alreadyDelivered: true, mailCount: 0 });
     await flush();
     assert.equal(reloaded.storage.size, 0);
     assert.equal(reloaded.byId("delivery-kind").disabled, false);
     assert.equal(reloaded.byId("delivery-item-query").disabled, true);
     assert.match(reloaded.byId("delivery-feedback").textContent, /로그아웃/);
+    assert.match(reloaded.byId("delivery-feedback").textContent, /지급 대기/);
+    assert.doesNotMatch(reloaded.byId("delivery-feedback").textContent, /지급 후 계정 보유|NaN|메일/);
+});
+
+test("currency queued grant shows waiting instead of falsely reporting paid", async () => {
+    const h = harness(); prepare(h);
+    h.byId("delivery-kind").value = "gacha_premium";
+    h.byId("delivery-kind").emit("change");
+    h.byId("delivery-form").emit("submit");
+    const payload = JSON.parse(h.requests[0].options.body);
+    h.respond(h.requests[0], { ...payload, pending: true, alreadyDelivered: false, mailCount: 0 });
+    await flush();
+    assert.match(h.byId("delivery-feedback").textContent, /대기 목록에 등록/);
+    assert.doesNotMatch(h.byId("delivery-feedback").textContent, /완료했습니다|지급 후 계정 보유|NaN/);
 });
