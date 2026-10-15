@@ -108,6 +108,7 @@ func TestOperateGuild_Resign_TransferLeadership(t *testing.T) {
 	}
 	guildMock.guild = &Guild{ID: 10}
 	guildMock.guild.LeaderCharID = 1
+	guildMock.resignResult = 2
 	guildMock.members = []*GuildMember{
 		{CharID: 1, OrderIndex: 1, IsLeader: true},
 		{CharID: 2, OrderIndex: 2, AvoidLeadership: false},
@@ -124,20 +125,12 @@ func TestOperateGuild_Resign_TransferLeadership(t *testing.T) {
 
 	handleMsgMhfOperateGuild(session, pkt)
 
-	if guildMock.guild.LeaderCharID != 2 {
-		t.Errorf("Leader should transfer to charID 2, got %d", guildMock.guild.LeaderCharID)
+	if len(guildMock.resignArgs) != 2 || guildMock.resignArgs[0] != 10 || guildMock.resignArgs[1] != 1 {
+		t.Fatal("expected atomic resignation for current leader", guildMock.resignArgs)
 	}
-	if len(guildMock.savedMembers) < 2 {
-		t.Fatalf("Expected 2 saved members, got %d", len(guildMock.savedMembers))
-	}
-	if guildMock.savedGuild == nil {
-		t.Error("Guild should be saved after resign")
-	}
-
-	select {
-	case <-session.sendPackets:
-	default:
-		t.Error("No response packet queued")
+	ack := readAck(t, session)
+	if ack.ErrorCode != 0 || byteframe.NewByteFrameFromBytes(ack.Payload).ReadUint32() != 2 {
+		t.Fatal(ack)
 	}
 }
 
@@ -148,6 +141,7 @@ func TestOperateGuild_Resign_SkipsAvoidLeadership(t *testing.T) {
 	}
 	guildMock.guild = &Guild{ID: 10}
 	guildMock.guild.LeaderCharID = 1
+	guildMock.resignResult = 3
 	guildMock.members = []*GuildMember{
 		{CharID: 1, OrderIndex: 1, IsLeader: true},
 		{CharID: 2, OrderIndex: 2, AvoidLeadership: true},
@@ -165,8 +159,9 @@ func TestOperateGuild_Resign_SkipsAvoidLeadership(t *testing.T) {
 
 	handleMsgMhfOperateGuild(session, pkt)
 
-	if guildMock.guild.LeaderCharID != 3 {
-		t.Errorf("Leader should transfer to charID 3 (skipping 2), got %d", guildMock.guild.LeaderCharID)
+	ack := readAck(t, session)
+	if ack.ErrorCode != 0 || byteframe.NewByteFrameFromBytes(ack.Payload).ReadUint32() != 3 {
+		t.Fatal("atomic repository successor not returned", ack)
 	}
 }
 

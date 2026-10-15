@@ -279,14 +279,12 @@ func handleDonateRP(s *Session, amount uint16, guild *Guild, _type int) []byte {
 func handleAvoidLeadershipUpdate(s *Session, pkt *mhfpacket.MsgMhfOperateGuild, avoidLeadership bool) {
 	characterGuildData, err := s.server.guildRepo.GetCharacterMembership(s.charID)
 
-	if err != nil || characterGuildData == nil {
+	if err != nil || characterGuildData == nil || characterGuildData.IsApplicant {
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
 
-	characterGuildData.AvoidLeadership = avoidLeadership
-
-	err = s.server.guildRepo.SaveMember(characterGuildData)
+	err = s.server.guildRepo.SetAvoidLeadership(characterGuildData.GuildID, s.charID, avoidLeadership)
 
 	if err != nil {
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))

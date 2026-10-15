@@ -3,7 +3,6 @@ package channelserver
 import (
 	"errors"
 	"fmt"
-	"sort"
 
 	"go.uber.org/zap"
 )
@@ -35,9 +34,12 @@ var ErrCannotRecruit = errors.New("cannot recruit")
 // ErrApplicationMissing is returned when the expected guild application is not found.
 var ErrApplicationMissing = errors.New("application missing")
 
-// ErrAlreadyGuildMember is returned when accepting an application would create
+// ErrAlreadyGuildMember is returned when joining or accepting an application would create
 // a second guild membership for the same character.
 var ErrAlreadyGuildMember = errors.New("already a guild member")
+
+// ErrGuildFull is returned when a temporary guild reached its member limit.
+var ErrGuildFull = errors.New("guild is full")
 
 // ErrGuildMemberMissing is returned when the expected member is not in the specified guild.
 var ErrGuildMemberMissing = errors.New("guild member missing")
@@ -195,66 +197,14 @@ func (svc *GuildService) Disband(actorCharID, guildID uint32) (*DisbandResult, e
 	return &DisbandResult{Success: true}, nil
 }
 
-// ResignLeadership transfers guild leadership to the next eligible member.
-// Members are sorted by order index; those with AvoidLeadership set are skipped.
+// ResignLeadership retains explicit-resignation selection, but commits the
+// leader and member order together so weekly maintenance cannot interleave.
 func (svc *GuildService) ResignLeadership(actorCharID, guildID uint32) (*ResignResult, error) {
-	guild, err := svc.guildRepo.GetByID(guildID)
+	id, err := svc.guildRepo.ResignLeadership(guildID, actorCharID)
 	if err != nil {
-		return nil, fmt.Errorf("guild lookup: %w", err)
+		return nil, fmt.Errorf("resign guild leadership: %w", err)
 	}
-
-	members, err := svc.guildRepo.GetMembers(guildID, false)
-	if err != nil {
-		return nil, fmt.Errorf("get members: %w", err)
-	}
-
-	sort.Slice(members, func(i, j int) bool {
-		return members[i].OrderIndex < members[j].OrderIndex
-	})
-
-	// Find current leader in sorted list (should be index 0)
-	var leaderIdx int
-	for i, m := range members {
-		if m.CharID == actorCharID {
-			leaderIdx = i
-			break
-		}
-	}
-
-	// Find first eligible successor (skip leader and anyone avoiding leadership)
-	var newLeaderIdx int
-	found := false
-	for i := 1; i < len(members); i++ {
-		if i == leaderIdx {
-			continue
-		}
-		if !members[i].AvoidLeadership {
-			newLeaderIdx = i
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		return &ResignResult{NewLeaderCharID: 0}, nil
-	}
-
-	// Swap order indices
-	guild.LeaderCharID = members[newLeaderIdx].CharID
-	members[leaderIdx].OrderIndex, members[newLeaderIdx].OrderIndex =
-		members[newLeaderIdx].OrderIndex, 1
-
-	if err := svc.guildRepo.SaveMember(members[leaderIdx]); err != nil {
-		svc.logger.Error("Failed to save former leader member data", zap.Error(err))
-	}
-	if err := svc.guildRepo.SaveMember(members[newLeaderIdx]); err != nil {
-		svc.logger.Error("Failed to save new leader member data", zap.Error(err))
-	}
-	if err := svc.guildRepo.Save(guild); err != nil {
-		svc.logger.Error("Failed to save guild after leadership resign", zap.Error(err))
-	}
-
-	return &ResignResult{NewLeaderCharID: members[newLeaderIdx].CharID}, nil
+	return &ResignResult{NewLeaderCharID: id}, nil
 }
 
 // Leave removes a character from their guild. If the character is an applicant,

@@ -462,26 +462,23 @@ func handleMsgMhfEntryRookieGuild(s *Session, p mhfpacket.MHFPacket) {
 		nameTemplate = s.I18n().guild.returnGuildName
 	}
 
-	guildID, err := s.server.guildRepo.FindOrCreateReturnGuild(returnType, nameTemplate)
+	// The client already confirmed leaving the old clan, leadership handover,
+	// and disbanding if nobody remains (mhfpac offsets 1605028 / 1605036).
+	// Keep all those changes in the same transaction as the destination join.
+	guildID, err := s.server.guildRepo.JoinReturnGuild(s.charID, returnType, nameTemplate)
 	if err != nil {
-		s.logger.Error("failed to find/create return guild",
+		s.logger.Error("failed to enter temporary guild",
 			zap.Uint32("charID", s.charID),
+			zap.Uint8("returnType", returnType),
 			zap.Error(err),
 		)
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
 
-	if err := s.server.guildRepo.AddMember(guildID, s.charID); err != nil {
-		s.logger.Error("failed to add character to return guild",
-			zap.Uint32("charID", s.charID),
-			zap.Uint32("guildID", guildID),
-			zap.Error(err),
-		)
-		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
-		return
-	}
-
+	// Follow-up guild UI requests may arrive before INFO_GUILD refreshes the
+	// session's last-viewed guild. Do not let them reuse the former guild ID.
+	s.prevGuildID = guildID
 	bf := byteframe.NewByteFrame()
 	bf.WriteUint32(guildID)
 	doAckSimpleSucceed(s, pkt.AckHandle, bf.Data())

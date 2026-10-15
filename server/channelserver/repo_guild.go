@@ -33,7 +33,7 @@ SELECT
 	sub_motto,
 	created_at,
 	leader_id,
-	c.name AS leader_name,
+	COALESCE(c.name, '') AS leader_name,
 	comment,
 	return_type,
 	COALESCE(pugi_name_1, '') AS pugi_name_1,
@@ -59,9 +59,14 @@ SELECT
 	COALESCE(rp_reset_at, '2000-01-01'::timestamptz) AS rp_reset_at,
 	(SELECT count(1) FROM guild_characters gc WHERE gc.guild_id = g.id) AS member_count
 	FROM guilds g
-	JOIN guild_characters gc ON gc.character_id = leader_id
-	JOIN characters c on leader_id = c.id
+	LEFT JOIN characters c ON c.id = g.leader_id
 `
+
+// Automatic rookie/return guilds intentionally have no player leader. Ordinary
+// guilds still require a real leader belonging to that same guild.
+const guildInfoVisibleSQL = `((g.return_type > 0 AND g.leader_id = 0) OR
+	(c.id IS NOT NULL AND EXISTS(SELECT 1 FROM guild_characters leader_member
+		WHERE leader_member.guild_id = g.id AND leader_member.character_id = g.leader_id)))`
 
 const guildMembersSelectSQL = `
 SELECT
@@ -116,7 +121,7 @@ func scanGuildMember(rows *sqlx.Rows) (*GuildMember, error) {
 
 // GetByID retrieves guild info by guild ID, returning nil if not found.
 func (r *GuildRepository) GetByID(guildID uint32) (*Guild, error) {
-	rows, err := r.db.Queryx(fmt.Sprintf(`%s WHERE g.id = $1 LIMIT 1`, guildInfoSelectSQL), guildID)
+	rows, err := r.db.Queryx(fmt.Sprintf(`%s WHERE %s AND g.id = $1 LIMIT 1`, guildInfoSelectSQL, guildInfoVisibleSQL), guildID)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +136,7 @@ func (r *GuildRepository) GetByID(guildID uint32) (*Guild, error) {
 func (r *GuildRepository) GetByCharID(charID uint32) (*Guild, error) {
 	rows, err := r.db.Queryx(fmt.Sprintf(`
 		%s
-		WHERE EXISTS(
+		WHERE %s AND (EXISTS(
 				SELECT 1
 				FROM guild_characters gc1
 				WHERE gc1.character_id = $1
@@ -143,9 +148,11 @@ func (r *GuildRepository) GetByCharID(charID uint32) (*Guild, error) {
 				WHERE ga.character_id = $1
 				  AND ga.guild_id = g.id
 				  AND ga.application_type = 'applied'
-			)
+			))
+		ORDER BY EXISTS(SELECT 1 FROM guild_characters member
+			WHERE member.character_id=$1 AND member.guild_id=g.id) DESC, g.id
 		LIMIT 1
-	`, guildInfoSelectSQL), charID)
+	`, guildInfoSelectSQL, guildInfoVisibleSQL), charID)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +165,7 @@ func (r *GuildRepository) GetByCharID(charID uint32) (*Guild, error) {
 
 // ListAll returns all guilds. Used for guild enumeration/search.
 func (r *GuildRepository) ListAll() ([]*Guild, error) {
-	rows, err := r.db.Queryx(guildInfoSelectSQL)
+	rows, err := r.db.Queryx(fmt.Sprintf(`%s WHERE %s`, guildInfoSelectSQL, guildInfoVisibleSQL))
 	if err != nil {
 		return nil, err
 	}
@@ -207,39 +214,17 @@ func (r *GuildRepository) Create(leaderCharID uint32, guildName string) (int32, 
 // than 60 members, or creates a new one. The name template receives the guild count+1
 // as its single %d argument. Returns the guild ID.
 func (r *GuildRepository) FindOrCreateReturnGuild(returnType uint8, nameTemplate string) (uint32, error) {
-	var guildID uint32
-	err := r.db.QueryRow(`
-		SELECT g.id FROM guilds g
-		WHERE g.return_type = $1
-		AND (SELECT COUNT(1) FROM guild_characters gc WHERE gc.guild_id = g.id) < 60
-		LIMIT 1
-	`, returnType).Scan(&guildID)
-	if err == nil {
-		return guildID, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return 0, err
-	}
-
-	// No suitable guild — count existing ones and create a new one.
-	var count int
-	if err := r.db.QueryRow(
-		`SELECT COUNT(1) FROM guilds WHERE return_type = $1`, returnType,
-	).Scan(&count); err != nil {
-		return 0, err
-	}
-
 	tx, err := r.db.BeginTxx(context.Background(), nil)
 	if err != nil {
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	name := fmt.Sprintf(nameTemplate, count+1)
-	if err := tx.QueryRow(
-		`INSERT INTO guilds (name, leader_id, return_type, rank_rp) VALUES ($1, 0, $2, 1200) RETURNING id`,
-		name, returnType,
-	).Scan(&guildID); err != nil {
+	if _, err = tx.Exec(`SELECT pg_advisory_xact_lock($1,$2)`, returnGuildLockNamespace, 0); err != nil {
+		return 0, err
+	}
+	guildID, err := findOrCreateReturnGuildTx(context.Background(), tx, returnType, nameTemplate)
+	if err != nil {
 		return 0, err
 	}
 
@@ -249,24 +234,71 @@ func (r *GuildRepository) FindOrCreateReturnGuild(returnType uint8, nameTemplate
 	return guildID, nil
 }
 
-// AddMember inserts a character into a guild's member list.
+// AddMember is idempotent for the same guild, but never moves an existing
+// member to another guild. Match the schema's UNIQUE(character_id) index.
 func (r *GuildRepository) AddMember(guildID, charID uint32) error {
-	_, err := r.db.Exec(`
+	tx, err := r.db.BeginTxx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var lockedCharID uint32
+	if err = tx.QueryRow(`SELECT id FROM characters WHERE id=$1 FOR UPDATE`, charID).Scan(&lockedCharID); err != nil {
+		return err
+	}
+	var currentGuildID uint32
+	err = tx.QueryRow(`SELECT guild_id FROM guild_characters WHERE character_id=$1 FOR UPDATE`, charID).Scan(&currentGuildID)
+	if err == nil {
+		if currentGuildID != guildID {
+			return ErrAlreadyGuildMember
+		}
+		return tx.Commit()
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	// Selection and insertion are separate calls. Recheck temporary-guild
+	// capacity under a guild lock so concurrent joins cannot exceed 60 members.
+	var returnType uint8
+	if err = tx.QueryRow(`SELECT return_type FROM guilds WHERE id=$1 FOR UPDATE`, guildID).Scan(&returnType); err != nil {
+		return err
+	}
+	if returnType > 0 {
+		var count int
+		if err = tx.QueryRow(`SELECT COUNT(*) FROM guild_characters WHERE guild_id=$1`, guildID).Scan(&count); err != nil {
+			return err
+		}
+		if count >= returnGuildMemberLimit {
+			return ErrGuildFull
+		}
+	}
+	result, err := tx.Exec(`
 		INSERT INTO guild_characters (guild_id, character_id, order_index)
 		VALUES ($1, $2, (SELECT COALESCE(MAX(order_index), 0) + 1 FROM guild_characters WHERE guild_id = $1))
-		ON CONFLICT (guild_id, character_id) DO NOTHING
+		ON CONFLICT (character_id) DO NOTHING
 	`, guildID, charID)
-	return err
+	if err != nil {
+		return err
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if inserted != 1 {
+		return ErrAlreadyGuildMember
+	}
+	return tx.Commit()
 }
 
-// Save persists ordinary guild metadata. Special-hall clothing is deliberately
-// excluded: a stale ordinary snapshot must not overwrite its independent state.
+// Save persists ordinary guild metadata, never independently maintained
+// special-hall clothing or leadership. Stale UI snapshots cannot restore an
+// automatically demoted leader; explicit resignation uses its own transaction.
 func (r *GuildRepository) Save(guild *Guild) error {
 	_, err := r.db.Exec(`
 		UPDATE guilds SET main_motto=$2, sub_motto=$3, comment=$4, pugi_name_1=$5, pugi_name_2=$6, pugi_name_3=$7,
-		pugi_outfit_1=$8, pugi_outfit_2=$9, pugi_outfit_3=$10, pugi_outfits=$11, icon=$12, leader_id=$13 WHERE id=$1
+		pugi_outfit_1=$8, pugi_outfit_2=$9, pugi_outfit_3=$10, pugi_outfits=$11, icon=$12 WHERE id=$1
 	`, guild.ID, guild.MainMotto, guild.SubMotto, guild.Comment, guild.PugiName1, guild.PugiName2, guild.PugiName3,
-		guild.PugiOutfit1, guild.PugiOutfit2, guild.PugiOutfit3, guild.PugiOutfits, guild.Icon, guild.LeaderCharID)
+		guild.PugiOutfit1, guild.PugiOutfit2, guild.PugiOutfit3, guild.PugiOutfits, guild.Icon)
 	return err
 }
 
@@ -289,21 +321,7 @@ func (r *GuildRepository) Disband(guildID uint32) error {
 		return err
 	}
 
-	stmts := []string{
-		"DELETE FROM guild_characters WHERE guild_id = $1",
-		"DELETE FROM guilds WHERE id = $1",
-		"DELETE FROM guild_alliances WHERE parent_id=$1",
-	}
-	for _, stmt := range stmts {
-		if _, err := tx.Exec(stmt, guildID); err != nil {
-			return err
-		}
-	}
-
-	if _, err := tx.Exec("UPDATE guild_alliances SET sub1_id=sub2_id, sub2_id=NULL WHERE sub1_id=$1", guildID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec("UPDATE guild_alliances SET sub2_id=NULL WHERE sub2_id=$1", guildID); err != nil {
+	if err := disbandGuildTx(context.Background(), tx, guildID); err != nil {
 		return err
 	}
 

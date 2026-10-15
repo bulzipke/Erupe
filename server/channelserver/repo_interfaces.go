@@ -83,6 +83,8 @@ type GuildRepo interface {
 	GetMembers(guildID uint32, applicants bool) ([]*GuildMember, error)
 	GetCharacterMembership(charID uint32) (*GuildMember, error)
 	SaveMember(member *GuildMember) error
+	SetAvoidLeadership(guildID, charID uint32, avoid bool) error
+	ResignLeadership(guildID, actorCharID uint32) (uint32, error)
 	SetRecruiting(guildID uint32, recruiting bool) error
 	SetPugiOutfits(guildID uint32, outfits uint32) error
 	SetRecruiter(guildID, actorCharID, targetCharID uint32, allowed bool) error
@@ -147,6 +149,9 @@ type GuildRepo interface {
 	AddWeeklyBonusUsers(guildID uint32, numUsers uint8) error
 	AddWeeklyBonusUsersForMember(guildID, actorCharID uint32, numUsers uint8) error
 	FindOrCreateReturnGuild(returnType uint8, nameTemplate string) (uint32, error)
+	// JoinReturnGuild atomically leaves the former guild (including leadership
+	// transfer or empty-guild disband) and joins the automatic guild.
+	JoinReturnGuild(charID uint32, returnType uint8, nameTemplate string) (uint32, error)
 	AddMember(guildID, charID uint32) error
 }
 

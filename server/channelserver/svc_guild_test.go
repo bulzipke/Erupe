@@ -313,11 +313,9 @@ func TestGuildService_ResignLeadership(t *testing.T) {
 		actorCharID    uint32
 		guild          *Guild
 		members        []*GuildMember
-		getMembersErr  error
+		transactionErr error
 		wantNewLeader  uint32
 		wantErr        bool
-		wantSavedCount int
-		wantGuildSaved bool
 	}{
 		{
 			name:        "transfers to next eligible member",
@@ -327,9 +325,7 @@ func TestGuildService_ResignLeadership(t *testing.T) {
 				{CharID: 1, OrderIndex: 1, IsLeader: true},
 				{CharID: 2, OrderIndex: 2, AvoidLeadership: false},
 			},
-			wantNewLeader:  2,
-			wantSavedCount: 2,
-			wantGuildSaved: true,
+			wantNewLeader: 2,
 		},
 		{
 			name:        "skips members avoiding leadership",
@@ -340,9 +336,7 @@ func TestGuildService_ResignLeadership(t *testing.T) {
 				{CharID: 2, OrderIndex: 2, AvoidLeadership: true},
 				{CharID: 3, OrderIndex: 3, AvoidLeadership: false},
 			},
-			wantNewLeader:  3,
-			wantSavedCount: 2,
-			wantGuildSaved: true,
+			wantNewLeader: 3,
 		},
 		{
 			name:        "no eligible successor returns zero",
@@ -355,17 +349,17 @@ func TestGuildService_ResignLeadership(t *testing.T) {
 			wantNewLeader: 0,
 		},
 		{
-			name:          "get members error",
-			actorCharID:   1,
-			guild:         &Guild{ID: 10, GuildLeader: GuildLeader{LeaderCharID: 1}},
-			getMembersErr: errors.New("db error"),
-			wantErr:       true,
+			name:           "atomic handover error",
+			actorCharID:    1,
+			guild:          &Guild{ID: 10, GuildLeader: GuildLeader{LeaderCharID: 1}},
+			transactionErr: errors.New("db error"),
+			wantErr:        true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			guildMock := &mockGuildRepo{getMembersErr: tt.getMembersErr}
+			guildMock := &mockGuildRepo{resignResult: tt.wantNewLeader, resignErr: tt.transactionErr}
 			guildMock.guild = tt.guild
 			guildMock.members = tt.members
 			svc := newTestGuildService(guildMock, &mockMailRepo{})
@@ -383,11 +377,11 @@ func TestGuildService_ResignLeadership(t *testing.T) {
 			if result.NewLeaderCharID != tt.wantNewLeader {
 				t.Errorf("NewLeaderCharID = %d, want %d", result.NewLeaderCharID, tt.wantNewLeader)
 			}
-			if tt.wantSavedCount > 0 && len(guildMock.savedMembers) != tt.wantSavedCount {
-				t.Errorf("savedMembers count = %d, want %d", len(guildMock.savedMembers), tt.wantSavedCount)
+			if len(guildMock.resignArgs) != 2 || guildMock.resignArgs[0] != tt.guild.ID || guildMock.resignArgs[1] != tt.actorCharID {
+				t.Fatal("expected one atomic handover", guildMock.resignArgs)
 			}
-			if tt.wantGuildSaved && guildMock.savedGuild == nil {
-				t.Error("Guild should be saved")
+			if len(guildMock.savedMembers) != 0 || guildMock.savedGuild != nil {
+				t.Fatal("service must not split a handover into independent saves")
 			}
 		})
 	}

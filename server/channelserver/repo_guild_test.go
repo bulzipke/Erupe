@@ -218,7 +218,7 @@ func TestGetCharacterMembership(t *testing.T) {
 func TestGetCharacterMembershipApplicantKeepsApplicationGuild(t *testing.T) {
 	repo, db, guildID, _ := setupGuildRepo(t)
 	userID := CreateTestUser(t, db, "membership_applicant_user")
-	charID := CreateTestCharacter(t, db, userID, "MembershipApplicant")
+	charID := CreateTestCharacter(t, db, userID, "MemberApplicant")
 
 	if err := repo.CreateApplication(guildID, charID, charID, GuildApplicationTypeApplied); err != nil {
 		t.Fatalf("CreateApplication failed: %v", err)
@@ -245,7 +245,7 @@ func TestGetCharacterMembershipApplicantKeepsApplicationGuild(t *testing.T) {
 func TestGetCharacterMembershipPrefersFullMembership(t *testing.T) {
 	repo, db, memberGuildID, charID := setupGuildRepo(t)
 	otherUserID := CreateTestUser(t, db, "membership_other_leader_user")
-	otherLeaderID := CreateTestCharacter(t, db, otherUserID, "MembershipOtherLeader")
+	otherLeaderID := CreateTestCharacter(t, db, otherUserID, "MemberLeader")
 	applicationGuildID := CreateTestGuild(t, db, otherLeaderID, "MembershipOtherGuild")
 
 	// Represent legacy/corrupt data that contains both a full membership and a
@@ -374,7 +374,7 @@ func TestApplicationWorkflow(t *testing.T) {
 func TestApplicationMutationsAreGuildScoped(t *testing.T) {
 	repo, db, wrongGuildID, _ := setupGuildRepo(t)
 	otherUserID := CreateTestUser(t, db, "scoped_app_other_user")
-	otherLeaderID := CreateTestCharacter(t, db, otherUserID, "ScopedAppOtherLeader")
+	otherLeaderID := CreateTestCharacter(t, db, otherUserID, "ScopeAppLeader")
 	applicationGuildID := CreateTestGuild(t, db, otherLeaderID, "ScopedApplicationGuild")
 	applicantUserID := CreateTestUser(t, db, "scoped_applicant_user")
 	applicantID := CreateTestCharacter(t, db, applicantUserID, "ScopedApplicant")
@@ -405,10 +405,10 @@ func TestApplicationMutationsAreGuildScoped(t *testing.T) {
 func TestAcceptApplicationClearsOtherPendingApplications(t *testing.T) {
 	repo, db, acceptedGuildID, _ := setupGuildRepo(t)
 	otherLeaderUserID := CreateTestUser(t, db, "accept_clear_other_leader_user")
-	otherLeaderID := CreateTestCharacter(t, db, otherLeaderUserID, "AcceptClearOtherLeader")
+	otherLeaderID := CreateTestCharacter(t, db, otherLeaderUserID, "ClearLeader")
 	otherGuildID := CreateTestGuild(t, db, otherLeaderID, "AcceptClearOtherGuild")
 	applicantUserID := CreateTestUser(t, db, "accept_clear_applicant_user")
-	applicantID := CreateTestCharacter(t, db, applicantUserID, "AcceptClearApplicant")
+	applicantID := CreateTestCharacter(t, db, applicantUserID, "ClearApplicant")
 
 	for _, guildID := range []uint32{acceptedGuildID, otherGuildID} {
 		if err := repo.CreateApplication(guildID, applicantID, applicantID, GuildApplicationTypeApplied); err != nil {
@@ -433,7 +433,7 @@ func TestAcceptApplicationClearsOtherPendingApplications(t *testing.T) {
 func TestAcceptApplicationRejectsExistingMembership(t *testing.T) {
 	repo, db, _, memberCharID := setupGuildRepo(t)
 	otherUserID := CreateTestUser(t, db, "accept_existing_other_user")
-	otherLeaderID := CreateTestCharacter(t, db, otherUserID, "AcceptExistingOtherLeader")
+	otherLeaderID := CreateTestCharacter(t, db, otherUserID, "ExistingLeader")
 	applicationGuildID := CreateTestGuild(t, db, otherLeaderID, "AcceptExistingOtherGuild")
 
 	if _, err := db.Exec(`
@@ -454,7 +454,7 @@ func TestAcceptApplicationRejectsExistingMembership(t *testing.T) {
 func TestRemoveCharacterIsGuildScoped(t *testing.T) {
 	repo, db, wrongGuildID, _ := setupGuildRepo(t)
 	otherUserID := CreateTestUser(t, db, "scoped_remove_other_user")
-	otherLeaderID := CreateTestCharacter(t, db, otherUserID, "ScopedRemoveOtherLeader")
+	otherLeaderID := CreateTestCharacter(t, db, otherUserID, "RemoveLeader")
 	actualGuildID := CreateTestGuild(t, db, otherLeaderID, "ScopedRemoveOtherGuild")
 
 	if err := repo.RemoveCharacter(wrongGuildID, otherLeaderID); !errors.Is(err, ErrGuildMemberMissing) {
@@ -651,7 +651,7 @@ func TestArrangeCharactersRejectsCrossGuildMemberAtomically(t *testing.T) {
 	repo, db, guildID, _ := setupGuildRepo(t)
 
 	memberUserID := CreateTestUser(t, db, "arrange_atomic_member_user")
-	memberID := CreateTestCharacter(t, db, memberUserID, "ArrangeAtomicMember")
+	memberID := CreateTestCharacter(t, db, memberUserID, "ArrangeMember")
 	if _, err := db.Exec(
 		"INSERT INTO guild_characters (guild_id, character_id, order_index) VALUES ($1, $2, 7)",
 		guildID, memberID,
@@ -660,7 +660,7 @@ func TestArrangeCharactersRejectsCrossGuildMemberAtomically(t *testing.T) {
 	}
 
 	otherLeaderUserID := CreateTestUser(t, db, "arrange_atomic_other_leader_user")
-	otherLeaderID := CreateTestCharacter(t, db, otherLeaderUserID, "ArrangeAtomicOtherLeader")
+	otherLeaderID := CreateTestCharacter(t, db, otherLeaderUserID, "ArrangeLeader")
 	CreateTestGuild(t, db, otherLeaderID, "ArrangeAtomicOtherGuild")
 
 	err := repo.ArrangeCharacters(guildID, []uint32{memberID, otherLeaderID})
@@ -699,7 +699,7 @@ func TestSetRecruiter(t *testing.T) {
 func TestSetRecruiterRejectsCrossGuildMember(t *testing.T) {
 	repo, db, wrongGuildID, actorCharID := setupGuildRepo(t)
 	otherLeaderUserID := CreateTestUser(t, db, "recruiter_scope_other_leader_user")
-	otherLeaderID := CreateTestCharacter(t, db, otherLeaderUserID, "RecruiterScopeOtherLeader")
+	otherLeaderID := CreateTestCharacter(t, db, otherLeaderUserID, "RecruitLeader")
 	actualGuildID := CreateTestGuild(t, db, otherLeaderID, "RecruiterScopeOtherGuild")
 
 	if err := repo.SetRecruiter(wrongGuildID, actorCharID, otherLeaderID, true); !errors.Is(err, ErrGuildMemberMissing) {
@@ -768,10 +768,10 @@ func TestCancelInviteCannotCrossGuild(t *testing.T) {
 	repo, db, firstGuildID, _ := setupGuildRepo(t)
 
 	secondLeaderUserID := CreateTestUser(t, db, "second_invite_guild_leader_user")
-	secondLeaderID := CreateTestCharacter(t, db, secondLeaderUserID, "SecondInviteLeader")
+	secondLeaderID := CreateTestCharacter(t, db, secondLeaderUserID, "InviteLeader")
 	secondGuildID := CreateTestGuild(t, db, secondLeaderID, "SecondInviteGuild")
 	invitedUserID := CreateTestUser(t, db, "cross_guild_invite_user")
-	invitedCharID := CreateTestCharacter(t, db, invitedUserID, "CrossGuildInvited")
+	invitedCharID := CreateTestCharacter(t, db, invitedUserID, "CrossInvited")
 
 	if err := repo.CreateInviteWithMail(secondGuildID, invitedCharID, secondLeaderID, secondLeaderID, invitedCharID, "Invite", "body"); err != nil {
 		t.Fatalf("CreateInviteWithMail failed: %v", err)

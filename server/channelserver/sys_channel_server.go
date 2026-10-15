@@ -321,6 +321,7 @@ func (s *Server) Start() error {
 	go s.raviAutoSupport() // no-op unless a Raviente auto-support interval is enabled
 	go s.settleDivaMaps()
 	go s.rotateTowerEvents()
+	go s.rotateInactiveGuildLeaders()
 
 	// Start the discord bot for chat integration.
 	if s.erupeConfig.Discord.Enabled && s.discordBot != nil {

@@ -341,12 +341,17 @@ type mockGuildRepo struct {
 	getMembersErr   error
 	saveErr         error
 	saveMemberErr   error
+	resignErr       error
+	resignResult    uint32
+	resignArgs      []uint32
 	disbandErr      error
 	acceptErr       error
 	rejectErr       error
 	removeErr       error
 	createAppErr    error
 	getMemberErr    error
+	findReturnErr   error
+	addMemberErr    error
 	cancelInviteErr error
 	arrangeErr      error
 	setRecruiterErr error
@@ -383,6 +388,16 @@ type mockGuildRepo struct {
 	savedGuild           *Guild
 	savedMembers         []*GuildMember
 	createdAppArgs       []interface{}
+	findReturnCalls      int
+	joinReturnCalls      int
+	joinReturnCharID     uint32
+	joinReturnErr        error
+	returnGuildID        uint32
+	returnGuildType      uint8
+	returnGuildTemplate  string
+	addMemberCalls       int
+	addedMemberGuildID   uint32
+	addedMemberCharID    uint32
 	createdPost          []interface{}
 	deletedPostGuildID   uint32
 	deletedPostID        uint32
@@ -500,6 +515,21 @@ func (m *mockGuildRepo) Save(guild *Guild) error {
 func (m *mockGuildRepo) SaveMember(member *GuildMember) error {
 	m.savedMembers = append(m.savedMembers, member)
 	return m.saveMemberErr
+}
+
+func (m *mockGuildRepo) ResignLeadership(guildID, actorCharID uint32) (uint32, error) {
+	m.resignArgs = []uint32{guildID, actorCharID}
+	return m.resignResult, m.resignErr
+}
+
+func (m *mockGuildRepo) SetAvoidLeadership(guildID, charID uint32, avoid bool) error {
+	if m.saveMemberErr != nil {
+		return m.saveMemberErr
+	}
+	if m.membership != nil {
+		m.membership.AvoidLeadership = avoid
+	}
+	return nil
 }
 
 func (m *mockGuildRepo) Disband(guildID uint32) error {
@@ -820,10 +850,31 @@ func (m *mockGuildRepo) AddWeeklyBonusUsersForMember(guildID, actorCharID uint32
 	m.weeklyBonusArgs = []uint32{guildID, actorCharID, uint32(numUsers)}
 	return nil
 }
-func (m *mockGuildRepo) FindOrCreateReturnGuild(_ uint8, _ string) (uint32, error) {
-	return 1, nil
+func (m *mockGuildRepo) FindOrCreateReturnGuild(returnType uint8, nameTemplate string) (uint32, error) {
+	m.findReturnCalls++
+	m.returnGuildType, m.returnGuildTemplate = returnType, nameTemplate
+	id := m.returnGuildID
+	if id == 0 {
+		id = 1
+	}
+	return id, m.findReturnErr
 }
-func (m *mockGuildRepo) AddMember(_, _ uint32) error { return nil }
+
+func (m *mockGuildRepo) JoinReturnGuild(charID uint32, returnType uint8, nameTemplate string) (uint32, error) {
+	m.joinReturnCalls++
+	m.joinReturnCharID = charID
+	m.returnGuildType, m.returnGuildTemplate = returnType, nameTemplate
+	id := m.returnGuildID
+	if id == 0 {
+		id = 1
+	}
+	return id, m.joinReturnErr
+}
+func (m *mockGuildRepo) AddMember(guildID, charID uint32) error {
+	m.addMemberCalls++
+	m.addedMemberGuildID, m.addedMemberCharID = guildID, charID
+	return m.addMemberErr
+}
 
 // --- mockUserRepoForItems ---
 
@@ -1122,6 +1173,7 @@ func (m *mockGachaRepo) InsertStepup(_ uint32, step uint8, _ uint32) error {
 func (m *mockGachaRepo) GetBoxEntryIDs(_ uint32, _ uint32) ([]uint32, error) {
 	return m.boxEntryIDs, m.boxEntryIDsErr
 }
+
 // GetBoxDrawCounts counts boxEntryIDs (one element per drawn ball) by entry.
 func (m *mockGachaRepo) GetBoxDrawCounts(_ uint32, _ uint32) ([]BoxDrawCount, error) {
 	if m.boxEntryIDsErr != nil {
