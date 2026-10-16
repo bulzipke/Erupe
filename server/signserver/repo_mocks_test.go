@@ -37,8 +37,10 @@ type mockSignUserRepo struct {
 	lastLoginErr error
 
 	// GetReturnExpiry
-	returnExpiry    time.Time
-	returnExpiryErr error
+	returnExpiry      time.Time
+	returnExpiryErr   error
+	newcomerExpiry    time.Time
+	newcomerExpiryErr error
 
 	// UpdateReturnExpiry
 	updateReturnExpiryErr    error
@@ -101,6 +103,10 @@ func (m *mockSignUserRepo) GetLastCharacter(uid uint32) (uint32, error) {
 
 func (m *mockSignUserRepo) GetLastLogin(uid uint32) (time.Time, error) {
 	return m.lastLogin, m.lastLoginErr
+}
+
+func (m *mockSignUserRepo) GetNewcomerExpiry(_ uint32) (time.Time, error) {
+	return m.newcomerExpiry, m.newcomerExpiryErr
 }
 
 func (m *mockSignUserRepo) GetReturnExpiry(uid uint32) (time.Time, error) {

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"erupe-ce/common/accountprivilege"
 	cfg "erupe-ce/config"
 	"erupe-ce/network"
 	"github.com/jmoiron/sqlx"
@@ -131,6 +132,11 @@ func (s *Server) handleEntranceServerConnection(conn net.Conn) {
 		return
 	} else if n != len(nullInit) {
 		s.logger.Warn("io.ReadFull couldn't read the full 8 byte init.")
+		return
+	}
+
+	if string(nullInit) == accountprivilege.RequestMagic {
+		s.handleAccountPrivilege(conn, nullInit)
 		return
 	}
 

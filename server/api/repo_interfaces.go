@@ -41,6 +41,7 @@ type APIUserRepo interface {
 	GetLastLogin(uid uint32) (time.Time, error)
 	// GetReturnExpiry returns the user's return expiry time.
 	GetReturnExpiry(uid uint32) (time.Time, error)
+	GetNewcomerExpiry(uid uint32) (time.Time, error)
 	// UpdateReturnExpiry sets the user's return expiry time.
 	UpdateReturnExpiry(uid uint32, expiry time.Time) error
 	// UpdateLastLogin sets the user's last login time.

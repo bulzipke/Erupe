@@ -19,11 +19,11 @@ func NewUserRepository(db *sqlx.DB) *UserRepository {
 	return &UserRepository{db: db}
 }
 
-// ReturnWorldEligible checks the account-wide expiry, including the new-account
-// first-character grant. NULL and expired values do not grant access.
+// ReturnWorldEligible accepts either account-wide native entitlement.
+// NULL and expired values do not grant access.
 func (r *UserRepository) ReturnWorldEligible(userID uint32, now time.Time) (bool, error) {
 	var eligible bool
-	err := r.db.QueryRow("SELECT COALESCE(return_expires > $2, false) FROM users WHERE id=$1", userID, now).Scan(&eligible)
+	err := r.db.QueryRow("SELECT COALESCE(return_expires > $2, false) OR COALESCE(newcomer_expires > $2, false) FROM users WHERE id=$1", userID, now).Scan(&eligible)
 	return eligible, err
 }
 

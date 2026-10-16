@@ -35,7 +35,7 @@ func (s *Server) registerDBAccount(username string, password string) (uint32, er
 		return 0, err
 	}
 
-	// Registration alone does not start the newcomer window. Migration 0080
+	// Registration alone does not start the newcomer window. Migration 0084
 	// grants it on the first character insert; 90-day absence remains separate.
 	uid, err := s.userRepo.Register(username, string(passwordHash), time.Time{})
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"errors"
+	"erupe-ce/common/accountprivilege"
 	"erupe-ce/common/gametime"
 	"erupe-ce/common/mhfcourse"
 	cfg "erupe-ce/config"
@@ -92,16 +93,17 @@ type MezFes struct {
 // AuthData is the JSON payload returned after successful login or registration,
 // containing session info, character list, event data, and server notices.
 type AuthData struct {
-	CurrentTS     uint32       `json:"currentTs"`
-	ExpiryTS      uint32       `json:"expiryTs"`
-	EntranceCount uint32       `json:"entranceCount"`
-	Notices       []string     `json:"notices"`
-	User          User         `json:"user"`
-	Characters    []Character  `json:"characters"`
-	Courses       []CourseInfo `json:"courses"`
-	MezFes        *MezFes      `json:"mezFes"`
-	PatchServer   string       `json:"patchServer"`
-	ClientFilter  []byte       `json:"clientFilter,omitempty"`
+	CurrentTS        uint32       `json:"currentTs"`
+	ExpiryTS         uint32       `json:"expiryTs"`
+	NewcomerExpiryTS uint32       `json:"newcomerExpiryTs"`
+	EntranceCount    uint32       `json:"entranceCount"`
+	Notices          []string     `json:"notices"`
+	User             User         `json:"user"`
+	Characters       []Character  `json:"characters"`
+	Courses          []CourseInfo `json:"courses"`
+	MezFes           *MezFes      `json:"mezFes"`
+	PatchServer      string       `json:"patchServer"`
+	ClientFilter     []byte       `json:"clientFilter,omitempty"`
 }
 
 // ExportData wraps a character's full database row for save export.
@@ -113,16 +115,16 @@ func (s *APIServer) newAuthData(userID uint32, userRights uint32, userTokenID ui
 	// The zero time means the account has no returning-player status. Its Unix() is
 	// negative, so convert it explicitly instead of letting the uint32 cast wrap it
 	// into a far-future timestamp that would unlock the Return world.
-	var expiryTS uint32
-	if returnExpiry := s.getReturnExpiry(userID); !returnExpiry.IsZero() {
-		if unix := returnExpiry.Unix(); unix > 0 {
-			expiryTS = uint32(unix)
-		}
+	expiryTS := accountprivilege.Timestamp(s.getReturnExpiry(userID))
+	newcomerExpiry, newcomerErr := s.userRepo.GetNewcomerExpiry(userID)
+	if newcomerErr != nil {
+		newcomerExpiry = time.Time{}
 	}
 	resp := AuthData{
-		CurrentTS:     uint32(gametime.Adjusted().Unix()),
-		ExpiryTS:      expiryTS,
-		EntranceCount: 1,
+		CurrentTS:        uint32(gametime.Adjusted().Unix()),
+		ExpiryTS:         expiryTS,
+		NewcomerExpiryTS: accountprivilege.Timestamp(newcomerExpiry),
+		EntranceCount:    1,
 		User: User{
 			Rights:  userRights,
 			TokenID: userTokenID,
@@ -133,10 +135,11 @@ func (s *APIServer) newAuthData(userID uint32, userRights uint32, userTokenID ui
 		Notices:      []string{},
 		ClientFilter: append([]byte(nil), s.clientFilter...),
 	}
-	// Compute returning status per character
-	ninetyDaysAgo := time.Now().Add(-90 * 24 * time.Hour)
+	// Eligibility is account-wide; an unused alternate character is not a
+	// returning account while the same account has been playing another slot.
+	returning := expiryTS > accountprivilege.Timestamp(time.Now())
 	for i := range resp.Characters {
-		resp.Characters[i].Returning = time.Unix(int64(resp.Characters[i].LastLogin), 0).Before(ninetyDaysAgo)
+		resp.Characters[i].Returning = returning
 	}
 	// Derive active courses from user rights, including courses enabled
 	// server-wide in config (matches the sign/channel servers).

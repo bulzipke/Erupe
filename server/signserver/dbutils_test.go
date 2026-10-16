@@ -469,11 +469,11 @@ func TestGetReturnExpiryDBError(t *testing.T) {
 	}
 
 	expiry := server.getReturnExpiry(1)
-	if expiry.IsZero() {
-		t.Error("getReturnExpiry() should return non-zero time even on error")
+	if !expiry.IsZero() {
+		t.Error("a database error must not invent returning-player status")
 	}
-	if !userRepo.updateReturnExpiryCalled {
-		t.Error("getReturnExpiry() should update return expiry on fallback")
+	if userRepo.updateReturnExpiryCalled {
+		t.Error("a database error must not persist invented returning-player status")
 	}
 }
 

@@ -87,4 +87,14 @@ func TestRepoReturnWorldEligible(t *testing.T) {
 	if _, err := repo.ReturnWorldEligible(uid+999999, now); err == nil {
 		t.Fatal("unknown account did not fail closed")
 	}
+	for _, expiry := range []any{nil, now.Add(-time.Second), now, now.Add(time.Second)} {
+		if _, err := db.Exec("UPDATE users SET return_expires=NULL,newcomer_expires=$1 WHERE id=$2", expiry, uid); err != nil {
+			t.Fatal(err)
+		}
+		got, err := repo.ReturnWorldEligible(uid, now)
+		want := expiry != nil && expiry.(time.Time).After(now)
+		if err != nil || got != want {
+			t.Fatalf("newcomer expiry=%v allowed=%t want=%t err=%v", expiry, got, want, err)
+		}
+	}
 }

@@ -18,9 +18,9 @@ func NewAPIUserRepository(db *sqlx.DB) *APIUserRepository {
 	return &APIUserRepository{db: db}
 }
 
-// Register creates an account. A zero returnExpires stores NULL, which is what a
-// brand-new account gets until its first character starts the 30-day window
-// (migration 0080). A real time is still supported for admin-granted status.
+// Register never invents returning status for a new account. Migration 0084
+// starts its separate 30-day newcomer_expires on first character creation.
+// A nonzero returnExpires still supports explicit administrative return grants.
 func (r *APIUserRepository) Register(ctx context.Context, username, passwordHash string, returnExpires time.Time) (uint32, uint32, error) {
 	var (
 		id     uint32
@@ -75,6 +75,15 @@ func (r *APIUserRepository) GetReturnExpiry(uid uint32) (time.Time, error) {
 func (r *APIUserRepository) UpdateReturnExpiry(uid uint32, expiry time.Time) error {
 	_, err := r.db.Exec("UPDATE users SET return_expires=$1 WHERE id=$2", expiry, uid)
 	return err
+}
+
+func (r *APIUserRepository) GetNewcomerExpiry(uid uint32) (time.Time, error) {
+	var expiry sql.NullTime
+	err := r.db.Get(&expiry, "SELECT newcomer_expires FROM users WHERE id=$1", uid)
+	if err != nil || !expiry.Valid {
+		return time.Time{}, err
+	}
+	return expiry.Time, nil
 }
 
 func (r *APIUserRepository) UpdateLastLogin(uid uint32, loginTime time.Time) error {

@@ -33,6 +33,7 @@ type SignUserRepo interface {
 	GetLastCharacter(uid uint32) (uint32, error)
 	GetLastLogin(uid uint32) (time.Time, error)
 	GetReturnExpiry(uid uint32) (time.Time, error)
+	GetNewcomerExpiry(uid uint32) (time.Time, error)
 	UpdateReturnExpiry(uid uint32, expiry time.Time) error
 	UpdateLastLogin(uid uint32, loginTime time.Time) error
 	CountPermanentBans(uid uint32) (int, error)

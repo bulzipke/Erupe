@@ -19,8 +19,10 @@ type mockAPIUserRepo struct {
 	lastLogin    time.Time
 	lastLoginErr error
 
-	returnExpiry    time.Time
-	returnExpiryErr error
+	returnExpiry      time.Time
+	returnExpiryErr   error
+	newcomerExpiry    time.Time
+	newcomerExpiryErr error
 
 	updateReturnExpiryErr error
 	updateLastLoginErr    error
@@ -36,6 +38,10 @@ func (m *mockAPIUserRepo) GetCredentials(_ context.Context, _ string) (uint32, s
 
 func (m *mockAPIUserRepo) GetLastLogin(_ uint32) (time.Time, error) {
 	return m.lastLogin, m.lastLoginErr
+}
+
+func (m *mockAPIUserRepo) GetNewcomerExpiry(_ uint32) (time.Time, error) {
+	return m.newcomerExpiry, m.newcomerExpiryErr
 }
 
 func (m *mockAPIUserRepo) GetReturnExpiry(_ uint32) (time.Time, error) {

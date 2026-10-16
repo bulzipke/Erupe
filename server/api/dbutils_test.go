@@ -66,6 +66,7 @@ func TestUserIDFromTokenScenarios(t *testing.T) {
 
 // TestGetReturnExpiryCalculation tests the return expiry calculation logic
 func TestGetReturnExpiryCalculation(t *testing.T) {
+	now := time.Now()
 	tests := []struct {
 		name         string
 		lastLogin    time.Time
@@ -89,10 +90,10 @@ func TestGetReturnExpiryCalculation(t *testing.T) {
 		},
 		{
 			name:         "ExactlyNinetyDaysAgo",
-			lastLogin:    time.Now().Add(-90 * 24 * time.Hour),
+			lastLogin:    now.Add(-90 * 24 * time.Hour),
 			currentTime:  time.Now(),
-			shouldUpdate: true, // Changed: exactly 90 days also triggers update
-			description:  "User exactly 90 days inactive should trigger update (boundary is exclusive)",
+			shouldUpdate: false,
+			description:  "Exactly 90 days is not strictly before the fixed threshold",
 		},
 		{
 			name:         "JustOver90Days",
@@ -106,7 +107,7 @@ func TestGetReturnExpiryCalculation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Calculate if 90 days have passed
-			threshold := time.Now().Add(-90 * 24 * time.Hour)
+			threshold := now.Add(-90 * 24 * time.Hour)
 			hasExceeded := threshold.After(tt.lastLogin)
 
 			if hasExceeded != tt.shouldUpdate {

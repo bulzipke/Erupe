@@ -6,8 +6,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"go.uber.org/zap"
 )
 
 func TestRookieReturnFirstCharacter(t *testing.T) {
@@ -31,8 +29,13 @@ func TestRookieReturnFirstCharacter(t *testing.T) {
 	if err := db.Get(&legacy, "INSERT INTO users(username,password) VALUES('legacy','test') RETURNING id"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Migrate(db, zap.NewNop()); err != nil {
-		t.Fatal(err)
+	// Verify the historical migration in isolation. 0084 supersedes this grant.
+	for _, file := range files {
+		if file.version == 80 {
+			if err := applyMigration(db, file); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	newUser := func(name string) uint32 {
 		t.Helper()

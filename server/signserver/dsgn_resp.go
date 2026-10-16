@@ -1,6 +1,7 @@
 package signserver
 
 import (
+	"erupe-ce/common/accountprivilege"
 	"erupe-ce/common/byteframe"
 	"erupe-ce/common/gametime"
 	ps "erupe-ce/common/pascalstring"
@@ -199,14 +200,13 @@ func (s *Session) makeSignResponse(uid uint32) []byte {
 	// The zero time means the account has no returning-player status. Its Unix()
 	// is negative, so convert it explicitly instead of letting the uint32 cast
 	// wrap it into a far-future timestamp that would unlock the Return world.
-	var returnExpiryTS uint32
-	if returnExpiry := s.server.getReturnExpiry(uid); !returnExpiry.IsZero() {
-		if unix := returnExpiry.Unix(); unix > 0 {
-			returnExpiryTS = uint32(unix)
-		}
-	}
+	returnExpiryTS := accountprivilege.Timestamp(s.server.getReturnExpiry(uid))
 	bf.WriteUint32(returnExpiryTS)
-	bf.WriteUint32(0)
+	newcomerExpiry, newcomerErr := s.server.userRepo.GetNewcomerExpiry(uid)
+	if newcomerErr != nil {
+		newcomerExpiry = time.Time{}
+	}
+	bf.WriteUint32(accountprivilege.Timestamp(newcomerExpiry))
 
 	tickets := []uint32{
 		s.server.erupeConfig.GameplayOptions.MezFesSoloTickets,
