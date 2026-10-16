@@ -50,8 +50,10 @@ func handleMsgMhfEnumerateGuildMessageBoard(s *Session, p mhfpacket.MHFPacket) {
 		bf.WriteUint32(uint32(stringsupport.CSVLength(postData.LikedBy)))
 		bf.WriteBool(stringsupport.CSVContains(postData.LikedBy, int(s.charID)))
 		bf.WriteUint32(postData.StampID)
-		ps.Uint32(bf, postData.Title, true)
-		ps.Uint32(bf, postData.Body, true)
+		// Player text uses CP949, like incoming board posts and outgoing mail.
+		// Preserve the Pascal length/NUL framing without a second Shift-JIS conversion.
+		ps.Uint32(bf, string(stringsupport.UTF8ToSJIS(postData.Title)), false)
+		ps.Uint32(bf, string(stringsupport.UTF8ToSJIS(postData.Body)), false)
 	}
 	data := byteframe.NewByteFrame()
 	data.WriteUint32(uint32(len(posts)))

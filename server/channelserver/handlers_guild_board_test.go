@@ -1,10 +1,15 @@
 package channelserver
 
 import (
+	"bytes"
+	"fmt"
 	"testing"
 	"time"
 
+	"erupe-ce/common/byteframe"
 	"erupe-ce/network/mhfpacket"
+	"golang.org/x/text/encoding/korean"
+	"golang.org/x/text/transform"
 )
 
 // --- handleMsgMhfUpdateGuildMessageBoard tests ---
@@ -213,6 +218,71 @@ func TestEnumerateGuildMessageBoard_WithPosts(t *testing.T) {
 		}
 	default:
 		t.Error("No response packet queued")
+	}
+}
+
+func TestEnumerateGuildMessageBoard_CP949(t *testing.T) {
+	cases := []struct {
+		title, body, wantTitle, wantBody string
+	}{
+		{"코코샤넬 공지 1", "한글 본문입니다.\r\n둘째 줄 ABC 123", "코코샤넬 공지 1", "한글 본문입니다.\r\n둘째 줄 ABC 123"},
+		{"", "", "", ""},
+		{"ASCII title", "Test\r\nNext line 123", "ASCII title", "Test\r\nNext line 123"},
+		{"안내😀", "앞😀뒤", "안내", "앞뒤"}, // Match the existing CP949 text helper's unsupported-rune policy.
+	}
+	for _, boardType := range []uint32{0, 1} {
+		t.Run(fmt.Sprintf("board_type_%d", boardType), func(t *testing.T) {
+			server := createMockServer()
+			posts := make([]*MessageBoardPost, len(cases))
+			for i, test := range cases {
+				posts[i] = &MessageBoardPost{
+					ID: uint32(10 + i), AuthorID: uint32(100 + i), StampID: uint32(5 + i),
+					Title: test.title, Body: test.body, Timestamp: time.Unix(1700000000+int64(i), 0), LikedBy: "1,2",
+				}
+			}
+			server.guildRepo = &mockGuildRepo{guild: &Guild{ID: 10}, posts: posts}
+			server.charRepo = newMockCharacterRepo()
+			session := createMockSession(1, server)
+			handleMsgMhfEnumerateGuildMessageBoard(session, &mhfpacket.MsgMhfEnumerateGuildMessageBoard{
+				AckHandle: 77, BoardType: boardType, MaxPosts: 100,
+			})
+			ack := readAck(t, session)
+			if ack.AckHandle != 77 || !ack.IsBufferResponse || ack.ErrorCode != 0 {
+				t.Fatalf("unexpected ACK: %+v", ack)
+			}
+			bf := byteframe.NewByteFrameFromBytes(ack.Payload)
+			if got := bf.ReadUint32(); got != uint32(len(posts)) {
+				t.Fatalf("post count = %d, want %d", got, len(posts))
+			}
+			readText := func(field, want string) {
+				t.Helper()
+				expected, _, err := transform.String(korean.EUCKR.NewEncoder(), want)
+				if err != nil {
+					t.Fatal(err)
+				}
+				length := bf.ReadUint32()
+				if length != uint32(len(expected)+1) {
+					t.Fatalf("%s byte length = %d, want %d including NUL", field, length, len(expected)+1)
+				}
+				wire := bf.ReadBytes(uint(length))
+				if !bytes.Equal(wire, append([]byte(expected), 0)) {
+					t.Fatalf("%s CP949 bytes = %x, want %x00", field, wire, expected)
+				}
+			}
+			for i, post := range posts {
+				if id, author, reserved, timestamp := bf.ReadUint32(), bf.ReadUint32(), bf.ReadUint32(), bf.ReadUint32(); id != post.ID || author != post.AuthorID || reserved != 0 || timestamp != uint32(post.Timestamp.Unix()) {
+					t.Fatalf("post %d metadata changed: %d %d %d %d", i, id, author, reserved, timestamp)
+				}
+				if count, liked, stamp := bf.ReadUint32(), bf.ReadBool(), bf.ReadUint32(); count != 2 || !liked || stamp != post.StampID {
+					t.Fatalf("post %d likes/stamp changed: %d %t %d", i, count, liked, stamp)
+				}
+				readText(fmt.Sprintf("post %d title", i), cases[i].wantTitle)
+				readText(fmt.Sprintf("post %d body", i), cases[i].wantBody)
+			}
+			if bf.Err() != nil || bf.Index() != uint(len(ack.Payload)) {
+				t.Fatalf("misaligned response: read=%d bytes=%d err=%v", bf.Index(), len(ack.Payload), bf.Err())
+			}
+		})
 	}
 }
 
