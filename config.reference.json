@@ -141,6 +141,7 @@
     "MezFesGroupTickets": 1,
     "MezFesDuration": 172800,
     "MezFesSwitchMinigame": false,
+    "MezFesRandomMinigame": false,
     "EnableKaijiEvent": false,
     "EnableHiganjimaEvent": false,
     "EnableNierEvent": false,

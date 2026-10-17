@@ -375,6 +375,10 @@ func main() {
 		count := 1
 		seenPorts := make(map[uint16]string)
 		for j, ee := range config.Entrance.Entries {
+			var mezFesRotation *channelserver.MezFesRotation
+			if ee.Type == 6 && config.GameplayOptions.MezFesRandomMinigame {
+				mezFesRotation = channelserver.NewMezFesRotation()
+			}
 			var collabRotation *channelserver.CollabRotation
 			if ee.CollabEvent == "random" {
 				// All channels under one entrance entry share the same rotation.
@@ -405,6 +409,7 @@ func main() {
 					CollabEvent:    ee.CollabEvent,
 					WorldType:      ee.Type,
 					CollabRotation: collabRotation,
+					MezFesRotation: mezFesRotation,
 				})
 				if ee.IP == "" {
 					c.IP = config.Host

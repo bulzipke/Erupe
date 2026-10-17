@@ -57,6 +57,8 @@ type Session struct {
 	cachedI18nLang         string // Lang the cachedI18n was built for
 	collabEvent            string // Random collaboration selected for this login session.
 	collabRotationAcquired bool
+	mezFesRotationAcquired bool
+	mezFesMinigame         uint16
 	logKey                 []byte
 	sessionStart           int64
 	courses                []mhfcourse.Course

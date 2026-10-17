@@ -37,6 +37,7 @@ type Config struct {
 	CollabEvent    string
 	WorldType      uint8
 	CollabRotation *CollabRotation
+	MezFesRotation *MezFesRotation
 }
 
 // Server is a MHF channel server.
@@ -100,6 +101,7 @@ type Server struct {
 	collabEvent        string
 	worldType          uint8
 	collabRotation     *CollabRotation
+	mezFesRotation     *MezFesRotation
 	acceptConns        chan net.Conn
 	deleteConns        chan net.Conn
 	sessions           map[net.Conn]*Session
@@ -164,6 +166,10 @@ func NewServer(config *Config) *Server {
 	if config.CollabEvent == collabRandom && collabRotation == nil {
 		collabRotation = NewCollabRotation()
 	}
+	mezFesRotation := config.MezFesRotation
+	if config.WorldType == 6 && config.ErupeConfig.GameplayOptions.MezFesRandomMinigame && mezFesRotation == nil {
+		mezFesRotation = NewMezFesRotation()
+	}
 	s := &Server{
 		ID:             config.ID,
 		logger:         config.Logger,
@@ -172,6 +178,7 @@ func NewServer(config *Config) *Server {
 		collabEvent:    config.CollabEvent,
 		worldType:      config.WorldType,
 		collabRotation: collabRotation,
+		mezFesRotation: mezFesRotation,
 		acceptConns:    make(chan net.Conn),
 		deleteConns:    make(chan net.Conn),
 		done:           make(chan struct{}),

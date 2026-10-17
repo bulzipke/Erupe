@@ -268,6 +268,7 @@ type GameplayOptions struct {
 	MezFesGroupTickets             uint32  // Number of group tickets given weekly
 	MezFesDuration                 int     // Seconds that MezFes will last for weekly (from 12AM Mon backwards)
 	MezFesSwitchMinigame           bool    // Swaps out Volpakkun Together for Tokotoko Partnya
+	MezFesRandomMinigame           bool    // Random group game per occupied MezFes world; requires matching Vorbis update
 	EnableKaijiEvent               bool    // Enables the Kaiji event in the Rasta Bar
 	EnableHiganjimaEvent           bool    // Enables the Higanjima event in the Rasta Bar
 	EnableNierEvent                bool    // Enables the Nier event in the Rasta Bar

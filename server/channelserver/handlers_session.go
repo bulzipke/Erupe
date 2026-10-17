@@ -200,6 +200,7 @@ func handleMsgSysLogin(s *Session, p mhfpacket.MHFPacket) {
 	// A random collaboration is selected only on the world's first successful
 	// login and remains fixed until its final authenticated session leaves.
 	s.acquireCollabEvent()
+	s.acquireMezFesMinigame()
 
 	doAckSimpleSucceed(s, pkt.AckHandle, bf.Data())
 
@@ -373,6 +374,9 @@ func finalizeRuntimeLogout(s *Session) {
 
 	runLogoutCleanupPhase(s, "collaboration rotation", func() {
 		s.releaseCollabEvent()
+	})
+	runLogoutCleanupPhase(s, "MezFes rotation", func() {
+		s.releaseMezFesMinigame()
 	})
 
 	var remainingSessions []*Session
