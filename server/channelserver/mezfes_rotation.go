@@ -50,7 +50,7 @@ func (r *MezFesRotation) release() (uint16, bool) {
 }
 
 func (s *Session) acquireMezFesMinigame() {
-	if s.server == nil || s.server.worldType != 6 || s.server.mezFesRotation == nil || !s.server.erupeConfig.GameplayOptions.MezFesRandomMinigame {
+	if s.server == nil || s.server.worldType != 6 || s.server.mezFesMinigame != 0 || s.server.mezFesRotation == nil || !s.server.erupeConfig.GameplayOptions.MezFesRandomMinigame {
 		return
 	}
 	s.Lock()
@@ -85,6 +85,9 @@ func (s *Session) releaseMezFesMinigame() {
 }
 
 func (s *Session) effectiveMezFesMinigame() uint16 {
+	if s.server.worldType == 6 && (s.server.mezFesMinigame == 2 || s.server.mezFesMinigame == 4) {
+		return s.server.mezFesMinigame
+	}
 	s.Lock()
 	game := s.mezFesMinigame
 	s.Unlock()

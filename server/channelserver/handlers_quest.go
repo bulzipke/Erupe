@@ -703,7 +703,8 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 	tuneValues = append(tuneValues, getTuneValueRange(3325, 300)...)
 
 	// Stock clients ignore this ID; Vorbis applies it before the plaza loads.
-	if s.server.erupeConfig.RealClientMode >= cfg.Z2 && s.server.erupeConfig.GameplayOptions.MezFesRandomMinigame {
+	if s.server.erupeConfig.RealClientMode >= cfg.Z2 &&
+		(s.server.erupeConfig.UsesMezFesMinigameTune() || s.server.mezFesMinigame == 2 || s.server.mezFesMinigame == 4) {
 		tuneValues = append([]tuneValue{{ID: mezFesMinigameTuneID, Value: s.effectiveMezFesMinigame()}}, tuneValues...)
 	}
 	tuneLimit := tuneLimitZZ

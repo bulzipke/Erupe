@@ -38,6 +38,7 @@ type Config struct {
 	WorldType      uint8
 	CollabRotation *CollabRotation
 	MezFesRotation *MezFesRotation
+	MezFesMinigame uint16
 }
 
 // Server is a MHF channel server.
@@ -102,6 +103,7 @@ type Server struct {
 	worldType          uint8
 	collabRotation     *CollabRotation
 	mezFesRotation     *MezFesRotation
+	mezFesMinigame     uint16
 	acceptConns        chan net.Conn
 	deleteConns        chan net.Conn
 	sessions           map[net.Conn]*Session
@@ -160,25 +162,29 @@ type Server struct {
 	ngWordLoadErr error
 }
 
+// configureChannelContent runs once before accepting players. Keep content
+// selection independent of database initialization so its inheritance is testable.
+func (s *Server) configureChannelContent(config *Config) {
+	s.worldType, s.collabEvent = config.WorldType, config.CollabEvent
+	s.collabRotation = config.CollabRotation
+	if config.CollabEvent == collabRandom && s.collabRotation == nil {
+		s.collabRotation = NewCollabRotation()
+	}
+	s.mezFesMinigame, s.mezFesRotation = config.MezFesMinigame, config.MezFesRotation
+	if config.MezFesMinigame != 0 {
+		s.mezFesRotation = nil
+	} else if config.WorldType == 6 && config.ErupeConfig.GameplayOptions.MezFesRandomMinigame && s.mezFesRotation == nil {
+		s.mezFesRotation = NewMezFesRotation()
+	}
+}
+
 // NewServer creates a new Server type.
 func NewServer(config *Config) *Server {
-	collabRotation := config.CollabRotation
-	if config.CollabEvent == collabRandom && collabRotation == nil {
-		collabRotation = NewCollabRotation()
-	}
-	mezFesRotation := config.MezFesRotation
-	if config.WorldType == 6 && config.ErupeConfig.GameplayOptions.MezFesRandomMinigame && mezFesRotation == nil {
-		mezFesRotation = NewMezFesRotation()
-	}
 	s := &Server{
 		ID:             config.ID,
 		logger:         config.Logger,
 		db:             config.DB,
 		erupeConfig:    config.ErupeConfig,
-		collabEvent:    config.CollabEvent,
-		worldType:      config.WorldType,
-		collabRotation: collabRotation,
-		mezFesRotation: mezFesRotation,
 		acceptConns:    make(chan net.Conn),
 		deleteConns:    make(chan net.Conn),
 		done:           make(chan struct{}),
@@ -198,6 +204,7 @@ func NewServer(config *Config) *Server {
 		questCache:   NewQuestCache(config.ErupeConfig.QuestCacheExpiry),
 		handlerTable: buildHandlerTable(),
 	}
+	s.configureChannelContent(config)
 	if config.ErupeConfig.NGWordsFile != "" {
 		words, err := stringsupport.LoadNGWordsCSV(config.ErupeConfig.NGWordsFile)
 		if err != nil {

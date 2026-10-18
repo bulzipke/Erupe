@@ -1,0 +1,39 @@
+{
+  "GameplayOptions": {
+    "MezFesRandomMinigame": false
+  },
+  "Entrance": {
+    "Entries": [
+      {
+        "Name": "자유",
+        "Description": "1 일반 / 2~6 콜라보 고정",
+        "IP": "",
+        "Type": 1,
+        "Recommended": 0,
+        "CollabEvent": "none",
+        "AllowedClientFlags": 0,
+        "Channels": [
+          { "Port": 53314, "MaxPlayers": 100, "Enabled": true, "CollabEvent": "none" },
+          { "Port": 53319, "MaxPlayers": 100, "Enabled": true, "CollabEvent": "kaiji" },
+          { "Port": 53320, "MaxPlayers": 100, "Enabled": true, "CollabEvent": "higanjima" },
+          { "Port": 53321, "MaxPlayers": 100, "Enabled": true, "CollabEvent": "nier" },
+          { "Port": 53322, "MaxPlayers": 100, "Enabled": true, "CollabEvent": "evangelion" },
+          { "Port": 53323, "MaxPlayers": 100, "Enabled": true, "CollabEvent": "pso2" }
+        ]
+      },
+      {
+        "Name": "메제페스",
+        "Description": "1채널 게임1 / 2채널 게임2",
+        "IP": "",
+        "Type": 6,
+        "Recommended": 6,
+        "CollabEvent": "none",
+        "AllowedClientFlags": 0,
+        "Channels": [
+          { "Port": 53318, "MaxPlayers": 100, "Enabled": true, "MezFesMinigame": 2 },
+          { "Port": 53324, "MaxPlayers": 100, "Enabled": true, "MezFesMinigame": 4 }
+        ]
+      }
+    ]
+  }
+}

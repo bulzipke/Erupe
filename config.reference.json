@@ -285,7 +285,7 @@
       }, {
         "Name": "Normal", "Description": "", "IP": "", "Type": 1, "Recommended": 0, "CollabEvent": "none", "AllowedClientFlags": 0,
         "Channels": [
-          { "Port": 54003, "MaxPlayers": 100, "Enabled": true },
+          { "Port": 54003, "MaxPlayers": 100, "Enabled": true, "CollabEvent": "" },
           { "Port": 54004, "MaxPlayers": 100, "Enabled": true }
         ]
       }, {
@@ -306,7 +306,7 @@
       }, {
         "Name": "MezFes", "Description": "", "IP": "", "Type": 6, "Recommended": 6, "CollabEvent": "none", "AllowedClientFlags": 0,
         "Channels": [
-          { "Port": 54008, "MaxPlayers": 100, "Enabled": true }
+          { "Port": 54008, "MaxPlayers": 100, "Enabled": true, "MezFesMinigame": 0 }
         ]
       }
     ]

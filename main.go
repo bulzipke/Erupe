@@ -380,11 +380,6 @@ func main() {
 				mezFesRotation = channelserver.NewMezFesRotation()
 			}
 			var collabRotation *channelserver.CollabRotation
-			if ee.CollabEvent == "random" {
-				// All channels under one entrance entry share the same rotation.
-				// The first authenticated player selects it; the last logout clears it.
-				collabRotation = channelserver.NewCollabRotation()
-			}
 			for i, ce := range ee.Channels {
 				sid := (4096 + si*256) + (16 + ci)
 				if !ce.IsEnabled() {
@@ -400,16 +395,23 @@ func main() {
 					continue
 				}
 				seenPorts[ce.Port] = fmt.Sprintf("channel %d", count)
+				collabEvent := ce.EffectiveCollabEvent(ee.CollabEvent)
+				if collabEvent == "random" && collabRotation == nil {
+					// Only random channels share occupancy; fixed/none channels do not
+					// hold the draw open when their players are the only ones remaining.
+					collabRotation = channelserver.NewCollabRotation()
+				}
 				c := channelserver.NewServer(&channelserver.Config{
 					ID:             uint16(sid),
 					Logger:         logger.Named("channel-" + fmt.Sprint(count)),
 					ErupeConfig:    config,
 					DB:             db,
 					DiscordBot:     discordBot,
-					CollabEvent:    ee.CollabEvent,
+					CollabEvent:    collabEvent,
 					WorldType:      ee.Type,
 					CollabRotation: collabRotation,
 					MezFesRotation: mezFesRotation,
+					MezFesMinigame: ce.MezFesMinigame,
 				})
 				if ee.IP == "" {
 					c.IP = config.Host

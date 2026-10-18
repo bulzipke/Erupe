@@ -2,7 +2,10 @@
 
 Kaiji, Higanjima, and NieR use incompatible NPC layouts in the Rasta Bar. Set
 one collaboration mode per `Entrance.Entries` world to prevent their NPC tune
-flags from being delivered together.
+flags from being delivered together. Channels may override the world with their
+own `Channels[].CollabEvent`; an omitted/empty override inherits the world, while
+`none` explicitly disables collaboration content. See
+[channel content settings](channel-content.md) for fixed-event and MezFes examples.
 
 ```json
 "Entries": [
@@ -17,9 +20,10 @@ setting only to retain the old global `GameplayOptions.Enable*Event` behavior.
 To avoid NPC collisions, set an explicit value on every world.
 
 `random` selects one of Kaiji, Higanjima, NieR, Evangelion, and PSO2 with equal probability when the world's
-authenticated-player count changes from zero to one. Every channel under the
-same entrance entry shares that choice. The event remains fixed while anyone
-is connected, is cleared after the final logout, and is selected again on the
+authenticated-player count in random channels changes from zero to one. Every
+random channel under the same entrance entry shares that choice. Fixed-event and
+`none` channels do not join this count. The event remains fixed while anyone
+is connected to a random channel, is cleared after the final such logout, and is selected again on the
 next zero-to-one transition. NPC tune flags and scoped event quests always use
 the same selection in worlds that allow collaboration quest delivery.
 
@@ -85,7 +89,9 @@ Collaboration tune IDs are Kaiji `1106`, Higanjima `1144`, NieR `1153`,
 Evangelion `1156`, and PSO2 `1130`. The active event's flag is sent with value `1` in the existing
 quest-list response. Inactive flags are omitted (not explicitly sent as `0`);
 the client must reset its collaboration state when refreshing the list or changing
-worlds. No collaboration flags are sent outside open worlds.
+worlds/channels. The ZZ native tune apply starts by clearing these tables (HD
+`115119e0` calls `11511850`; non-HD `114eb140` calls `114eafb0`), so the next reply
+does not retain an omitted collaboration flag. No collaboration flags are sent outside open worlds.
 
 Evangelion `1156` is the agreed custom-client contract, not a verified original
 Evangelion NPC flag. The client must implement its behavior; sending this flag

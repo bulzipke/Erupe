@@ -455,6 +455,60 @@ type EntranceChannelInfo struct {
 	MaxPlayers     uint16
 	CurrentPlayers uint16
 	Enabled        *bool // nil defaults to true for backward compatibility
+	// Empty inherits the world's CollabEvent; "none" explicitly disables it.
+	CollabEvent string
+	// 0 inherits legacy/random world behavior; 2=Tokotoko Partnya, 4=Volpakkun Together.
+	// Fixed games require a Z2/ZZ client with the matching Vorbis tune hook.
+	MezFesMinigame uint16
+}
+
+// EffectiveCollabEvent resolves a channel override without modifying the shared config.
+func (c EntranceChannelInfo) EffectiveCollabEvent(worldEvent string) string {
+	if c.CollabEvent != "" {
+		return c.CollabEvent
+	}
+	return worldEvent
+}
+
+// ValidateChannelContent rejects typos and fixed-game settings the client cannot use.
+func (e EntranceServerInfo) ValidateChannelContent(mode Mode) error {
+	if !IsValidCollabEvent(e.CollabEvent) {
+		return fmt.Errorf("invalid Entrance.Entries[%q].CollabEvent %q (expected none, random, kaiji, higanjima, nier, evangelion, pso2, or empty)", e.Name, e.CollabEvent)
+	}
+	for i, channel := range e.Channels {
+		if !IsValidCollabEvent(channel.CollabEvent) {
+			return fmt.Errorf("invalid Entrance.Entries[%q].Channels[%d].CollabEvent %q (expected none, random, kaiji, higanjima, nier, evangelion, pso2, or empty)", e.Name, i, channel.CollabEvent)
+		}
+		if channel.MezFesMinigame == 0 {
+			continue
+		}
+		if channel.MezFesMinigame != 2 && channel.MezFesMinigame != 4 {
+			return fmt.Errorf("invalid Entrance.Entries[%q].Channels[%d].MezFesMinigame %d (expected 0, 2, or 4)", e.Name, i, channel.MezFesMinigame)
+		}
+		if e.Type != 6 || mode < Z2 {
+			return fmt.Errorf("Entrance.Entries[%q].Channels[%d].MezFesMinigame requires a Type 6 world and Z2/ZZ client", e.Name, i)
+		}
+	}
+	return nil
+}
+
+// UsesMezFesMinigameTune also enables the legacy fallback signal on OTHER channels,
+// so moving out of a fixed-game channel cannot retain its cached client selection.
+func (c *Config) UsesMezFesMinigameTune() bool {
+	if c.GameplayOptions.MezFesRandomMinigame {
+		return true
+	}
+	for _, entry := range c.Entrance.Entries {
+		if entry.Type != 6 {
+			continue
+		}
+		for _, channel := range entry.Channels {
+			if channel.IsEnabled() && (channel.MezFesMinigame == 2 || channel.MezFesMinigame == 4) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // IsEnabled returns whether this channel is enabled. Defaults to true if Enabled is nil.
@@ -762,8 +816,8 @@ func LoadConfig() (*Config, error) {
 	}
 
 	for _, entry := range c.Entrance.Entries {
-		if !IsValidCollabEvent(entry.CollabEvent) {
-			return nil, fmt.Errorf("invalid Entrance.Entries[%q].CollabEvent %q (expected none, random, kaiji, higanjima, nier, evangelion, pso2, or empty)", entry.Name, entry.CollabEvent)
+		if err := entry.ValidateChannelContent(c.RealClientMode); err != nil {
+			return nil, err
 		}
 	}
 	if hour := c.DebugOptions.InGameTimeOverrideHour; hour != nil && (*hour < 0 || *hour > 23) {
