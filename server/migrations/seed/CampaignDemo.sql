@@ -5167,4 +5167,9 @@ VALUES
     4822
   );
 
-END; 
+-- Seed runs after schema migrations; preserve operator-configured prices.
+INSERT INTO campaign_coin_prices(campaign_id,price)
+SELECT DISTINCT campaign_id,50 FROM campaign_category_links WHERE category_id IN (6,7)
+ON CONFLICT(campaign_id) DO NOTHING;
+
+END;

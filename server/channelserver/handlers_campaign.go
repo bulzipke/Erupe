@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"context"
 	"erupe-ce/common/byteframe"
 	ps "erupe-ce/common/pascalstring"
 	"erupe-ce/common/stringsupport"
@@ -11,6 +12,7 @@ import (
 
 type CampaignEvent struct {
 	ID           uint32    `db:"id"`
+	CoinPrice    uint32    `db:"coin_price"`
 	MinHR        int16     `db:"min_hr"`
 	MaxHR        int16     `db:"max_hr"`
 	MinSR        int16     `db:"min_sr"`
@@ -148,7 +150,10 @@ func handleMsgMhfEnumerateCampaign(s *Session, p mhfpacket.MHFPacket) {
 	var categories []CampaignCategory
 	var campaignLinks []CampaignLink
 
-	err := s.server.db.Select(&events, "SELECT id,min_hr,max_hr,min_sr,max_sr,min_gr,max_gr,reward_type,stamps,receive_type,background_id,start_time,end_time,title,reward,link,code_prefix FROM campaigns")
+	err := s.server.db.Select(&events, `SELECT c.*, COALESCE((SELECT p.price FROM campaign_coin_prices p
+		WHERE p.campaign_id=c.id AND EXISTS(SELECT 1 FROM campaign_category_links l
+		JOIN campaign_categories cat ON cat.id=l.category_id
+		WHERE l.campaign_id=c.id AND cat.type=1 AND cat.id IN(6,7))),0) AS coin_price FROM campaigns c`)
 	if err != nil {
 		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
 		return
@@ -179,7 +184,13 @@ func handleMsgMhfEnumerateCampaign(s *Session, p mhfpacket.MHFPacket) {
 	writeCampaignCount(bf, len(events))
 	for _, event := range events {
 		bf.WriteUint32(event.ID)
-		bf.WriteUint32(0)
+		// Stored verbatim in native campaign record +0x2a4; original code has
+		// no readers. High bit opts patched clients into the purchase UI.
+		metadata := uint32(0)
+		if event.CoinPrice > 0 {
+			metadata = 0x80000000 | event.CoinPrice
+		}
+		bf.WriteUint32(metadata)
 		bf.WriteInt16(event.MinHR)
 		bf.WriteInt16(event.MaxHR)
 		bf.WriteInt16(event.MinSR)
@@ -255,6 +266,14 @@ func handleMsgMhfStateCampaign(s *Session, p mhfpacket.MHFPacket) {
 		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
+	items, err := campaignCoinItems(s.server.db, s.charID, pkt.CampaignID)
+	if err != nil {
+		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	if len(items) > 0 {
+		stamps = []uint32{items[0].ID}
+	}
 	bf.WriteUint16(uint16(len(stamps)))
 	required = campaignRequiredStamps(required)
 
@@ -274,6 +293,16 @@ func handleMsgMhfStateCampaign(s *Session, p mhfpacket.MHFPacket) {
 func handleMsgMhfApplyCampaign(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfApplyCampaign)
 	if s.server.db == nil {
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	if len(pkt.Code) > 0 && pkt.Code[0] == '!' {
+		handleCampaignCoinPurchase(s, pkt)
+		return
+	}
+	// Priced kits are purchased, not unlocked with legacy reusable codes.
+	var priced bool
+	if err := s.server.db.Get(&priced, `SELECT EXISTS(SELECT 1 FROM campaign_coin_prices WHERE campaign_id=$1)`, pkt.CampaignID); err != nil || priced {
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
@@ -312,6 +341,16 @@ func handleMsgMhfEnumerateItem(s *Session, p mhfpacket.MHFPacket) {
 		return
 	}
 	bf := byteframe.NewByteFrame()
+	paidItems, paidErr := campaignCoinItems(s.server.db, s.charID, pkt.CampaignID)
+	if paidErr != nil {
+		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	if len(paidItems) > 0 {
+		writeCampaignItems(bf, paidItems)
+		doAckBufSucceed(s, pkt.AckHandle, bf.Data())
+		return
+	}
 
 	var stamps, required, rewardType uint16
 	err := s.server.db.QueryRow(`SELECT COUNT(*) FROM campaign_state WHERE campaign_id = $1 AND character_id = $2`, pkt.CampaignID, s.charID).Scan(&stamps)
@@ -384,6 +423,18 @@ func handleMsgMhfAcquireItem(s *Session, p mhfpacket.MHFPacket) {
 	if s.server.db == nil {
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
+	}
+	for _, id := range pkt.RewardIDs {
+		if id >= campaignCoinRewardBase {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := acquireCampaignCoins(ctx, s.server.db, s.userID, s.charID, pkt.RewardIDs); err != nil {
+				doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			} else {
+				doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+			}
+			return
+		}
 	}
 	for _, id := range pkt.RewardIDs {
 		_, err := s.server.db.Exec(`INSERT INTO campaign_rewards_claimed (reward_id, character_id) VALUES ($1, $2)`, id, s.charID)
