@@ -153,12 +153,20 @@ func handleMsgMhfEnumerateCampaign(s *Session, p mhfpacket.MHFPacket) {
 		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
-	err = s.server.db.Select(&categories, "SELECT id, type, title, description FROM campaign_categories")
+	// Hide every special event house category (type 0), plus the four legacy
+	// exchange-tent product categories (seed IDs 8..11). Keep premium kits.
+	// Keep the catalog, redemption codes and claim history in the database.
+	err = s.server.db.Select(&categories, `SELECT id, type, title, description FROM campaign_categories
+		WHERE type = 1 AND id NOT IN (8,9,10,11) ORDER BY id`)
 	if err != nil {
 		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
-	err = s.server.db.Select(&campaignLinks, "SELECT campaign_id, category_id FROM campaign_category_links")
+	// Do not send category links for the omitted categories either. Campaigns
+	// shared with a visible category remain reachable through that category.
+	err = s.server.db.Select(&campaignLinks, `SELECT l.campaign_id, l.category_id
+		FROM campaign_category_links l JOIN campaign_categories c ON c.id = l.category_id
+		WHERE c.type = 1 AND c.id NOT IN (8,9,10,11) ORDER BY l.id`)
 	if err != nil {
 		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
 		return
