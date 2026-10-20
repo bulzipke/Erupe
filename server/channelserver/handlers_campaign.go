@@ -340,6 +340,10 @@ func handleMsgMhfEnumerateItem(s *Session, p mhfpacket.MHFPacket) {
 		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
+	if pkt.CampaignID&campaignPreviewFlag != 0 {
+		handleCampaignCoinPreview(s, pkt)
+		return
+	}
 	bf := byteframe.NewByteFrame()
 	paidItems, paidErr := campaignCoinItems(s.server.db, s.charID, pkt.CampaignID)
 	if paidErr != nil {
