@@ -100,16 +100,25 @@ type GuildService struct {
 	mailSvc   *MailService
 	charRepo  CharacterRepo
 	logger    *zap.Logger
+	localize  func(uint32) i18n
 }
 
 // NewGuildService creates a new GuildService.
-func NewGuildService(gr GuildRepo, ms *MailService, cr CharacterRepo, log *zap.Logger) *GuildService {
+func NewGuildService(gr GuildRepo, ms *MailService, cr CharacterRepo, log *zap.Logger, localize func(uint32) i18n) *GuildService {
 	return &GuildService{
 		guildRepo: gr,
 		mailSvc:   ms,
 		charRepo:  cr,
 		logger:    log,
+		localize:  localize,
 	}
+}
+
+func (svc *GuildService) stringsFor(charID uint32) i18n {
+	if svc.localize != nil {
+		return svc.localize(charID)
+	}
+	return langEnglish()
 }
 
 // OperateMember performs a guild member management action (accept/reject/kick).
@@ -132,30 +141,31 @@ func (svc *GuildService) OperateMember(actorCharID, targetCharID uint32, action 
 		return nil, ErrUnauthorized
 	}
 
+	i := svc.stringsFor(targetCharID)
 	var mail Mail
 	switch action {
 	case GuildMemberActionAccept:
 		err = svc.guildRepo.AcceptApplication(guild.ID, targetCharID)
 		mail = Mail{
 			RecipientID:     targetCharID,
-			Subject:         "Accepted!",
-			Body:            fmt.Sprintf("Your application to join 「%s」 was accepted.", guild.Name),
+			Subject:         i.guild.accepted.title,
+			Body:            fmt.Sprintf(i.guild.accepted.body, guild.Name),
 			IsSystemMessage: true,
 		}
 	case GuildMemberActionReject:
 		err = svc.guildRepo.RejectApplication(guild.ID, targetCharID)
 		mail = Mail{
 			RecipientID:     targetCharID,
-			Subject:         "Rejected",
-			Body:            fmt.Sprintf("Your application to join 「%s」 was rejected.", guild.Name),
+			Subject:         i.guild.rejected.title,
+			Body:            fmt.Sprintf(i.guild.rejected.body, guild.Name),
 			IsSystemMessage: true,
 		}
 	case GuildMemberActionKick:
 		err = svc.guildRepo.RemoveCharacter(guild.ID, targetCharID)
 		mail = Mail{
 			RecipientID:     targetCharID,
-			Subject:         "Kicked",
-			Body:            fmt.Sprintf("You were kicked from 「%s」.", guild.Name),
+			Subject:         i.guild.kicked.title,
+			Body:            fmt.Sprintf(i.guild.kicked.body, guild.Name),
 			IsSystemMessage: true,
 		}
 	default:
@@ -222,8 +232,9 @@ func (svc *GuildService) Leave(charID, guildID uint32, isApplicant bool, guildNa
 	}
 
 	// Best-effort withdrawal notification
-	if err := svc.mailSvc.SendSystem(charID, "Withdrawal",
-		fmt.Sprintf("You have withdrawn from 「%s」.", guildName)); err != nil {
+	i := svc.stringsFor(charID)
+	if err := svc.mailSvc.SendSystem(charID, i.guild.withdrawal.title,
+		fmt.Sprintf(i.guild.withdrawal.body, guildName)); err != nil {
 		svc.logger.Warn("Failed to send guild withdrawal notification", zap.Error(err))
 	}
 
@@ -234,6 +245,10 @@ func (svc *GuildService) Leave(charID, guildID uint32, isApplicant bool, guildNa
 // The actor must have recruit permission. Returns ErrAlreadyInvited if the target
 // already has a pending application.
 func (svc *GuildService) PostScout(actorCharID, targetCharID uint32, strings ScoutInviteStrings) error {
+	if svc.localize != nil {
+		i := svc.stringsFor(targetCharID)
+		strings = ScoutInviteStrings{Title: i.guild.invite.title, Body: i.guild.invite.body}
+	}
 	actorMember, err := svc.guildRepo.GetCharacterMembership(actorCharID)
 	if err != nil {
 		return fmt.Errorf("actor membership lookup: %w", err)
@@ -285,6 +300,16 @@ func (svc *GuildService) AnswerScout(charID, leaderID uint32, accept bool, strin
 	}
 
 	var mails []Mail
+	if svc.localize != nil {
+		recipient := svc.stringsFor(charID).guild.invite
+		leader := svc.stringsFor(leaderID).guild.invite
+		strings = AnswerScoutStrings{
+			SuccessTitle: recipient.success.title, SuccessBody: recipient.success.body,
+			AcceptedTitle: leader.accepted.title, AcceptedBody: leader.accepted.body,
+			RejectedTitle: recipient.rejected.title, RejectedBody: recipient.rejected.body,
+			DeclinedTitle: leader.declined.title, DeclinedBody: leader.declined.body,
+		}
+	}
 	if accept {
 		err = svc.guildRepo.AcceptInvite(guild.ID, charID)
 		mails = []Mail{

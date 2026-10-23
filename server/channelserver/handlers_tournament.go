@@ -3,6 +3,7 @@ package channelserver
 import (
 	"erupe-ce/common/byteframe"
 	ps "erupe-ce/common/pascalstring"
+	"erupe-ce/common/stringsupport"
 	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
 	"time"
@@ -182,8 +183,8 @@ func handleMsgMhfEnumerateOrder(s *Session, p mhfpacket.MHFPacket) {
 			bf.WriteUint16(e.GR)
 		}
 		bf.WriteUint16(0) // pad
-		charNameBytes := []byte(e.CharName)
-		guildNameBytes := []byte(e.GuildName)
+		charNameBytes := stringsupport.TruncateCP949(stringsupport.UTF8ToSJIS(e.CharName), 254)
+		guildNameBytes := stringsupport.TruncateCP949(stringsupport.UTF8ToSJIS(e.GuildName), 254)
 		bf.WriteUint8(uint8(len(charNameBytes) + 1))
 		bf.WriteUint8(uint8(len(guildNameBytes) + 1))
 		bf.WriteNullTerminatedBytes(charNameBytes)

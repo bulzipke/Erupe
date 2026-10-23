@@ -485,7 +485,7 @@ func parseChatCommand(s *Session, command string) {
 		if commands["Help"].Enabled || s.isOp() {
 			for _, command := range commands {
 				if command.Enabled || s.isOp() {
-					sendServerChatMessage(s, fmt.Sprintf("%s%s: %s", s.server.erupeConfig.CommandPrefix, command.Prefix, command.Description))
+					sendServerChatMessage(s, fmt.Sprintf("%s%s: %s", s.server.erupeConfig.CommandPrefix, command.Prefix, s.I18n().commandDescription(command.Description)))
 				}
 			}
 		} else {

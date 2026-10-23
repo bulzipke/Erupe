@@ -114,7 +114,7 @@ func (bot *DiscordBot) UserID() string {
 
 // RegisterCommands bulk-overwrites the global slash commands for this bot.
 func (bot *DiscordBot) RegisterCommands() error {
-	_, err := bot.Session.ApplicationCommandBulkOverwrite(bot.userID, "", Commands)
+	_, err := bot.Session.ApplicationCommandBulkOverwrite(bot.userID, "", commandsForLanguage(bot.config.Language))
 	return err
 }
 
@@ -132,6 +132,9 @@ func (bot *DiscordBot) NormalizeDiscordMessage(message string) string {
 		user, err := bot.Session.User(userId)
 
 		if err != nil {
+			if bot.config.Language == "ko" {
+				return "@알수없음"
+			}
 			return "@unknown" // @Unknown
 		}
 

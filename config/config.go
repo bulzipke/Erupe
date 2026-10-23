@@ -541,7 +541,7 @@ func registerDefaults() {
 	viper.SetDefault("BinPath", "bin")
 	viper.SetDefault("HideLoginNotice", true)
 	viper.SetDefault("LoginNotices", []string{
-		"<BODY><CENTER><SIZE_3><C_4>Welcome to Erupe!",
+		defaultLoginNotice,
 	})
 	viper.SetDefault("NGWordsFile", "bin/ng_words.csv")
 	viper.SetDefault("ClientMode", "ZZ")
@@ -658,7 +658,7 @@ func registerDefaults() {
 		{Name: "Ban", Enabled: false, Description: "Ban/Temp Ban a user", Prefix: "ban"},
 		{Name: "Timer", Enabled: true, Description: "Toggle the Quest timer", Prefix: "timer"},
 		{Name: "Playtime", Enabled: true, Description: "Show your playtime", Prefix: "playtime"},
-		{Name: "Language", Enabled: true, Description: "Show or change your preferred language (en|jp|fr|es|zh)", Prefix: "lang"},
+		{Name: "Language", Enabled: true, Description: "Show or change your preferred language (en|jp|fr|es|zh|ko)", Prefix: "lang"},
 	})
 
 	// Courses

@@ -3,7 +3,6 @@ package channelserver
 import (
 	"erupe-ce/common/byteframe"
 	ps "erupe-ce/common/pascalstring"
-	"erupe-ce/common/stringsupport"
 	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
 	"time"
@@ -74,7 +73,7 @@ func handleMsgMhfEnumerateDistItem(s *Session, p mhfpacket.MHFPacket) {
 		if s.server.erupeConfig.RealClientMode >= cfg.G10 {
 			bf.WriteUint8(0) // Unk
 		}
-		ps.Uint8(bf, string(stringsupport.UTF8ToSJIS(dist.EventName)), false)
+		ps.Uint8(bf, dist.EventName, true)
 		k := 6
 		if s.server.erupeConfig.RealClientMode >= cfg.G8 {
 			k = 13
@@ -179,7 +178,7 @@ func handleMsgMhfGetDistDescription(s *Session, p mhfpacket.MHFPacket) {
 		return
 	}
 	bf := byteframe.NewByteFrame()
-	ps.Uint16(bf, string(stringsupport.UTF8ToSJIS(desc)), false)
+	ps.Uint16(bf, desc, true)
 	ps.Uint16(bf, "", false)
 	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
 }

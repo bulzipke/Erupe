@@ -151,23 +151,41 @@ func isHangulJamo(r rune) bool {
 		r >= 0xD7B0 && r <= 0xD7FF
 }
 
+// TruncateCP949 returns the longest prefix within maxBytes without splitting
+// a two-byte character. The input must already be CP949-encoded.
+func TruncateCP949(encoded []byte, maxBytes int) []byte {
+	if maxBytes <= 0 {
+		return nil
+	}
+	if len(encoded) <= maxBytes {
+		return encoded
+	}
+	end := 0
+	for end < maxBytes {
+		width := 1
+		if encoded[end] >= 0x81 && encoded[end] <= 0xFE {
+			width = 2
+		}
+		if end+width > maxBytes {
+			break
+		}
+		end += width
+	}
+	return encoded[:end]
+}
+
 // PaddedString returns a fixed-width null-terminated byte slice of the given
-// size. If t is true the string is first encoded to Shift-JIS.
+// size. If t is true, encode to CP949 and truncate at a character boundary.
 func PaddedString(x string, size uint, t bool) []byte {
 	if size == 0 {
 		return nil
 	}
-	if t {
-		e := korean.EUCKR.NewEncoder() // Korean-mod: wire is CP949
-		xt, _, err := transform.String(e, x)
-		if err != nil {
-			return make([]byte, size)
-		}
-		x = xt
-	}
 	out := make([]byte, size)
-	copy(out, x)
-	out[len(out)-1] = 0
+	if t {
+		copy(out, TruncateCP949(UTF8ToSJIS(x), len(out)-1))
+	} else {
+		copy(out[:len(out)-1], x)
+	}
 	return out
 }
 

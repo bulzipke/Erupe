@@ -42,10 +42,10 @@ func TestSJISToUTF8(t *testing.T) {
 }
 
 func TestUTF8ToSJIS_RoundTrip(t *testing.T) {
-	// Test round-trip conversion for ASCII
-	original := "Hello World 123"
+	// Player text uses CP949 in both directions, including extension syllables.
+	original := "Hello 한글뷁 123"
 	sjis := UTF8ToSJIS(original)
-	back, _ := SJISToUTF8(sjis)
+	back := SJISToUTF8Lossy(sjis)
 
 	if back != original {
 		t.Errorf("Round-trip failed: got %q, want %q", back, original)
@@ -481,7 +481,7 @@ func TestSJISToUTF8Lossy(t *testing.T) {
 }
 
 func TestUTF8ToSJIS_UnsupportedCharacters(t *testing.T) {
-	// Regression test for PR #116: Characters outside the Shift-JIS range
+	// Regression test for PR #116: Characters outside the client encoding
 	// (e.g. Lenny face, cuneiform) previously caused a panic in UTF8ToSJIS,
 	// crashing the server when relayed from Discord.
 	tests := []struct {
@@ -515,7 +515,7 @@ func TestUTF8ToSJIS_UnsupportedCharacters(t *testing.T) {
 }
 
 func TestUTF8ToSJIS_PreservesValidContent(t *testing.T) {
-	// Verify that valid Shift-JIS content is preserved when mixed with
+	// Verify that valid CP949 content is preserved when mixed with
 	// unsupported characters.
 	tests := []struct {
 		name     string
@@ -523,7 +523,7 @@ func TestUTF8ToSJIS_PreservesValidContent(t *testing.T) {
 		expected string
 	}{
 		{"ascii_with_emoji", "Hello 🎮 World", "Hello  World"},
-		{"japanese_with_emoji", "テスト🎮データ", "テストデータ"},
+		{"korean_with_emoji", "한글🎮이름", "한글이름"},
 		{"only_valid", "Hello World", "Hello World"},
 		{"only_invalid", "🎮🎲🎯", ""},
 	}
@@ -531,7 +531,7 @@ func TestUTF8ToSJIS_PreservesValidContent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sjis := UTF8ToSJIS(tt.input)
-			roundTripped, _ := SJISToUTF8(sjis)
+			roundTripped := SJISToUTF8Lossy(sjis)
 			if roundTripped != tt.expected {
 				t.Errorf("UTF8ToSJIS(%q) round-tripped to %q, want %q", tt.input, roundTripped, tt.expected)
 			}
@@ -547,7 +547,7 @@ func TestToNGWordUsesJapaneseShiftJIS(t *testing.T) {
 }
 
 func TestToNGWord_UnsupportedCharacters(t *testing.T) {
-	// ToNGWord also calls UTF8ToSJIS internally, so it must not panic either.
+	// The original Japanese NG-word table still uses its own Shift-JIS encoder.
 	inputs := []string{"( ͡° ͜ʖ ͡°)", "🎮", "Hello 🎮 World"}
 	for _, input := range inputs {
 		t.Run(input, func(t *testing.T) {

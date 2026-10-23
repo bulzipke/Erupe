@@ -3,10 +3,29 @@ package channelserver
 func langKorean() i18n {
 	var i i18n
 
+	i.shutdown = "%d초 후 서버가 종료됩니다."
+
 	i.language = "한국어"
 	i.cafe.reset = "%d/%d에 리셋"
 	i.timer = "타이머: %02d'%02d\"%02d.%03d (%df)"
 	i.chat.ngWordRejected = "이 메시지는 전송할 수 없습니다."
+
+	i.commands.descriptions = map[string]string{
+		"Show enabled chat commands":                                 "사용 가능한 채팅 명령어 표시",
+		"Overwrite the Rights value on your account":                 "계정의 코스 권한 값 변경",
+		"Various Raviente siege commands":                            "대토벌 명령어",
+		"Teleport to specified coordinates":                          "지정한 좌표로 이동",
+		"Reload all players in your Land":                            "현재 랜드의 헌터 새로 불러오기",
+		"Overwrite your HR Key Quest progress":                       "HR 키퀘스트 진행 상황 변경",
+		"Toggle Courses on your account":                             "코스 이용 상태 확인",
+		"Link a PlayStation Network ID to your account":              "계정에 PSN ID 연동",
+		"Generate a token to link your Discord account":              "Discord 계정 연동 토큰 발급",
+		"Ban/Temp Ban a user":                                        "유저 이용 정지 또는 기간 정지",
+		"Toggle the Quest timer":                                     "퀘스트 타이머 켜기/끄기",
+		"Show your playtime":                                         "플레이 시간 표시",
+		"Show or change your preferred language (en|jp|fr|es|zh)":    "언어 확인/변경 (en|jp|fr|es|zh|ko)",
+		"Show or change your preferred language (en|jp|fr|es|zh|ko)": "언어 확인/변경 (en|jp|fr|es|zh|ko)",
+	}
 
 	i.commands.noOp = "이 명령어를 사용할 권한이 없습니다"
 	i.commands.disabled = "%s 명령어는 비활성화되어 있습니다"
@@ -65,8 +84,13 @@ func langKorean() i18n {
 	i.guild.rookieGuildName = "신참 수렵단%d"
 	i.guild.returnGuildName = "복귀 수렵단%d"
 
+	i.guild.accepted = guildMailTemplate{"가입 승인", "수렵단 「%s」\n가입 신청이 승인되었습니다."}
+	i.guild.rejected = guildMailTemplate{"가입 거절", "수렵단 「%s」\n가입 신청이 거절되었습니다."}
+	i.guild.kicked = guildMailTemplate{"수렵단 제명", "수렵단 「%s」에서\n제명되었습니다."}
+	i.guild.withdrawal = guildMailTemplate{"수렵단 탈퇴", "수렵단 「%s」에서\n탈퇴했습니다."}
+
 	i.guild.invite.title = "수렵단 권유안내"
-	i.guild.invite.body = "수렵단 「%s」의 권유 알림입니다.\n「권유에 응답」에서 응답해 주세요."
+	i.guild.invite.body = "수렵단 「%s」\n권유가 도착했습니다.\n「권유에 응답」에서 응답해 주세요."
 
 	i.guild.invite.success.title = "성공"
 	i.guild.invite.success.body = "「%s」에 참가했습니다."

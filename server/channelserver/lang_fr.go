@@ -3,6 +3,8 @@ package channelserver
 func langFrench() i18n {
 	var i i18n
 
+	i.shutdown = "Arrêt du serveur dans %d secondes..."
+
 	i.language = "Français"
 	i.cafe.reset = "Réinitialisation le %d/%d"
 	i.timer = "Temps : %02d:%02d:%02d.%03d (%df)"
@@ -40,8 +42,8 @@ func langFrench() i18n {
 	i.commands.timer.enabled = "Minuteur de quête activé"
 	i.commands.timer.disabled = "Minuteur de quête désactivé"
 
-	i.commands.lang.usage = "Utilisation : %s <en|jp|fr|es|zh>"
-	i.commands.lang.invalid = "Langue inconnue %q. Prises en charge : en, jp, fr, es, zh"
+	i.commands.lang.usage = "Utilisation : %s <en|jp|fr|es|zh|ko>"
+	i.commands.lang.invalid = "Langue inconnue %q. Prises en charge : en, jp, fr, es, zh, ko"
 	i.commands.lang.success = "Langue définie sur %s"
 	i.commands.lang.current = "Langue actuelle : %s"
 
@@ -64,6 +66,11 @@ func langFrench() i18n {
 
 	i.guild.rookieGuildName = "Clan Novice %d"
 	i.guild.returnGuildName = "Clan Retour %d"
+
+	i.guild.accepted = guildMailTemplate{"Accepté !", "Votre candidature pour rejoindre 「%s」 a été acceptée."}
+	i.guild.rejected = guildMailTemplate{"Refusé", "Votre candidature pour rejoindre 「%s」 a été refusée."}
+	i.guild.kicked = guildMailTemplate{"Exclusion", "Vous avez été exclu de 「%s」."}
+	i.guild.withdrawal = guildMailTemplate{"Départ", "Vous avez quitté 「%s」."}
 
 	i.guild.invite.title = "Invitation !"
 	i.guild.invite.body = "Vous avez été invité à rejoindre\n「%s」\nSouhaitez-vous accepter ?"

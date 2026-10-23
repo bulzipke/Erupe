@@ -163,7 +163,7 @@ func (s *APIServer) newAuthData(userID uint32, userRights uint32, userTokenID ui
 	}
 	resp.MezFes = s.buildMezFes()
 	if !s.erupeConfig.HideLoginNotice {
-		resp.Notices = append(resp.Notices, strings.Join(s.erupeConfig.LoginNotices[:], "<PAGE>"))
+		resp.Notices = append(resp.Notices, strings.Join(s.erupeConfig.LocalizedLoginNotices(), "<PAGE>"))
 	}
 	return resp
 }

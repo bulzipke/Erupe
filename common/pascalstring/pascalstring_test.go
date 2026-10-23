@@ -283,7 +283,7 @@ func TestAllFunctions_NullTermination(t *testing.T) {
 }
 
 func TestTransform_JapaneseCharacters(t *testing.T) {
-	// Test with Japanese characters that should be transformed to Shift-JIS
+	// These full-width kana are also representable in the Korean code page.
 	bf := byteframe.NewByteFrame()
 	testString := "テスト" // "Test" in Japanese katakana
 
@@ -296,8 +296,10 @@ func TestTransform_JapaneseCharacters(t *testing.T) {
 		t.Error("Transformed Japanese string should have non-zero length")
 	}
 
-	// The transformed Shift-JIS should be different length than UTF-8
-	// UTF-8: 9 bytes (3 chars * 3 bytes each), Shift-JIS: 6 bytes (3 chars * 2 bytes each) + 1 null
+	// UTF-8: 9 bytes; CP949: 6 bytes plus one NUL.
+	if length != 7 {
+		t.Fatalf("CP949 length = %d, want 7", length)
+	}
 	data := bf.ReadBytes(uint(length))
 	if data[len(data)-1] != 0 {
 		t.Error("Transformed string should end with null terminator")
@@ -305,21 +307,13 @@ func TestTransform_JapaneseCharacters(t *testing.T) {
 }
 
 func TestTransform_InvalidUTF8(t *testing.T) {
-	// This test verifies graceful handling of encoding errors
-	// When transformation fails, the functions should write length 0
-
+	// Invalid input must not erase representable text or corrupt the prefix.
 	bf := byteframe.NewByteFrame()
-	// Create a string with invalid UTF-8 sequence
-	// Note: Go strings are generally valid UTF-8, but we can test the error path
-	testString := "Valid ASCII"
+	testString := "앞\xff뒤"
 
 	Uint8(bf, testString, true)
-	// Should succeed for ASCII characters
-
-	_, _ = bf.Seek(0, 0)
-	length := bf.ReadUint8()
-	if length == 0 {
-		t.Error("ASCII string should transform successfully")
+	if got := bf.Data(); !bytes.Equal(got, []byte{5, 0xbe, 0xd5, 0xb5, 0xda, 0}) {
+		t.Errorf("invalid UTF-8 wire bytes = %x", got)
 	}
 }
 

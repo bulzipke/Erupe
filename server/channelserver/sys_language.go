@@ -7,22 +7,29 @@ type Bead struct {
 	Description string
 }
 
+type guildMailTemplate struct {
+	title string
+	body  string // %s is the guild name.
+}
+
 type i18n struct {
 	language string
 	beads    []Bead
 	cafe     struct {
 		reset string
 	}
-	timer string
-	chat  struct {
+	timer    string
+	shutdown string
+	chat     struct {
 		ngWordRejected string
 	}
 	commands struct {
-		noOp     string
-		disabled string
-		reload   string
-		playtime string
-		kqf      struct {
+		descriptions map[string]string
+		noOp         string
+		disabled     string
+		reload       string
+		playtime     string
+		kqf          struct {
 			get string
 			set struct {
 				error   string
@@ -96,6 +103,10 @@ type i18n struct {
 		berserkSmall   string
 	}
 	guild struct {
+		accepted        guildMailTemplate
+		rejected        guildMailTemplate
+		kicked          guildMailTemplate
+		withdrawal      guildMailTemplate
 		rookieGuildName string
 		returnGuildName string
 		invite          struct {
@@ -119,6 +130,33 @@ type i18n struct {
 			}
 		}
 	}
+}
+
+// commandDescription keeps configured command descriptions as the fallback,
+// while translating the built-in help entries for the session language.
+func (i *i18n) commandDescription(fallback string) string {
+	if description := i.commands.descriptions[fallback]; description != "" {
+		return description
+	}
+	return fallback
+}
+
+// characterI18n resolves mail text for its recipient, including offline users.
+// A missing preference or a failed lookup retains the server default.
+func (s *Server) characterI18n(charID uint32) i18n {
+	if s.Registry != nil {
+		if recipient := s.Registry.FindSessionByCharID(charID); recipient != nil {
+			return *recipient.I18n()
+		}
+	}
+	if s.charRepo != nil && s.userRepo != nil {
+		if userID, err := s.charRepo.GetUserID(charID); err == nil {
+			if language, err := s.userRepo.GetLanguage(userID); err == nil && isSupportedLang(language) {
+				return getLangStringsFor(language)
+			}
+		}
+	}
+	return getLangStrings(s)
 }
 
 // beadName returns the localised name for a bead type.

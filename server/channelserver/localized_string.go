@@ -16,9 +16,9 @@ import (
 // content (quest text, scenario strings, mail templates, ...) per session
 // without breaking any existing single-language JSON file.
 //
-// Encoding note: strings that end up on the wire as Shift-JIS (quest text,
-// scenario strings) must only use characters representable in Shift-JIS —
-// ASCII, kana, and CJK. Latin-extended characters commonly used in European
+// Encoding note: Korean quest/scenario text uses CP949; other content retains
+// Shift-JIS. Strings must be representable in the selected encoding.
+// Latin-extended characters commonly used in European
 // languages (ê, ñ, ß, ...) will be rejected by the encoder at compile time.
 // For those languages prefer ASCII-only romanizations ("Quete de test",
 // "Espana") until the Frontier binary protocol is extended to a wider
@@ -72,7 +72,7 @@ func (l LocalizedString) MarshalJSON() ([]byte, error) {
 //
 // Returns "" only when nothing is set — callers that need a non-empty value
 // for binary serialization should treat that as an empty quest string, which
-// the existing toShiftJIS encoder already accepts.
+// the content encoder already accepts.
 func (l LocalizedString) Resolve(lang string) string {
 	if l.values == nil {
 		return l.plain

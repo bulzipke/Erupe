@@ -3,6 +3,8 @@ package channelserver
 func langChinese() i18n {
 	var i i18n
 
+	i.shutdown = "伺服器將於%d秒後關閉。"
+
 	i.language = "中文"
 	i.cafe.reset = "重置于 %d/%d"
 	i.timer = "时间：%02d:%02d:%02d.%03d (%df)"
@@ -40,8 +42,8 @@ func langChinese() i18n {
 	i.commands.timer.enabled = "任务计时器已启用"
 	i.commands.timer.disabled = "任务计时器已禁用"
 
-	i.commands.lang.usage = "用法：%s <en|jp|fr|es|zh>"
-	i.commands.lang.invalid = "未知语言 %q。支持的语言：en, jp, fr, es, zh"
+	i.commands.lang.usage = "用法：%s <en|jp|fr|es|zh|ko>"
+	i.commands.lang.invalid = "未知语言 %q。支持的语言：en, jp, fr, es, zh, ko"
 	i.commands.lang.success = "语言已设置为 %s"
 	i.commands.lang.current = "当前语言：%s"
 
@@ -64,6 +66,11 @@ func langChinese() i18n {
 
 	i.guild.rookieGuildName = "新人猎团 %d"
 	i.guild.returnGuildName = "回归猎团 %d"
+
+	i.guild.accepted = guildMailTemplate{"加入獲准", "你加入「%s」的申請已獲批准。"}
+	i.guild.rejected = guildMailTemplate{"加入被拒", "你加入「%s」的申請已被拒絕。"}
+	i.guild.kicked = guildMailTemplate{"除名", "你已被「%s」除名。"}
+	i.guild.withdrawal = guildMailTemplate{"退出", "你已退出「%s」。"}
 
 	i.guild.invite.title = "邀请！"
 	i.guild.invite.body = "您已被邀请加入\n「%s」\n是否接受？"

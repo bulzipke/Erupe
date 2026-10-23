@@ -4,9 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-
-	"golang.org/x/text/encoding/japanese"
-	"golang.org/x/text/transform"
 )
 
 // ParseQuestBinary reads a MHF quest binary (ZZ/G10 layout, little-endian)
@@ -15,7 +12,8 @@ import (
 // The binary layout is described in quest_json.go (CompileQuestJSON).
 // Sections guarded by null pointers in the header are skipped; the
 // corresponding QuestJSON slices will be nil/empty.
-func ParseQuestBinary(data []byte) (*QuestJSON, error) {
+// Pass "ko" to read CP949-localized binaries; omission retains Shift-JIS.
+func ParseQuestBinary(data []byte, lang ...string) (*QuestJSON, error) {
 	if len(data) < 0x86 {
 		return nil, fmt.Errorf("quest binary too short: %d bytes (minimum 0x86)", len(data))
 	}
@@ -45,7 +43,7 @@ func ParseQuestBinary(data []byte) (*QuestJSON, error) {
 		return nil
 	}
 
-	// readSJIS reads a null-terminated Shift-JIS string starting at off.
+	// readSJIS reads a null-terminated string using the explicit content language.
 	readSJIS := func(off int) (string, error) {
 		if off < 0 || off >= len(data) {
 			return "", fmt.Errorf("string offset 0x%X out of bounds", off)
@@ -58,12 +56,11 @@ func ParseQuestBinary(data []byte) (*QuestJSON, error) {
 		if len(sjis) == 0 {
 			return "", nil
 		}
-		dec := japanese.ShiftJIS.NewDecoder()
-		utf8, _, err := transform.Bytes(dec, sjis)
+		text, err := decodeContentText(sjis, lang...)
 		if err != nil {
-			return "", fmt.Errorf("shift-jis decode at 0x%X: %w", off, err)
+			return "", fmt.Errorf("text decode at 0x%X: %w", off, err)
 		}
-		return string(utf8), nil
+		return text, nil
 	}
 
 	q := &QuestJSON{}

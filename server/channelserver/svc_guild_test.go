@@ -15,7 +15,7 @@ func newTestMailService(mr MailRepo, gr GuildRepo) *MailService {
 func newTestGuildService(gr GuildRepo, mr MailRepo) *GuildService {
 	logger, _ := zap.NewDevelopment()
 	ms := newTestMailService(mr, gr)
-	return NewGuildService(gr, ms, nil, logger)
+	return NewGuildService(gr, ms, nil, logger, nil)
 }
 
 func TestGuildService_OperateMember(t *testing.T) {

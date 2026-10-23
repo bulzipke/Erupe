@@ -35,9 +35,12 @@ func handleMsgMhfInfoGuild(s *Session, p mhfpacket.MHFPacket) {
 	if err == nil && guild != nil {
 		s.prevGuildID = guild.ID
 
-		guildName := stringsupport.UTF8ToSJIS(guild.Name)
-		guildComment := stringsupport.UTF8ToSJIS(guild.Comment)
-		guildLeaderName := stringsupport.UTF8ToSJIS(guild.LeaderName)
+		// These fields use raw uint8 byte lengths, without a NUL terminator.
+		// A varchar(255) comment can exceed 255 CP949 bytes when it contains
+		// Hangul, including values imported directly into the database.
+		guildName := stringsupport.TruncateCP949(stringsupport.UTF8ToSJIS(guild.Name), 255)
+		guildComment := stringsupport.TruncateCP949(stringsupport.UTF8ToSJIS(guild.Comment), 255)
+		guildLeaderName := stringsupport.TruncateCP949(stringsupport.UTF8ToSJIS(guild.LeaderName), 255)
 
 		characterGuildData, err := s.server.guildRepo.GetCharacterMembership(s.charID)
 		characterJoinedAt := guildNotJoinedSentinel

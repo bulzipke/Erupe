@@ -55,7 +55,13 @@ func encodeServerInfo(config *cfg.Config, s *Server, local bool) []byte {
 			bf.WriteUint8(si.Recommended)
 		}
 
-		fullName := append(append(stringsupport.UTF8ToSJIS(si.Name), []byte{0x00}...), stringsupport.UTF8ToSJIS(si.Description)...)
+		textLimit := 64 // The fixed field also reserves its last byte for NUL.
+		if s.erupeConfig.RealClientMode >= cfg.G1 && s.erupeConfig.RealClientMode <= cfg.G5 {
+			textLimit = 255 // The variable field has a uint8 byte length.
+		}
+		name := stringsupport.TruncateCP949(stringsupport.UTF8ToSJIS(si.Name), textLimit-1)
+		description := stringsupport.TruncateCP949(stringsupport.UTF8ToSJIS(si.Description), textLimit-len(name)-1)
+		fullName := append(append(name, 0), description...)
 		if s.erupeConfig.RealClientMode >= cfg.G1 && s.erupeConfig.RealClientMode <= cfg.G5 {
 			bf.WriteUint8(uint8(len(fullName)))
 			bf.WriteBytes(fullName)

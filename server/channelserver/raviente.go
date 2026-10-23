@@ -7,7 +7,6 @@ import (
 
 	"erupe-ce/common/byteframe"
 	ps "erupe-ce/common/pascalstring"
-	"erupe-ce/common/stringsupport"
 	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
 
@@ -145,7 +144,7 @@ func (s *Server) BroadcastRaviente(ip uint32, port uint16, stage []byte, _type u
 	default:
 		s.logger.Error("Unk raviente type", zap.Uint8("_type", _type))
 	}
-	ps.Uint16(bf, string(stringsupport.UTF8ToSJIS(text)), false)
+	ps.Uint16(bf, text, true)
 	bf.WriteBytes([]byte{0x5F, 0x53, 0x00})
 	bf.WriteUint32(ip)   // IP address
 	bf.WriteUint16(port) // Port

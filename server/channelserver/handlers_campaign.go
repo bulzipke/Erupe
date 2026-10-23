@@ -72,10 +72,7 @@ const (
 
 // writeCampaignString writes a campaign text field in the client's text
 // encoding (EUC-KR, stringsupport.UTF8ToSJIS) with a uint8 length prefix and a
-// terminator, cut at a whole character within limit bytes. pascalstring encodes
-// Shift-JIS, which has no Hangul: a Korean title failed to encode and went out
-// as a bare zero length, and the Japanese seed text drew as broken glyphs on
-// the CP949 client.
+// terminator, cut at a whole character within the campaign-specific limit.
 func writeCampaignString(bf *byteframe.ByteFrame, text string, limit int) {
 	var out []byte
 	for _, r := range text {

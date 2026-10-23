@@ -1004,8 +1004,8 @@ func handleMsgMhfTransitMessage(s *Session, p mhfpacket.MHFPacket) {
 			}
 			resp.WriteUint16(snap.ServerPort)
 			resp.WriteUint32(snap.CharID)
-			sjisStageID := stringsupport.UTF8ToSJIS(snap.StageID)
-			sjisName := stringsupport.UTF8ToSJIS(snap.Name)
+			sjisStageID := stringsupport.TruncateCP949(stringsupport.UTF8ToSJIS(snap.StageID), 254)
+			sjisName := stringsupport.TruncateCP949(stringsupport.UTF8ToSJIS(snap.Name), 254)
 			resp.WriteUint8(uint8(len(sjisStageID) + 1))
 			resp.WriteUint8(uint8(len(sjisName) + 1))
 			resp.WriteUint16(uint16(len(snap.UserBinary3)))

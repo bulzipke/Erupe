@@ -256,7 +256,7 @@ func NewServer(config *Config) *Server {
 	s.caravanRepo = NewCaravanRepository(config.DB)
 
 	s.mailService = NewMailService(s.mailRepo, s.guildRepo, s.logger)
-	s.guildService = NewGuildService(s.guildRepo, s.mailService, s.charRepo, s.logger)
+	s.guildService = NewGuildService(s.guildRepo, s.mailService, s.charRepo, s.logger, s.characterI18n)
 	s.guildMissionService = NewGuildMissionService(s.guildMissionRepo, s.logger)
 	s.achievementService = NewAchievementService(s.achievementRepo, s.logger)
 	s.gachaService = NewGachaService(s.gachaRepo, s.userRepo, s.charRepo, s.logger)
@@ -590,6 +590,13 @@ func (s *Server) BroadcastMHF(pkt mhfpacket.MHFPacket, ignoredSession *Session) 
 // WorldcastMHF broadcasts a packet to all sessions across all channel servers.
 func (s *Server) WorldcastMHF(pkt mhfpacket.MHFPacket, ignoredSession *Session, ignoredChannel *Server) {
 	s.Registry.Worldcast(pkt, ignoredSession, ignoredChannel)
+}
+
+// BroadcastShutdownCountdown sends each session a notice in its preferred language.
+func (s *Server) BroadcastShutdownCountdown(seconds int) {
+	for _, session := range s.sessionSnapshot() {
+		sendServerChatMessage(session, fmt.Sprintf(session.I18n().shutdown, seconds))
+	}
 }
 
 // BroadcastChatMessage broadcasts a simple chat message to all the sessions.

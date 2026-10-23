@@ -1,15 +1,16 @@
 package channelserver
 
 import (
+	"erupe-ce/common/stringsupport"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"golang.org/x/crypto/bcrypt"
 	"strings"
-	"unicode"
 )
 
 // onInteraction handles slash commands
 func (s *Server) onInteraction(ds *discordgo.Session, i *discordgo.InteractionCreate) {
+	messages := discordInteractionMessages(s.erupeConfig.Language)
 	switch i.Interaction.ApplicationCommandData().Name {
 	case "link":
 		_, err := s.userRepo.LinkDiscord(i.Member.User.ID, i.ApplicationCommandData().Options[0].StringValue())
@@ -17,7 +18,7 @@ func (s *Server) onInteraction(ds *discordgo.Session, i *discordgo.InteractionCr
 			_ = ds.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
-					Content: "Your Erupe account was linked successfully.",
+					Content: messages.linked,
 					Flags:   discordgo.MessageFlagsEphemeral,
 				},
 			})
@@ -25,7 +26,7 @@ func (s *Server) onInteraction(ds *discordgo.Session, i *discordgo.InteractionCr
 			_ = ds.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
-					Content: "Failed to link Erupe account.",
+					Content: messages.linkFailed,
 					Flags:   discordgo.MessageFlagsEphemeral,
 				},
 			})
@@ -36,7 +37,7 @@ func (s *Server) onInteraction(ds *discordgo.Session, i *discordgo.InteractionCr
 			_ = ds.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
-					Content: "Failed to hash password.",
+					Content: messages.passwordHashFailed,
 					Flags:   discordgo.MessageFlagsEphemeral,
 				},
 			})
@@ -47,7 +48,7 @@ func (s *Server) onInteraction(ds *discordgo.Session, i *discordgo.InteractionCr
 			_ = ds.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
-					Content: "Your Erupe account password has been updated.",
+					Content: messages.passwordUpdated,
 					Flags:   discordgo.MessageFlagsEphemeral,
 				},
 			})
@@ -55,12 +56,38 @@ func (s *Server) onInteraction(ds *discordgo.Session, i *discordgo.InteractionCr
 			_ = ds.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
 				Data: &discordgo.InteractionResponseData{
-					Content: "Failed to update Erupe account password.",
+					Content: messages.passwordUpdateFailed,
 					Flags:   discordgo.MessageFlagsEphemeral,
 				},
 			})
 		}
 	}
+}
+
+func discordRelayName(username string) string {
+	encoded := stringsupport.UTF8ToSJIS(strings.TrimSpace(username))
+	name := stringsupport.SJISToUTF8Lossy(encoded)
+	if len(encoded) < 8 {
+		name += strings.Repeat(" ", 8-len(encoded))
+	}
+	return name
+}
+
+// discordRelayLines measures the configured limit and each chat line in the
+// client's CP949 bytes. Slicing the original UTF-8 string at byte 61 could cut
+// a Hangul syllable in half before the chat packet encoder saw it.
+func discordRelayLines(message string, maxBytes int) []string {
+	encoded := stringsupport.UTF8ToSJIS(message)
+	if len(encoded) > maxBytes {
+		return nil
+	}
+	var lines []string
+	for len(encoded) > 0 {
+		line := stringsupport.TruncateCP949(encoded, 61)
+		lines = append(lines, stringsupport.SJISToUTF8Lossy(line))
+		encoded = encoded[len(line):]
+	}
+	return lines
 }
 
 // onDiscordMessage handles receiving messages from discord and forwarding them ingame.
@@ -70,30 +97,9 @@ func (s *Server) onDiscordMessage(ds *discordgo.Session, m *discordgo.MessageCre
 		return
 	}
 
-	paddedName := strings.TrimSpace(strings.Map(func(r rune) rune {
-		if r > unicode.MaxASCII {
-			return -1
-		}
-		return r
-	}, m.Author.Username))
-	for i := 0; i < 8-len(m.Author.Username); i++ {
-		paddedName += " "
-	}
+	paddedName := discordRelayName(m.Author.Username)
 	message := s.discordBot.NormalizeDiscordMessage(fmt.Sprintf("[D] %s > %s", paddedName, m.Content))
-	if len(message) > s.erupeConfig.Discord.RelayChannel.MaxMessageLength {
-		return
-	}
-
-	var messages []string
-	lineLength := 61
-	for i := 0; i < len(message); i += lineLength {
-		end := i + lineLength
-		if end > len(message) {
-			end = len(message)
-		}
-		messages = append(messages, message[i:end])
-	}
-	for i := range messages {
-		s.BroadcastChatMessage(messages[i])
+	for _, line := range discordRelayLines(message, s.erupeConfig.Discord.RelayChannel.MaxMessageLength) {
+		s.BroadcastChatMessage(line)
 	}
 }

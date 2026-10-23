@@ -3,6 +3,8 @@ package channelserver
 func langJapanese() i18n {
 	var i i18n
 
+	i.shutdown = "%d秒後にサーバーを終了します。"
+
 	i.language = "日本語"
 	i.cafe.reset = "%d/%dにリセット"
 	i.timer = "タイマー：%02d'%02d\"%02d.%03d (%df)"
@@ -40,8 +42,8 @@ func langJapanese() i18n {
 	i.commands.timer.enabled = "クエストタイマーが有効になりました"
 	i.commands.timer.disabled = "クエストタイマーが無効になりました"
 
-	i.commands.lang.usage = "使い方: %s <en|jp|fr|es|zh>"
-	i.commands.lang.invalid = "未対応の言語 %q。対応言語: en, jp, fr, es, zh"
+	i.commands.lang.usage = "使い方: %s <en|jp|fr|es|zh|ko>"
+	i.commands.lang.invalid = "未対応の言語 %q。対応言語: en, jp, fr, es, zh, ko"
 	i.commands.lang.success = "言語を %s に設定しました"
 	i.commands.lang.current = "現在の言語: %s"
 
@@ -64,6 +66,11 @@ func langJapanese() i18n {
 
 	i.guild.rookieGuildName = "新米猟団%d"
 	i.guild.returnGuildName = "復帰猟団%d"
+
+	i.guild.accepted = guildMailTemplate{"加入承認", "猟団「%s」への加入申請が承認されました。"}
+	i.guild.rejected = guildMailTemplate{"加入拒否", "猟団「%s」への加入申請が拒否されました。"}
+	i.guild.kicked = guildMailTemplate{"除名", "猟団「%s」から除名されました。"}
+	i.guild.withdrawal = guildMailTemplate{"脱退", "猟団「%s」から脱退しました。"}
 
 	i.guild.invite.title = "猟団勧誘のご案内"
 	i.guild.invite.body = "猟団「%s」からの勧誘通知です。\n「勧誘に返答」より、返答を行ってください。"

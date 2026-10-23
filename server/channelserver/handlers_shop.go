@@ -34,8 +34,7 @@ const gachaNameMax = 31
 
 // writeGachaName writes a gacha name for the shop list in the client's text
 // encoding (EUC-KR, stringsupport.UTF8ToSJIS) with a uint8 length prefix and a
-// terminator, cut at a whole character within gachaNameMax bytes. pascalstring
-// encodes Shift-JIS, which has no Hangul and sent Korean names as empty.
+// terminator, cut at a whole character within the client's gachaNameMax limit.
 func writeGachaName(bf *byteframe.ByteFrame, name string) {
 	var out []byte
 	for _, r := range name {

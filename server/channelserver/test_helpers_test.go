@@ -69,7 +69,7 @@ func ensureMailService(s *Server) {
 // Call this after setting guildRepo, mailRepo, and charRepo on the mock server.
 func ensureGuildService(s *Server) {
 	ensureMailService(s)
-	s.guildService = NewGuildService(s.guildRepo, s.mailService, s.charRepo, s.logger)
+	s.guildService = NewGuildService(s.guildRepo, s.mailService, s.charRepo, s.logger, s.characterI18n)
 }
 
 // ensureGuildMissionService wires the GuildMissionService from the server's

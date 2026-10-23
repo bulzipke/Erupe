@@ -3,6 +3,8 @@ package channelserver
 func langEnglish() i18n {
 	var i i18n
 
+	i.shutdown = "Shutting down in %d..."
+
 	i.language = "English"
 	i.cafe.reset = "Resets on %d/%d"
 	i.timer = "Time: %02d:%02d:%02d.%03d (%df)"
@@ -40,8 +42,8 @@ func langEnglish() i18n {
 	i.commands.timer.enabled = "Quest timer enabled"
 	i.commands.timer.disabled = "Quest timer disabled"
 
-	i.commands.lang.usage = "Usage: %s <en|jp|fr|es|zh>"
-	i.commands.lang.invalid = "Unknown language %q. Supported: en, jp, fr, es, zh"
+	i.commands.lang.usage = "Usage: %s <en|jp|fr|es|zh|ko>"
+	i.commands.lang.invalid = "Unknown language %q. Supported: en, jp, fr, es, zh, ko"
 	i.commands.lang.success = "Language set to %s"
 	i.commands.lang.current = "Current language: %s"
 
@@ -64,6 +66,11 @@ func langEnglish() i18n {
 
 	i.guild.rookieGuildName = "Rookie Clan %d"
 	i.guild.returnGuildName = "Return Clan %d"
+
+	i.guild.accepted = guildMailTemplate{"Accepted!", "Your application to join 「%s」 was accepted."}
+	i.guild.rejected = guildMailTemplate{"Rejected", "Your application to join 「%s」 was rejected."}
+	i.guild.kicked = guildMailTemplate{"Kicked", "You were kicked from 「%s」."}
+	i.guild.withdrawal = guildMailTemplate{"Withdrawal", "You have withdrawn from 「%s」."}
 
 	i.guild.invite.title = "Invitation!"
 	i.guild.invite.body = "You have been invited to join\n「%s」\nDo you want to accept?"

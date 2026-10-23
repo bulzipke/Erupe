@@ -6,9 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-
-	"golang.org/x/text/encoding/japanese"
-	"golang.org/x/text/transform"
 )
 
 // Objective type constants matching questObjType in questfile.bin.hexpat.
@@ -307,17 +304,6 @@ type QuestJSON struct {
 	GatheringTables []QuestGatheringTableJSON `json:"gathering_tables,omitempty"`
 }
 
-// toShiftJIS converts a UTF-8 string to a null-terminated Shift-JIS byte slice.
-// ASCII-only strings pass through unchanged.
-func toShiftJIS(s string) ([]byte, error) {
-	enc := japanese.ShiftJIS.NewEncoder()
-	out, _, err := transform.Bytes(enc, []byte(s))
-	if err != nil {
-		return nil, fmt.Errorf("shift-jis encode %q: %w", s, err)
-	}
-	return append(out, 0x00), nil
-}
-
 // writeUint16LE writes a little-endian uint16 to buf.
 func writeUint16LE(buf *bytes.Buffer, v uint16) {
 	b := [2]byte{}
@@ -461,7 +447,7 @@ func CompileQuestJSON(data []byte, lang string) ([]byte, error) {
 	questTypeFlagsPtr := uint32(headerSize + genPropSize)            // 0x86
 	questStringsTablePtr := questTypeFlagsPtr + uint32(mainPropSize) // 0x1C6
 
-	// ── Build Shift-JIS strings ─────────────────────────────────────────
+	// Korean text uses CP949; other languages retain the original Shift-JIS.
 	// Order matches QuestText struct: title, textMain, textSubA, textSubB,
 	// successCond, failCond, contractor, description. Each LocalizedString
 	// is resolved against the requesting session's language — plain-string
@@ -474,7 +460,7 @@ func CompileQuestJSON(data []byte, lang string) ([]byte, error) {
 	}
 	var sjisStrings [][]byte
 	for _, s := range rawTexts {
-		b, err := toShiftJIS(s)
+		b, err := encodeContentText(s, lang)
 		if err != nil {
 			return nil, err
 		}
@@ -1012,7 +998,7 @@ func CompileQuestJSON(data []byte, lang string) ([]byte, error) {
 
 		if q.SomeString != "" {
 			qb.patch(someStrPtrOff)
-			b, err := toShiftJIS(q.SomeString)
+			b, err := encodeContentText(q.SomeString, lang)
 			if err != nil {
 				return nil, err
 			}
@@ -1021,7 +1007,7 @@ func CompileQuestJSON(data []byte, lang string) ([]byte, error) {
 
 		if q.QuestType != "" {
 			qb.patch(questTypePtrOff)
-			b, err := toShiftJIS(q.QuestType)
+			b, err := encodeContentText(q.QuestType, lang)
 			if err != nil {
 				return nil, err
 			}

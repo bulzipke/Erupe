@@ -6,9 +6,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-
-	"golang.org/x/text/encoding/japanese"
-	"golang.org/x/text/transform"
 )
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -26,7 +23,7 @@ const scenarioChunkSizeLimit = 0x8000
 // ── JSON schema types ────────────────────────────────────────────────────────
 
 // ScenarioJSON is the open, human-editable representation of a scenario .bin file.
-// Strings are stored as UTF-8; the compiler converts to/from Shift-JIS.
+// Strings are stored as UTF-8; Korean content uses CP949, otherwise Shift-JIS.
 //
 // Container layout (big-endian sizes):
 //
@@ -132,7 +129,8 @@ type ScenarioRawChunkJSON struct {
 
 // ParseScenarioBinary reads a scenario .bin file and returns a ScenarioJSON
 // suitable for editing and re-compilation with CompileScenarioJSON.
-func ParseScenarioBinary(data []byte) (*ScenarioJSON, error) {
+// Pass "ko" to read CP949-localized binaries; omission retains Shift-JIS.
+func ParseScenarioBinary(data []byte, lang ...string) (*ScenarioJSON, error) {
 	if len(data) < 8 {
 		return nil, fmt.Errorf("scenario data too short: %d bytes", len(data))
 	}
@@ -148,7 +146,7 @@ func ParseScenarioBinary(data []byte) (*ScenarioJSON, error) {
 		if c0Off+c0Size > len(data) {
 			return nil, fmt.Errorf("chunk0 size %d overruns data at offset %d", c0Size, c0Off)
 		}
-		chunk0, err := parseScenarioChunk0(data[c0Off : c0Off+c0Size])
+		chunk0, err := parseScenarioChunk0(data[c0Off:c0Off+c0Size], lang...)
 		if err != nil {
 			return nil, fmt.Errorf("chunk0: %w", err)
 		}
@@ -161,7 +159,7 @@ func ParseScenarioBinary(data []byte) (*ScenarioJSON, error) {
 		if c1Off+c1Size > len(data) {
 			return nil, fmt.Errorf("chunk1 size %d overruns data at offset %d", c1Size, c1Off)
 		}
-		chunk1, err := parseScenarioChunk1(data[c1Off : c1Off+c1Size])
+		chunk1, err := parseScenarioChunk1(data[c1Off:c1Off+c1Size], lang...)
 		if err != nil {
 			return nil, fmt.Errorf("chunk1: %w", err)
 		}
@@ -188,18 +186,18 @@ func ParseScenarioBinary(data []byte) (*ScenarioJSON, error) {
 
 // parseScenarioChunk0 auto-detects sub-header vs inline format.
 // The second byte being 0x00 is the pad byte in sub-headers; non-zero means inline.
-func parseScenarioChunk0(data []byte) (*ScenarioChunk0JSON, error) {
+func parseScenarioChunk0(data []byte, lang ...string) (*ScenarioChunk0JSON, error) {
 	if len(data) < 2 {
 		return &ScenarioChunk0JSON{}, nil
 	}
 	if data[1] == 0x00 {
-		sh, err := parseScenarioSubheader(data)
+		sh, err := parseScenarioSubheader(data, lang...)
 		if err != nil {
 			return nil, err
 		}
 		return &ScenarioChunk0JSON{Subheader: sh}, nil
 	}
-	entries, err := parseScenarioInline(data)
+	entries, err := parseScenarioInline(data, lang...)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +206,7 @@ func parseScenarioChunk0(data []byte) (*ScenarioChunk0JSON, error) {
 
 // parseScenarioChunk1 parses chunk1 as JKR or sub-header depending on magic bytes.
 // JKR-compressed chunks start with the magic 'J','K','R',0x1A (LE u32 = jkrMagic).
-func parseScenarioChunk1(data []byte) (*ScenarioChunk1JSON, error) {
+func parseScenarioChunk1(data []byte, lang ...string) (*ScenarioChunk1JSON, error) {
 	if len(data) >= 4 && binary.LittleEndian.Uint32(data[0:4]) == jkrMagic {
 		return &ScenarioChunk1JSON{
 			JKR: &ScenarioRawChunkJSON{
@@ -216,7 +214,7 @@ func parseScenarioChunk1(data []byte) (*ScenarioChunk1JSON, error) {
 			},
 		}, nil
 	}
-	sh, err := parseScenarioSubheader(data)
+	sh, err := parseScenarioSubheader(data, lang...)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +222,7 @@ func parseScenarioChunk1(data []byte) (*ScenarioChunk1JSON, error) {
 }
 
 // parseScenarioSubheader parses the 8-byte sub-header + metadata + strings.
-func parseScenarioSubheader(data []byte) (*ScenarioSubheaderJSON, error) {
+func parseScenarioSubheader(data []byte, lang ...string) (*ScenarioSubheaderJSON, error) {
 	if len(data) < 8 {
 		return nil, fmt.Errorf("sub-header chunk too short: %d bytes", len(data))
 	}
@@ -245,7 +243,7 @@ func parseScenarioSubheader(data []byte) (*ScenarioSubheaderJSON, error) {
 
 	metadata := base64.StdEncoding.EncodeToString(data[8:metaEnd])
 
-	plainStrings, err := scenarioReadStrings(data, metaEnd, entryCount)
+	plainStrings, err := scenarioReadStrings(data, metaEnd, entryCount, lang...)
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +264,7 @@ func parseScenarioSubheader(data []byte) (*ScenarioSubheaderJSON, error) {
 }
 
 // parseScenarioInline parses chunk0 inline format: {u8 index}{Shift-JIS string}{0x00}.
-func parseScenarioInline(data []byte) ([]ScenarioInlineEntry, error) {
+func parseScenarioInline(data []byte, lang ...string) ([]ScenarioInlineEntry, error) {
 	var result []ScenarioInlineEntry
 	pos := 0
 	for pos < len(data) {
@@ -284,7 +282,7 @@ func parseScenarioInline(data []byte) ([]ScenarioInlineEntry, error) {
 			end++
 		}
 		if end > pos {
-			text, err := scenarioDecodeShiftJIS(data[pos:end])
+			text, err := scenarioDecodeShiftJIS(data[pos:end], lang...)
 			if err != nil {
 				return nil, fmt.Errorf("inline entry at 0x%x: %w", pos, err)
 			}
@@ -297,7 +295,7 @@ func parseScenarioInline(data []byte) ([]ScenarioInlineEntry, error) {
 
 // scenarioReadStrings scans for null-terminated Shift-JIS strings starting at
 // offset start, reading at most maxCount strings (0 = unlimited). Stops on 0xFF.
-func scenarioReadStrings(data []byte, start, maxCount int) ([]string, error) {
+func scenarioReadStrings(data []byte, start, maxCount int, lang ...string) ([]string, error) {
 	var result []string
 	pos := start
 	for pos < len(data) {
@@ -316,7 +314,7 @@ func scenarioReadStrings(data []byte, start, maxCount int) ([]string, error) {
 			end++
 		}
 		if end > pos {
-			text, err := scenarioDecodeShiftJIS(data[pos:end])
+			text, err := scenarioDecodeShiftJIS(data[pos:end], lang...)
 			if err != nil {
 				return nil, fmt.Errorf("string at 0x%x: %w", pos, err)
 			}
@@ -412,7 +410,7 @@ func compileScenarioSubheader(sh *ScenarioSubheaderJSON, lang string) ([]byte, e
 
 	var strBuf bytes.Buffer
 	for _, s := range sh.Strings {
-		sjis, err := scenarioEncodeShiftJIS(s.Resolve(lang))
+		sjis, err := scenarioEncodeShiftJIS(s.Resolve(lang), lang)
 		if err != nil {
 			return nil, err
 		}
@@ -444,7 +442,7 @@ func compileScenarioInline(entries []ScenarioInlineEntry, lang string) ([]byte, 
 	var buf bytes.Buffer
 	for _, e := range entries {
 		buf.WriteByte(e.Index)
-		sjis, err := scenarioEncodeShiftJIS(e.Text.Resolve(lang))
+		sjis, err := scenarioEncodeShiftJIS(e.Text.Resolve(lang), lang)
 		if err != nil {
 			return nil, err
 		}
@@ -465,22 +463,12 @@ func compileScenarioRawChunk(rc *ScenarioRawChunkJSON) ([]byte, error) {
 
 // ── String helpers ───────────────────────────────────────────────────────────
 
-// scenarioDecodeShiftJIS converts a raw Shift-JIS byte slice to UTF-8 string.
-func scenarioDecodeShiftJIS(b []byte) (string, error) {
-	dec := japanese.ShiftJIS.NewDecoder()
-	out, _, err := transform.Bytes(dec, b)
-	if err != nil {
-		return "", fmt.Errorf("shift-jis decode: %w", err)
-	}
-	return string(out), nil
+// scenarioDecodeShiftJIS also supports CP949 when explicitly passed "ko".
+func scenarioDecodeShiftJIS(b []byte, lang ...string) (string, error) {
+	return decodeContentText(b, lang...)
 }
 
-// scenarioEncodeShiftJIS converts a UTF-8 string to a null-terminated Shift-JIS byte slice.
-func scenarioEncodeShiftJIS(s string) ([]byte, error) {
-	enc := japanese.ShiftJIS.NewEncoder()
-	out, _, err := transform.Bytes(enc, []byte(s))
-	if err != nil {
-		return nil, fmt.Errorf("shift-jis encode %q: %w", s, err)
-	}
-	return append(out, 0x00), nil
+// scenarioEncodeShiftJIS also supports CP949 when explicitly passed "ko".
+func scenarioEncodeShiftJIS(s string, lang ...string) ([]byte, error) {
+	return encodeContentText(s, lang...)
 }

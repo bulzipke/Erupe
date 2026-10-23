@@ -503,7 +503,7 @@ func main() {
 		for i := 0; i < countdown; i++ {
 			message := fmt.Sprintf("Shutting down in %d...", countdown-i)
 			for _, c := range channels {
-				c.BroadcastChatMessage(message)
+				c.BroadcastShutdownCountdown(countdown - i)
 			}
 			logger.Info(message)
 			select {
