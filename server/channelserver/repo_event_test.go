@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -74,6 +75,68 @@ func TestGetEventQuestsReturnsRows(t *testing.T) {
 	}
 	if quests[0].CollabScope != "" {
 		t.Errorf("Expected first quest empty collab scope, got: %q", quests[0].CollabScope)
+	}
+	if quests[0].ListHidden || quests[1].ListHidden {
+		t.Errorf("Expected existing-style inserts to remain visible, got: %#v", quests)
+	}
+}
+
+func TestGetEventQuestsPreservesHiddenRowsAndReadsVisibilityChanges(t *testing.T) {
+	repo, db := setupEventRepo(t)
+
+	now := time.Now().Truncate(time.Microsecond)
+	id := insertEventQuest(t, db, 28, 23352, now, 7, 3)
+	insertEventQuest(t, db, 18, 50001, now, 0, 0)
+	before, err := repo.GetEventQuests()
+	if err != nil || len(before) != 2 {
+		t.Fatalf("Read initial quest metadata: quests=%#v error=%v", before, err)
+	}
+	if before[0].ID != id || before[0].ListHidden || before[1].ListHidden {
+		t.Fatalf("Expected both rows visible by default: %#v", before)
+	}
+
+	for _, hidden := range []bool{true, false} {
+		if _, err := db.Exec("UPDATE event_quests SET list_hidden=$1 WHERE id=$2", hidden, id); err != nil {
+			t.Fatalf("Set hidden=%t: %v", hidden, err)
+		}
+		quests, err := repo.GetEventQuests()
+		if err != nil || len(quests) != len(before) {
+			t.Fatalf("Read hidden=%t: quests=%#v error=%v", hidden, quests, err)
+		}
+		// The Return-world provider must still see this hidden row; removing it
+		// here would cause the provider to synthesize a new visible definition.
+		want := before[0]
+		want.ListHidden = hidden
+		if quests[0] != want || quests[1] != before[1] {
+			t.Fatalf("Visibility change lost metadata or retained stale state: got=%#v want=%#v", quests, []EventQuest{want, before[1]})
+		}
+	}
+}
+
+func TestEventQuestListVisibilityMigrationPreservesPreparedFlags(t *testing.T) {
+	repo, db := setupEventRepo(t)
+	id := insertEventQuest(t, db, 18, 53189, time.Now().Truncate(time.Microsecond), 0, 0)
+	if _, err := db.Exec("UPDATE event_quests SET list_hidden=true WHERE id=$1", id); err != nil {
+		t.Fatal(err)
+	}
+	before, err := repo.GetEventQuests()
+	if err != nil || len(before) != 1 || !before[0].ListHidden {
+		t.Fatalf("Read prepared visibility: quests=%#v error=%v", before, err)
+	}
+	ddl, err := os.ReadFile("../migrations/sql/0092_event_quest_list_visibility.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Production may prepare the column and reviewed flags before deploying
+	// the new server. Its startup migration must retain those exact rows.
+	for i := 0; i < 2; i++ {
+		if _, err := db.Exec(string(ddl)); err != nil {
+			t.Fatalf("Reapply visibility migration: %v", err)
+		}
+		after, err := repo.GetEventQuests()
+		if err != nil || len(after) != 1 || after[0] != before[0] {
+			t.Fatalf("Migration changed prepared state: quests=%#v error=%v", after, err)
+		}
 	}
 }
 

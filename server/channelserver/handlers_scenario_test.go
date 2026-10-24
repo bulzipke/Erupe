@@ -278,6 +278,63 @@ func TestHandleMsgMhfInfoScenarioCounter_ZZDisabledKeepsLegacyRoster(t *testing.
 	}
 }
 
+func TestHandleMsgMhfInfoScenarioCounter_ZZRetrospectiveYearOrder(t *testing.T) {
+	server := createMockServer()
+	server.erupeConfig.RealClientMode = cfg.ZZ
+	server.erupeConfig.QuestDelivery.Enabled = true
+	rows := []Scenario{
+		{MainID: 81, CategoryID: 3},
+		{MainID: 93, CategoryID: 1}, // Finale.
+		{MainID: 81, CategoryID: 1}, // Year 11, not year 1.
+		{MainID: 94, CategoryID: 1},
+		{MainID: 80, CategoryID: 1},
+		{MainID: 17, CategoryID: 0},
+		{MainID: 92, CategoryID: 1}, // Year 12.
+	}
+	for mainID := uint32(91); mainID >= 82; mainID-- {
+		rows = append(rows, Scenario{MainID: mainID, CategoryID: 1})
+	}
+	before := append([]Scenario(nil), rows...)
+	server.scenarioRepo = &mockScenarioRepo{scenarios: rows}
+	session := createMockSession(1, server)
+
+	handleMsgMhfInfoScenarioCounter(session, &mhfpacket.MsgMhfInfoScenarioCounter{AckHandle: 100})
+	select {
+	case packet := <-session.sendPackets:
+		_, status, data := parseAckBufData(t, packet.data)
+		want := []Scenario{{MainID: 17, CategoryID: 0}, {MainID: 80, CategoryID: 1}}
+		for mainID := uint32(82); mainID <= 91; mainID++ {
+			want = append(want, Scenario{MainID: mainID, CategoryID: 1})
+		}
+		want = append(want,
+			Scenario{MainID: 81, CategoryID: 1},
+			Scenario{MainID: 92, CategoryID: 1},
+			Scenario{MainID: 93, CategoryID: 1},
+			Scenario{MainID: 94, CategoryID: 1},
+			Scenario{MainID: 81, CategoryID: 3},
+		)
+		if status != 0 || len(data) != 1+6*len(want) || int(data[0]) != len(want) {
+			t.Fatal("invalid scenario response")
+		}
+		for i, row := range want {
+			offset := 1 + i*6
+			got := Scenario{MainID: binary.BigEndian.Uint32(data[offset : offset+4]), CategoryID: data[offset+5]}
+			wantExchange := byte(0)
+			if row.CategoryID == 3 {
+				wantExchange = 1
+			}
+			if got != row || data[offset+4] != wantExchange {
+				t.Fatalf("record%d = %+v exchange%d, want %+v exchange%d", i, got, data[offset+4], row, wantExchange)
+			}
+		}
+	default:
+		t.Fatal("no ACK queued")
+	}
+	if !reflect.DeepEqual(rows, before) {
+		t.Fatal("handler changed the source snapshot")
+	}
+}
+
 func TestHandleMsgMhfInfoScenarioCounter_DBError(t *testing.T) {
 	server := createMockServer()
 	server.scenarioRepo = &mockScenarioRepo{err: errors.New("db error")}

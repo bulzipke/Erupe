@@ -21,6 +21,20 @@ type Scenario struct {
 	CategoryID uint8
 }
 
+func scenarioCounterDisplayOrder(scenario Scenario) uint32 {
+	// Veteran retrospective: S82..S91 are years 1..10, while S81 is year 11.
+	// Rotate that display range without changing IDs used by files/progress.
+	if scenario.CategoryID == 1 {
+		if scenario.MainID == 81 {
+			return 91
+		}
+		if scenario.MainID >= 82 && scenario.MainID <= 91 {
+			return scenario.MainID - 1
+		}
+	}
+	return scenario.MainID
+}
+
 func handleMsgMhfInfoScenarioCounter(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfInfoScenarioCounter)
 	scenarios, err := s.server.scenarioRepo.GetCounters()
@@ -49,7 +63,7 @@ func handleMsgMhfInfoScenarioCounter(s *Session, p mhfpacket.MHFPacket) {
 			if scenarios[i].CategoryID != scenarios[j].CategoryID {
 				return scenarios[i].CategoryID < scenarios[j].CategoryID
 			}
-			return scenarios[i].MainID < scenarios[j].MainID
+			return scenarioCounterDisplayOrder(scenarios[i]) < scenarioCounterDisplayOrder(scenarios[j])
 		})
 	}
 	if len(scenarios) > limit {

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed 
+- Read ordinary quest-list visibility from the database on each new enumeration without changing quest access, progress records or dedicated receptions.
 - Reject truncated capture timestamps instead of treating a partial final record as a clean end of file.
 - Return failure acknowledgements when any Festa prize receipt cannot be stored, preserving existing successful replies and reward rules.
 - Stage and sync offline quest calendar exports before replacing the destination so write failures preserve the previous file.

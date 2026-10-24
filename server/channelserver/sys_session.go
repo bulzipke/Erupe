@@ -43,7 +43,8 @@ type Session struct {
 	lastPacket                  time.Time
 	questDeliveryListMu         sync.Mutex
 	questDeliveryList           *questDeliveryListSnapshot
-	questDeliveryListEpoch      uint64 // Owned only under questDeliveryListMu.
+	questClientCache            *questClientCacheTransfer // Immutable transfer, guarded by questDeliveryListMu.
+	questDeliveryListEpoch      uint64                    // Owned only under questDeliveryListMu.
 	questDeliveryDeparture      atomic.Pointer[questDeliveryDeparture]
 	questDeliveryReceipt        atomic.Pointer[questDeliveryReceipt]
 	questAccessSnapshot         atomic.Pointer[QuestAccessSnapshot]

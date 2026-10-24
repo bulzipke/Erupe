@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"erupe-ce/common/byteframe"
+	cfg "erupe-ce/config"
 	"go.uber.org/zap"
 )
 
@@ -131,6 +132,7 @@ func (s *Session) beginQuestDeliveryPreparation(offset uint16) questDeliveryPrep
 		return questDeliveryPreparation{cached: s.questDeliveryList}
 	}
 	s.questDeliveryListEpoch++
+	s.questClientCache = nil
 	return questDeliveryPreparation{epoch: s.questDeliveryListEpoch}
 }
 
@@ -151,6 +153,7 @@ func (s *Session) abortQuestDeliveryPreparation(preparation questDeliveryPrepara
 func (s *Session) invalidateQuestDeliveryConfig() {
 	s.questDeliveryListMu.Lock()
 	s.questDeliveryList = nil
+	s.questClientCache = nil
 	s.questDeliveryListEpoch++
 	s.questDeliveryListMu.Unlock()
 }
@@ -228,6 +231,12 @@ func (s *Session) encodeQuestDeliverySnapshotWithReturn(quests []EventQuest, now
 	validCount := 0
 	var towerData *TowerData
 	for _, eq := range quests {
+		// Keep DB rows through provider merging so hidden Return quests are
+		// not re-injected. This flag only hides extra ordinary list records;
+		// native receptions, file access and progress retain their row IDs.
+		if s.server.erupeConfig.QuestDelivery.Enabled && s.server.erupeConfig.RealClientMode == cfg.ZZ && eq.ListHidden && (eq.QuestType == 18 || eq.QuestType == 28 || eq.QuestType == 54) {
+			continue
+		}
 		if _, known := commonCollabDefinition(eq.QuestID); known && commonView != nil {
 			if !commonView.activeIDs[eq.QuestID] {
 				continue

@@ -502,6 +502,18 @@ func makeEventQuestWithAccess(s *Session, eq EventQuest, access *QuestAccessSnap
 
 func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfEnumerateQuest)
+	if s.serveQuestClientCache(pkt) {
+		return
+	}
+	cacheProbe := pkt.World == questCacheProbe
+	if cacheProbe {
+		copy := *pkt
+		copy.Offset = 0
+		pkt = &copy
+		s.questDeliveryListMu.Lock()
+		s.questClientCache = nil
+		s.questDeliveryListMu.Unlock()
+	}
 	_, capacityErr := s.eventQuestCapacity()
 	if capacityErr != nil {
 		s.invalidateQuestDeliveryConfig()
@@ -533,7 +545,11 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 		doAckBufFail(s, pkt.AckHandle, nil)
 		return
 	}
-	totalCount, returnedCount = snapshot.appendPage(bf, pkt.Offset)
+	if cacheProbe {
+		totalCount = uint16(len(snapshot.entries))
+	} else {
+		totalCount, returnedCount = snapshot.appendPage(bf, pkt.Offset)
+	}
 
 	premiumRaviOrbRate := multiplierToTuneValue(s.server.erupeConfig.GameplayOptions.PremiumRaviOrbMultiplier)
 	tuneValues := []tuneValue{
@@ -770,6 +786,27 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 	_, _ = bf.Seek(0, io.SeekStart)
 	bf.WriteUint16(returnedCount)
 
+	if cacheProbe {
+		transfer, err := newQuestClientCacheTransfer(snapshot, bf.Data()[2:])
+		if err != nil {
+			s.logger.Error("Failed to encode quest cache", zap.Error(err))
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
+		s.questDeliveryListMu.Lock()
+		current := s.questDeliveryList == snapshot
+		if current {
+			s.questClientCache = transfer
+		}
+		s.questDeliveryListMu.Unlock()
+		if !current {
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
+		data, _ := transfer.response(questCacheProbe, 0)
+		doAckBufSucceed(s, pkt.AckHandle, data)
+		return
+	}
 	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
 }
 
