@@ -721,6 +721,11 @@ const (
 
 func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgSysRecordLog)
+	if !s.allowsQuestDeliveryRecord(pkt.Data) {
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	s.observePalloneRecord(pkt.Data)
 	if s.server.erupeConfig.DebugOptions.QuestTools {
 		fields := []zap.Field{
 			zap.Uint32("charID", uint32(s.charID)),

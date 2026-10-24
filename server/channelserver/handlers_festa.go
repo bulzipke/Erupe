@@ -393,6 +393,8 @@ func handleMsgMhfVoteFesta(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfVoteFesta)
 	if err := s.server.festaRepo.VoteTrial(s.charID, pkt.TrialID); err != nil {
 		s.logger.Error("Failed to update festa trial vote", zap.Error(err))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }
@@ -416,6 +418,8 @@ func handleMsgMhfEntryFesta(s *Session, p mhfpacket.MHFPacket) {
 	}
 	if err := s.server.festaRepo.RegisterGuild(guildID, teamName); err != nil {
 		s.logger.Error("Failed to register guild for festa", zap.Error(err))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
 	}
 	bf := byteframe.NewByteFrame()
 	bf.WriteUint32(team)
@@ -439,6 +443,8 @@ func handleMsgMhfChargeFesta(s *Session, p mhfpacket.MHFPacket) {
 	}
 	if err := s.server.festaService.SubmitSouls(s.charID, guildID, pkt.Souls); err != nil {
 		s.logger.Error("Failed to submit festa souls", zap.Error(err))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }
@@ -447,6 +453,8 @@ func handleMsgMhfAcquireFesta(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfAcquireFesta)
 	if err := s.server.festaRepo.ClaimPrize(0, s.charID); err != nil {
 		s.logger.Error("Failed to accept festa prize", zap.Error(err))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }
@@ -455,6 +463,8 @@ func handleMsgMhfAcquireFestaPersonalPrize(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfAcquireFestaPersonalPrize)
 	if err := s.server.festaRepo.ClaimPrize(pkt.PrizeID, s.charID); err != nil {
 		s.logger.Error("Failed to accept festa personal prize", zap.Error(err))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }
@@ -463,6 +473,8 @@ func handleMsgMhfAcquireFestaIntermediatePrize(s *Session, p mhfpacket.MHFPacket
 	pkt := p.(*mhfpacket.MsgMhfAcquireFestaIntermediatePrize)
 	if err := s.server.festaRepo.ClaimPrize(pkt.PrizeID, s.charID); err != nil {
 		s.logger.Error("Failed to accept festa intermediate prize", zap.Error(err))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }

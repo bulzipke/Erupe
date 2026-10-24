@@ -6,6 +6,27 @@
 
 Scenario files are binary blobs served by `MSG_SYS_GET_FILE` when `IsScenario` is true. They contain quest descriptions, NPC dialog, episode listings, and menu options for the game's scenario/story system.
 
+## Scenario counter reply limit
+
+The ZZ HD parser at `0x11525be0` and non-HD parser at `0x114ff340`
+read an unsigned-byte counter count and six wire bytes per entry into
+eight-byte records. Their zeroed `0x804`-byte state holds a count and
+256 records. The reply allocation is `0xc00` bytes, and the audited menu
+consumers iterate the stored count. The wire can represent at most 255
+entries; this is distinct from the 512-event-quest table and campaign limits.
+
+When `QuestDelivery.Enabled` is true for ZZ, the server sends at most 255
+counters in stable category/MainID order, sorting a detached repository
+snapshot. An enabled ZZ roster above 255 fails as a whole instead of hiding
+later entries. Disabled delivery and other client versions retain the previous
+128-entry limit and ordering. A missing scenario registration is still
+missing: increasing the response bound does not register a story, waive its
+chapters or grant its NPC completion items.
+
+The audit covers these two ZZ binaries, not other client versions or actual
+menu/quest/reward execution. Verify 128/129, 171/172 and 255 entries, world
+changes, dialogue and saved progression in both clients before rollout.
+
 ## Request Format
 
 When `IsScenario == true`, the client sends a `scenarioFileIdentifier`:

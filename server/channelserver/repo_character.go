@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -23,6 +24,9 @@ type SaveAtomicParams struct {
 	Playtime   uint32
 	// Item receipts consumed with this savedata, not separate inventory grants.
 	DivaRewardIDs []uint32
+	// Only authenticated client saves may consume these staged starter receipts.
+	StarterUserID    uint32
+	StarterRewardIDs []uint32
 
 	// House data (written to user_binary)
 	HouseTier     []byte
@@ -33,8 +37,9 @@ type SaveAtomicParams struct {
 	GardenData    []byte
 
 	// Optional backup (nil means skip)
-	BackupSlot int
-	BackupData []byte
+	BackupSlot         int
+	BackupData         []byte
+	BackupStarterEpoch *int64
 }
 
 // CharacterRepository centralizes all database access for the characters table.
@@ -328,7 +333,7 @@ func (r *CharacterRepository) SaveBackup(charID uint32, slot int, data []byte) e
 	_, err := r.db.Exec(`
 		INSERT INTO savedata_backups (char_id, slot, savedata, saved_at)
 		VALUES ($1, $2, $3, now())
-		ON CONFLICT (char_id, slot) DO UPDATE SET savedata = $3, saved_at = now()
+		ON CONFLICT (char_id, slot) DO UPDATE SET savedata = $3, saved_at = now(), starter_inventory_epoch = NULL
 	`, charID, slot, data)
 	return err
 }
@@ -352,18 +357,47 @@ func (r *CharacterRepository) GetLastBackupTime(charID uint32) (time.Time, error
 // SaveCharacterDataAtomic performs all save-related writes in a single
 // database transaction. If any step fails, everything is rolled back.
 func (r *CharacterRepository) SaveCharacterDataAtomic(params SaveAtomicParams) error {
+	_, err := r.saveCharacterDataAtomic(params, nil)
+	return err
+}
+
+// SaveCharacterDataAtomicWithStarterEpoch is the opt-in inventory path. The
+// returned generation is authoritative only after the entire save commits.
+func (r *CharacterRepository) SaveCharacterDataAtomicWithStarterEpoch(params SaveAtomicParams, baseline QuestLicenseStarterEpochBaseline) (int64, error) {
+	return r.saveCharacterDataAtomic(params, &baseline)
+}
+
+func (r *CharacterRepository) saveCharacterDataAtomic(params SaveAtomicParams, baseline *QuestLicenseStarterEpochBaseline) (int64, error) {
 	tx, err := r.db.Beginx()
 	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
+		return 0, fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck // rollback is no-op after commit
+
+	// Account -> character lock order precedes the first character UPDATE.
+	// A later character/house/backup failure rolls these receipts back too.
+	var nextEpoch int64
+	if baseline != nil {
+		if params.StarterUserID != 0 && params.StarterUserID != baseline.UserID {
+			return 0, fmt.Errorf("starter save account mismatch")
+		}
+		if params.BackupData != nil && (params.BackupStarterEpoch == nil || *params.BackupStarterEpoch != baseline.Epoch) {
+			return 0, fmt.Errorf("backup inventory generation mismatch")
+		}
+		nextEpoch, err = commitQuestLicenseStarterReceiptsWithEpoch(context.Background(), tx, baseline.UserID, params.CharID, baseline.Epoch, params.StarterRewardIDs)
+	} else {
+		err = commitQuestLicenseStarterReceipts(context.Background(), tx, params.StarterUserID, params.CharID, params.StarterRewardIDs)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("save starter receipts: %w", err)
+	}
 
 	// 1. Save character data + hash
 	if _, err := tx.Exec(
 		`UPDATE characters SET savedata=$1, savedata_hash=$2, is_new_character=false, name=$3, hr=$4, gr=$5, is_female=$6, weapon_type=$7, weapon_id=$8, playtime_seconds=$9 WHERE id=$10`,
 		params.CompSave, params.Hash, params.Name, params.HR, params.GR, params.IsFemale, params.WeaponType, params.WeaponID, params.Playtime, params.CharID,
 	); err != nil {
-		return fmt.Errorf("save character data: %w", err)
+		return 0, fmt.Errorf("save character data: %w", err)
 	}
 
 	// 2. Save house data
@@ -371,25 +405,32 @@ func (r *CharacterRepository) SaveCharacterDataAtomic(params SaveAtomicParams) e
 		`UPDATE user_binary SET house_tier=$1, house_data=$2, bookshelf=$3, gallery=$4, tore=$5, garden=$6 WHERE id=$7`,
 		params.HouseTier, params.HouseData, params.BookshelfData, params.GalleryData, params.ToreData, params.GardenData, params.CharID,
 	); err != nil {
-		return fmt.Errorf("save house data: %w", err)
+		return 0, fmt.Errorf("save house data: %w", err)
 	}
 
 	// 3. Optional backup
 	if params.BackupData != nil {
+		var backupEpoch *int64
+		if baseline != nil {
+			backupEpoch = params.BackupStarterEpoch
+		}
 		if _, err := tx.Exec(
-			`INSERT INTO savedata_backups (char_id, slot, savedata, saved_at)
-			 VALUES ($1, $2, $3, now())
-			 ON CONFLICT (char_id, slot) DO UPDATE SET savedata = $3, saved_at = now()`,
-			params.CharID, params.BackupSlot, params.BackupData,
+			`INSERT INTO savedata_backups (char_id, slot, savedata, saved_at, starter_inventory_epoch)
+			 VALUES ($1, $2, $3, now(), $4)
+			 ON CONFLICT (char_id, slot) DO UPDATE SET savedata = $3, saved_at = now(), starter_inventory_epoch = $4`,
+			params.CharID, params.BackupSlot, params.BackupData, backupEpoch,
 		); err != nil {
-			return fmt.Errorf("save backup: %w", err)
+			return 0, fmt.Errorf("save backup: %w", err)
 		}
 	}
 
 	if err := commitDivaRewardReceipts(tx, params.CharID, params.DivaRewardIDs, 7); err != nil {
-		return fmt.Errorf("save diva item receipts: %w", err)
+		return 0, fmt.Errorf("save diva item receipts: %w", err)
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return nextEpoch, nil
 }
 
 // LoadSaveDataWithHash reads the core save columns plus the integrity hash.

@@ -13,6 +13,7 @@ import (
 
 	"erupe-ce/common/byteframe"
 	"erupe-ce/common/decryption"
+	"erupe-ce/common/questdelivery"
 	"erupe-ce/common/stringsupport"
 	cfg "erupe-ce/config"
 	"erupe-ce/network"
@@ -36,7 +37,10 @@ type Config struct {
 	Enable         bool
 	CollabEvent    string
 	WorldType      uint8
+	WorldName      string
+	ChannelNumber  int
 	CollabRotation *CollabRotation
+	CommonCollab   *CommonCollabRuntimeCohort // Shared startup-only content plan, not player authority.
 	MezFesRotation *MezFesRotation
 	MezFesMinigame uint16
 }
@@ -92,6 +96,8 @@ type Server struct {
 	mercenaryRepo      MercenaryRepo
 	tournamentRepo     TournamentRepo
 	caravanRepo        CaravanRepo
+	palloneRepo        PalloneRepo
+	palloneService     *PalloneService
 	mailService        *MailService
 	guildService       *GuildService
 	achievementService *AchievementService
@@ -101,7 +107,16 @@ type Server struct {
 	erupeConfig        *cfg.Config
 	collabEvent        string
 	worldType          uint8
+	worldName          string
+	channelNumber      int
+	questDelivery      *questdelivery.Catalog
+	commonPublication  *questdelivery.CommonPublicationCohort
+	questLicenses      *QuestLicenseService
+	questLicenseShop   *QuestLicenseShop
+	questAccess        *QuestAccessGameplay
 	collabRotation     *CollabRotation
+	commonCollab       *CommonCollabRuntimeCohort
+	questDeliveryClock func() time.Time // Private test seam; nil uses the server wall clock, never client input.
 	mezFesRotation     *MezFesRotation
 	mezFesMinigame     uint16
 	acceptConns        chan net.Conn
@@ -166,7 +181,13 @@ type Server struct {
 // selection independent of database initialization so its inheritance is testable.
 func (s *Server) configureChannelContent(config *Config) {
 	s.worldType, s.collabEvent = config.WorldType, config.CollabEvent
+	s.worldName, s.channelNumber = config.WorldName, config.ChannelNumber
+	if config.ErupeConfig != nil {
+		s.questDelivery = config.ErupeConfig.QuestDeliveryCatalog
+		s.commonPublication = config.ErupeConfig.QuestDeliveryPublication
+	}
 	s.collabRotation = config.CollabRotation
+	s.commonCollab = config.CommonCollab
 	if config.CollabEvent == collabRandom && s.collabRotation == nil {
 		s.collabRotation = NewCollabRotation()
 	}
@@ -254,6 +275,8 @@ func NewServer(config *Config) *Server {
 	s.mercenaryRepo = NewMercenaryRepository(config.DB)
 	s.tournamentRepo = NewTournamentRepository(config.DB)
 	s.caravanRepo = NewCaravanRepository(config.DB)
+	s.palloneRepo = NewPalloneRepository(config.DB)
+	s.palloneService = NewPalloneService(s.palloneRepo)
 
 	s.mailService = NewMailService(s.mailRepo, s.guildRepo, s.logger)
 	s.guildService = NewGuildService(s.guildRepo, s.mailService, s.charRepo, s.logger, s.characterI18n)
@@ -293,6 +316,18 @@ func NewServer(config *Config) *Server {
 
 // Start starts the server in a new goroutine.
 func (s *Server) Start() error {
+	if err := s.validateCommonPublicationBinding(); err != nil {
+		return err
+	}
+	if err := s.validateCommonCollabRuntime(); err != nil {
+		return err
+	}
+	if s.erupeConfig.QuestDelivery.Enabled && s.questDelivery == nil {
+		return fmt.Errorf("quest delivery is enabled without a validated manifest")
+	}
+	if s.erupeConfig.QuestLicenses.Enabled && (s.erupeConfig.QuestLicenseCatalog == nil || s.erupeConfig.QuestLicenseDisplay == nil) {
+		return fmt.Errorf("quest licenses are enabled without validated catalog and display documents")
+	}
 	if s.ngWordLoadErr != nil {
 		return fmt.Errorf("load NG-word CSV %q: %w", s.erupeConfig.NGWordsFile, s.ngWordLoadErr)
 	}
@@ -301,6 +336,15 @@ func (s *Server) Start() error {
 		return err
 	}
 	s.listener = l
+	if s.erupeConfig.QuestLicenses.Enabled {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err = s.initializeQuestLicenses(ctx)
+		cancel()
+		if err != nil {
+			_ = l.Close()
+			return fmt.Errorf("initialize quest licenses: %w", err)
+		}
+	}
 	if repo, ok := s.sessionRepo.(*SessionRepository); ok && s.db != nil && s.erupeConfig.DebugOptions.ProxyPort == 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		err = repo.RecoverDashboardCoinSessions(ctx, s.ID)

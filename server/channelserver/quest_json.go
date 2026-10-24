@@ -64,8 +64,11 @@ type QuestRewardItemJSON struct {
 
 // QuestRewardTableJSON is a named reward table with its items.
 type QuestRewardTableJSON struct {
-	TableID uint8                 `json:"table_id"`
-	Items   []QuestRewardItemJSON `json:"items"`
+	TableID uint8 `json:"table_id"`
+	// Preserve uninterpreted descriptor bytes; these are not reward guarantees.
+	DescriptorByte1Raw uint8                 `json:"descriptor_byte1_raw,omitempty"`
+	DescriptorWord2Raw uint16                `json:"descriptor_word2_raw,omitempty"`
+	Items              []QuestRewardItemJSON `json:"items"`
 }
 
 // QuestMonsterJSON describes one large monster spawn.
@@ -234,20 +237,25 @@ type QuestJSON struct {
 	MainRankPoints   uint32 `json:"main_rank_points"`
 	SubARankPoints   uint32 `json:"sub_a_rank_points"`
 	SubBRankPoints   uint32 `json:"sub_b_rank_points"`
+	// Raw scalar fields, distinct from the server event reception QuestType.
+	GeneralQuestTypeIDRaw uint32 `json:"general_quest_type_id_raw,omitempty"`
 
 	// Main quest properties
-	Fee              uint32 `json:"fee"`
-	RewardMain       uint32 `json:"reward_main"`
-	RewardSubA       uint16 `json:"reward_sub_a"`
-	RewardSubB       uint16 `json:"reward_sub_b"`
-	TimeLimitMinutes uint32 `json:"time_limit_minutes"`
-	Map              uint32 `json:"map"`
-	RankBand         uint16 `json:"rank_band"`
-	HardHRReq        uint16 `json:"hard_hr_req,omitempty"`
-	JoinRankMin      uint16 `json:"join_rank_min,omitempty"`
-	JoinRankMax      uint16 `json:"join_rank_max,omitempty"`
-	PostRankMin      uint16 `json:"post_rank_min,omitempty"`
-	PostRankMax      uint16 `json:"post_rank_max,omitempty"`
+	Fee                   uint32 `json:"fee"`
+	RewardMain            uint32 `json:"reward_main"`
+	RewardSubA            uint16 `json:"reward_sub_a"`
+	RewardSubB            uint16 `json:"reward_sub_b"`
+	TimeLimitMinutes      uint32 `json:"time_limit_minutes"`
+	Map                   uint32 `json:"map"`
+	RankBand              uint16 `json:"rank_band"`
+	MainQuestTypeIDRaw    uint16 `json:"main_quest_type_id_raw,omitempty"`
+	QuestClearsAllowedRaw uint32 `json:"quest_clears_allowed_raw,omitempty"`
+	MainByte90Raw         uint8  `json:"main_byte_90_raw,omitempty"`
+	HardHRReq             uint16 `json:"hard_hr_req,omitempty"`
+	JoinRankMin           uint16 `json:"join_rank_min,omitempty"`
+	JoinRankMax           uint16 `json:"join_rank_max,omitempty"`
+	PostRankMin           uint16 `json:"post_rank_min,omitempty"`
+	PostRankMax           uint16 `json:"post_rank_max,omitempty"`
 
 	// Quest variant flags (see handlers_quest.go makeEventQuest comments)
 	QuestVariant1 uint8 `json:"quest_variant1,omitempty"`
@@ -299,6 +307,9 @@ type QuestJSON struct {
 	// Additional metadata strings (someStringsPtr / unk30). Optional.
 	SomeString string `json:"some_string,omitempty"`
 	QuestType  string `json:"quest_type_string,omitempty"`
+	// Optional offline preservation contract for the two auxiliary strings only.
+	// RawMessage keeps absent, null and explicit empty representations distinct.
+	AuxiliaryTextRaw json.RawMessage `json:"auxiliary_text_raw,omitempty"`
 
 	// Gathering loot tables (gatheringTablesPtr)
 	GatheringTables []QuestGatheringTableJSON `json:"gathering_tables,omitempty"`
@@ -420,6 +431,15 @@ func CompileQuestJSON(data []byte, lang string) ([]byte, error) {
 	var q QuestJSON
 	if err := json.Unmarshal(data, &q); err != nil {
 		return nil, fmt.Errorf("parse quest JSON: %w", err)
+	}
+	auxiliaryText, preserveAuxiliary, err := compileAuxiliaryQuestText(data, &q, lang)
+	if err != nil {
+		return nil, err
+	}
+	for i, table := range q.Rewards {
+		if table.TableID == 0xFF && table.DescriptorByte1Raw == 0xFF {
+			return nil, fmt.Errorf("reward table %d descriptor starts with reserved terminator 0xFFFF", i)
+		}
 	}
 
 	// ── Compute counts before writing generalQuestProperties ─────────────
@@ -555,7 +575,7 @@ func CompileQuestJSON(data []byte, lang string) ([]byte, error) {
 	writeUint32LE(qb.out, 0)                          // 0x50 unknown
 	writeUint32LE(qb.out, q.SubARankPoints)           // 0x54 subARankPoints
 	writeUint32LE(qb.out, q.SubBRankPoints)           // 0x58 subBRankPoints
-	writeUint32LE(qb.out, 0)                          // 0x5C questTypeID / unknown
+	writeUint32LE(qb.out, q.GeneralQuestTypeIDRaw)    // 0x5C raw general questTypeID
 	qb.out.WriteByte(0)                               // 0x60 padding
 	qb.out.WriteByte(q.StatTable2)                    // 0x61 statTable2
 	pad(qb.out, 0x11)                                 // 0x62–0x72 padding
@@ -586,7 +606,7 @@ func CompileQuestJSON(data []byte, lang string) ([]byte, error) {
 	qb.out.WriteByte(0)                             // +0x05 unknown
 	writeUint16LE(qb.out, 0)                        // +0x06 unknown
 	writeUint16LE(qb.out, q.RankBand)               // +0x08 rankBand
-	writeUint16LE(qb.out, 0)                        // +0x0A questTypeID
+	writeUint16LE(qb.out, q.MainQuestTypeIDRaw)     // +0x0A raw main questTypeID
 	writeUint32LE(qb.out, q.Fee)                    // +0x0C questFee
 	writeUint32LE(qb.out, q.RewardMain)             // +0x10 rewardMain
 	writeUint32LE(qb.out, 0)                        // +0x14 cartsOrReduction
@@ -633,8 +653,8 @@ func CompileQuestJSON(data []byte, lang string) ([]byte, error) {
 	// +0x8C unknown u32
 	writeUint32LE(qb.out, 0)
 
-	// +0x90 monster variants[3] + mapVariant
-	qb.out.WriteByte(0) // monsterVariants[0]
+	// +0x90 raw byte; retain existing handling of the following three bytes.
+	qb.out.WriteByte(q.MainByte90Raw)
 	qb.out.WriteByte(0) // monsterVariants[1]
 	qb.out.WriteByte(0) // monsterVariants[2]
 	qb.out.WriteByte(0) // mapVariant
@@ -668,7 +688,7 @@ func CompileQuestJSON(data []byte, lang string) ([]byte, error) {
 	pad(qb.out, 10)
 
 	// +0xC4 questClearsAllowed
-	writeUint32LE(qb.out, 0)
+	writeUint32LE(qb.out, q.QuestClearsAllowedRaw)
 
 	// +0xC8 = 200 bytes so far for documented fields. ZZ body = 320 bytes.
 	// Zero-pad the remaining unknown ZZ-specific fields.
@@ -987,8 +1007,13 @@ func CompileQuestJSON(data []byte, lang string) ([]byte, error) {
 	// ── Some Strings (someStringsPtr / unk30) ─────────────────────────────
 	// Layout at unk30: ptr someStringPtr, ptr questTypePtr (8 bytes),
 	// then the string data.
-	hasSomeStrings := q.SomeString != "" || q.QuestType != ""
+	hasSomeStrings := q.SomeString != "" || q.QuestType != "" || preserveAuxiliary
 	if hasSomeStrings {
+		if preserveAuxiliary {
+			if err := checkAuxiliaryQuestLayout(uint64(qb.out.Len()), auxiliaryText, q.GatheringTables); err != nil {
+				return nil, err
+			}
+		}
 		someStringsOff := qb.out.Len()
 		qb.patchValue(hdrSomeStringsOff, uint32(someStringsOff))
 
@@ -996,22 +1021,18 @@ func CompileQuestJSON(data []byte, lang string) ([]byte, error) {
 		someStrPtrOff := qb.reserve()
 		questTypePtrOff := qb.reserve()
 
-		if q.SomeString != "" {
-			qb.patch(someStrPtrOff)
-			b, err := encodeContentText(q.SomeString, lang)
-			if err != nil {
-				return nil, err
+		for i, text := range []string{q.SomeString, q.QuestType} {
+			b := auxiliaryText[i]
+			if !preserveAuxiliary && text != "" {
+				b, err = encodeContentText(text, lang)
+				if err != nil {
+					return nil, err
+				}
 			}
-			qb.out.Write(b)
-		}
-
-		if q.QuestType != "" {
-			qb.patch(questTypePtrOff)
-			b, err := encodeContentText(q.QuestType, lang)
-			if err != nil {
-				return nil, err
+			if b != nil {
+				qb.patch([]int{someStrPtrOff, questTypePtrOff}[i])
+				qb.out.Write(b)
 			}
-			qb.out.Write(b)
 		}
 	}
 
@@ -1044,7 +1065,7 @@ func CompileQuestJSON(data []byte, lang string) ([]byte, error) {
 // buildRewardTables serialises the reward table array and all reward item lists.
 // Layout per hexpat:
 //
-//	RewardTable[] { u8 tableId, u8 pad, u16 pad, u32 tableOffset } terminated by int16(-1)
+//	RewardTable[] { u8 tableId, u8 rawByte1, u16 rawWord2, u32 tableOffset } terminated by int16(-1)
 //	RewardItem[]  { u16 rate, u16 item, u16 quantity }             terminated by int16(-1)
 //
 // basePtr is the absolute file offset of the reward section (rewardPtr in the
@@ -1067,8 +1088,8 @@ func buildRewardTables(tables []QuestRewardTableJSON, basePtr uint32) []byte {
 		tableOffset := basePtr + headerArraySize + uint32(itemData.Len())
 
 		headers.WriteByte(t.TableID)
-		headers.WriteByte(0)      // padding
-		writeUint16LE(headers, 0) // padding
+		headers.WriteByte(t.DescriptorByte1Raw)
+		writeUint16LE(headers, t.DescriptorWord2Raw)
 		writeUint32LE(headers, tableOffset)
 
 		for _, item := range t.Items {

@@ -47,6 +47,7 @@ type CharacterSaveData struct {
 	IsNewCharacter bool
 	Mode           cfg.Mode
 	Pointers       map[SavePointer]int
+	starterEpoch   *QuestLicenseStarterEpochBaseline
 
 	Gender        bool
 	RP            uint16

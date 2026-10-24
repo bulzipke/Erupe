@@ -283,8 +283,9 @@ per entry:
 - Operation 1: All four monsters return the same bracket table (ranks 1–100, 101–1000,
   1000–1001). The tables are identical for all monsters — this may be correct, or captures
   were only recorded for one monster.
-- Operation 3 (Pallone): 91 entries across 11 routes, all zero-filled — format is known
-  but content is not.
+- Operation 3 (Pallone): the current handler returns one zero-filled 24-byte
+  placeholder. The older branch's 91-entry description does not describe this
+  checkout. See [the current ZZ investigation](pallone-festival.md).
 - Operation 5 (Tower): Tower dure kill rewards (260001) and 155-entry floor reward table
   (260003, floors 1–1500) are hardcoded from captures.
 
@@ -463,7 +464,7 @@ Two keys were added to `config.go` / `config.json` by the branch:
 | `GetSeibattle.Unk0 / Unk3 / Unk4` | Same captures | Likely context selectors for guild/season |
 | `GetEarthValue.Unk0 / Unk1 / Unk3–Unk6` | Captures across different event phases | 6 of the 8 request fields are unknown |
 | `GetEarthStatus.Unk0 / Unk1` | Captures across phases | Never used by the handler; may be version or session flags |
-| `GetWeeklySeibatuRankingReward` Op=3 content | Captures during Pallone Festival | 91 entries are zero-filled placeholders |
+| `GetWeeklySeibatuRankingReward` Op=3 content | Captures during Pallone Festival | Current handler returns one zero-filled placeholder; see `pallone-festival.md` |
 | Claim tracking semantics | Compare reward endpoint with gacha claim flow | No "claimed" flag exists anywhere in the schema |
 
 ### Low Priority — cosmetic / completeness
@@ -474,7 +475,7 @@ Two keys were added to `config.go` / `config.json` by the branch:
 | `GetBreakSeibatuLevelReward.Unk0` | Captures with different monsters | Debug-printed; may be season or event ID |
 | `ReadBeatLevelAllRanking.Unk0 / Unk2` | Captures | Likely pagination or season selectors |
 | `GetAdditionalBeatReward` full structure | Captures if the packet is ever non-null | May be permanently dead in the last client version |
-| Pallone Festival route semantics | JP wiki / community guides | 11 routes × 13 entries, all content unknown |
+| Pallone Festival route semantics | ZZ client tables and delivery responses | 11 star groups, up to 12 published route keys per group; see `pallone-festival.md` |
 | Original live-service event scheduling cadence | JP wiki archives | Cycle length and reset time not publicly documented |
 
 ---

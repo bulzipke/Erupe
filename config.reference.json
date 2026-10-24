@@ -23,6 +23,17 @@
   "DisableSaveIntegrityCheck": false,
   "ClientMode": "ZZ",
   "QuestCacheExpiry": 300,
+  "EventQuestCapacity": 16384,
+  "QuestDelivery": {
+    "Enabled": false,
+    "ManifestFile": "config/quest_delivery.example.json"
+  },
+  "QuestLicenses": {
+    "Enabled": false,
+    "CatalogFile": "",
+    "DisplayFile": "",
+    "PurchasesEnabled": false
+  },
   "CommandPrefix": "!",
   "AutoCreateAccount": true,
   "LoopDelay": 50,

@@ -2,6 +2,7 @@ package channelserver
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"errors"
@@ -23,7 +24,26 @@ const (
 // GetCharacterSaveData loads a character's save data from the database and
 // verifies its integrity checksum when one is stored.
 func GetCharacterSaveData(s *Session, charID uint32) (*CharacterSaveData, error) {
-	id, savedata, isNew, name, storedHash, err := s.server.charRepo.LoadSaveDataWithHash(charID)
+	var id uint32
+	var savedata, storedHash []byte
+	var isNew bool
+	var name string
+	var err error
+	var starterEpoch *QuestLicenseStarterEpochBaseline
+	if s.usesQuestLicenseStarterEpoch() {
+		store, ok := s.server.charRepo.(QuestLicenseStarterEpochStore)
+		if !ok {
+			return nil, errors.New("character repository has no starter inventory snapshot support")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		var snapshot QuestLicenseStarterEpochSnapshot
+		snapshot, err = store.LoadSaveDataWithStarterEpoch(ctx, s.userID, charID)
+		id, savedata, isNew, name, storedHash = snapshot.ID, snapshot.Savedata, snapshot.IsNew, snapshot.Name, snapshot.Hash
+		starterEpoch = &QuestLicenseStarterEpochBaseline{UserID: s.userID, Epoch: snapshot.Epoch}
+	} else {
+		id, savedata, isNew, name, storedHash, err = s.server.charRepo.LoadSaveDataWithHash(charID)
+	}
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			s.logger.Error("No savedata found", zap.Uint32("charID", charID))
@@ -41,6 +61,7 @@ func GetCharacterSaveData(s *Session, charID uint32) (*CharacterSaveData, error)
 		StoredName:     name,
 		Mode:           s.server.erupeConfig.RealClientMode,
 		Pointers:       getPointers(s.server.erupeConfig.RealClientMode),
+		starterEpoch:   starterEpoch,
 	}
 
 	if saveData.compSave == nil {
@@ -93,7 +114,19 @@ func GetCharacterSaveData(s *Session, charID uint32) (*CharacterSaveData, error)
 // next successful Save() will overwrite the primary with fresh data and a new hash,
 // self-healing the corruption without any extra recovery writes.
 func recoverFromBackups(s *Session, base *CharacterSaveData, charID uint32) (*CharacterSaveData, error) {
-	backups, err := s.server.charRepo.LoadBackupsByRecency(charID)
+	var backups []SavedataBackup
+	var err error
+	if s.usesQuestLicenseStarterEpoch() {
+		store, ok := s.server.charRepo.(QuestLicenseStarterEpochStore)
+		if !ok || base.starterEpoch == nil || base.starterEpoch.UserID != s.userID {
+			return nil, errors.New("backup has no starter inventory snapshot support")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		backups, err = store.LoadBackupsWithStarterEpoch(ctx, s.userID, charID, base.starterEpoch.Epoch)
+	} else {
+		backups, err = s.server.charRepo.LoadBackupsByRecency(charID)
+	}
 	if err != nil {
 		s.logger.Error("Failed to load savedata backups during recovery",
 			zap.Uint32("charID", charID),
@@ -117,6 +150,7 @@ func recoverFromBackups(s *Session, base *CharacterSaveData, charID uint32) (*Ch
 			StoredName:     base.StoredName,
 			Mode:           base.Mode,
 			Pointers:       base.Pointers,
+			starterEpoch:   base.starterEpoch,
 			compSave:       backup.Data,
 		}
 
@@ -156,14 +190,27 @@ func recoverFromBackups(s *Session, base *CharacterSaveData, charID uint32) (*Ch
 }
 
 func (save *CharacterSaveData) Save(s *Session) error {
-	return save.SaveWithDivaRewards(s, nil)
+	return save.saveWithRewards(s, nil, nil, false)
 }
 
 // SaveWithDivaRewards is used only by the client's SAVEDATA handler. Server-side
 // edits must use Save: their DB-derived blob need not contain the local rewards.
 func (save *CharacterSaveData) SaveWithDivaRewards(s *Session, divaRewardIDs []uint32) error {
+	return save.SaveWithClientRewards(s, divaRewardIDs, nil)
+}
+
+// SaveWithClientRewards is for a client-originated savedata snapshot only.
+// DB-derived safety saves cannot consume pending client inventory receipts.
+func (save *CharacterSaveData) SaveWithClientRewards(s *Session, divaRewardIDs, starterRewardIDs []uint32) error {
+	return save.saveWithRewards(s, divaRewardIDs, starterRewardIDs, true)
+}
+
+func (save *CharacterSaveData) saveWithRewards(s *Session, divaRewardIDs, starterRewardIDs []uint32, clientOriginated bool) error {
 	if len(divaRewardIDs) != 0 && save.CharID != s.charID {
 		return errors.New("diva reward savedata character mismatch")
+	}
+	if len(starterRewardIDs) != 0 && (save.CharID != s.charID || s.userID == 0) {
+		return errors.New("starter savedata character mismatch")
 	}
 	if save.decompSave == nil {
 		s.logger.Warn("No decompressed save data, skipping save",
@@ -216,23 +263,27 @@ func (save *CharacterSaveData) SaveWithDivaRewards(s *Session, divaRewardIDs []u
 	// Build the atomic save params — character data, house data, hash, and
 	// optionally a backup snapshot, all in one transaction.
 	params := SaveAtomicParams{
-		CharID:        save.CharID,
-		Name:          save.Name,
-		CompSave:      save.compSave,
-		Hash:          hash[:],
-		HR:            save.HR,
-		GR:            save.GR,
-		IsFemale:      save.Gender,
-		WeaponType:    save.WeaponType,
-		WeaponID:      save.WeaponID,
-		Playtime:      save.Playtime,
-		HouseTier:     save.HouseTier,
-		HouseData:     save.HouseData,
-		BookshelfData: save.BookshelfData,
-		GalleryData:   save.GalleryData,
-		ToreData:      save.ToreData,
-		GardenData:    save.GardenData,
-		DivaRewardIDs: append([]uint32(nil), divaRewardIDs...),
+		CharID:           save.CharID,
+		Name:             save.Name,
+		CompSave:         save.compSave,
+		Hash:             hash[:],
+		HR:               save.HR,
+		GR:               save.GR,
+		IsFemale:         save.Gender,
+		WeaponType:       save.WeaponType,
+		WeaponID:         save.WeaponID,
+		Playtime:         save.Playtime,
+		HouseTier:        save.HouseTier,
+		HouseData:        save.HouseData,
+		BookshelfData:    save.BookshelfData,
+		GalleryData:      save.GalleryData,
+		ToreData:         save.ToreData,
+		GardenData:       save.GardenData,
+		DivaRewardIDs:    append([]uint32(nil), divaRewardIDs...),
+		StarterRewardIDs: append([]uint32(nil), starterRewardIDs...),
+	}
+	if len(starterRewardIDs) != 0 {
+		params.StarterUserID = s.userID
 	}
 
 	// Time-gated rotating backup: include the previous compressed savedata
@@ -244,12 +295,44 @@ func (save *CharacterSaveData) SaveWithDivaRewards(s *Session, divaRewardIDs []u
 		}
 	}
 
-	if err := s.server.charRepo.SaveCharacterDataAtomic(params); err != nil {
+	var saveErr error
+	var nextEpoch int64
+	var baseline QuestLicenseStarterEpochBaseline
+	if s.usesQuestLicenseStarterEpoch() {
+		store, ok := s.server.charRepo.(QuestLicenseStarterEpochStore)
+		if !ok || save.starterEpoch == nil || save.starterEpoch.UserID != s.userID || save.CharID != s.charID {
+			return errors.New("save has no authenticated starter inventory snapshot")
+		}
+		baseline = *save.starterEpoch
+		if clientOriginated {
+			var err error
+			baseline, err = s.clientStarterEpochBaseline()
+			if err != nil {
+				return err
+			}
+		}
+		if params.BackupData != nil {
+			epoch := save.starterEpoch.Epoch
+			params.BackupStarterEpoch = &epoch
+		}
+		nextEpoch, saveErr = store.SaveCharacterDataAtomicWithStarterEpoch(params, baseline)
+	} else {
+		saveErr = s.server.charRepo.SaveCharacterDataAtomic(params)
+	}
+	if saveErr != nil {
 		s.logger.Error("Failed to save character data atomically",
-			zap.Error(err), zap.Uint32("charID", save.CharID))
-		return fmt.Errorf("atomic save: %w", err)
+			zap.Error(saveErr), zap.Uint32("charID", save.CharID))
+		return fmt.Errorf("atomic save: %w", saveErr)
+	}
+	if s.usesQuestLicenseStarterEpoch() {
+		baseline.Epoch = nextEpoch
+		save.starterEpoch = &baseline
+		if clientOriginated {
+			s.questLicenseClientInventory.Store(&questLicenseClientInventory{characterID: s.charID, baseline: baseline})
+		}
 	}
 	s.completeDivaRewardClaims(7, params.DivaRewardIDs)
+	s.questLicenseStarterPending.Complete(s.userID, s.charID, params.StarterRewardIDs)
 
 	return nil
 }

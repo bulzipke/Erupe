@@ -1,8 +1,88 @@
 package channelserver
 
 import (
+	"context"
 	"time"
+
+	"erupe-ce/common/mhfpallone"
+	"erupe-ce/common/questlicense"
+	"erupe-ce/common/questsupplies"
 )
+
+// LegacyCampaignStore serializes legacy authentication, collection and quest
+// completion with account-scoped starter receipts.
+type LegacyCampaignStore interface {
+	Apply(context.Context, uint32, uint32, uint32, string) error
+	Acquire(context.Context, uint32, uint32, []uint32) error
+	CompleteQuest(context.Context, uint32, uint32, uint32) error
+}
+
+// CampaignCatalogStore loads the complete Event House response graph from a
+// consistent read-only database snapshot.
+type CampaignCatalogStore interface {
+	Load(context.Context) (CampaignCatalogSnapshot, error)
+}
+
+// QuestSupplyReservationStore records financial obligations only. It provides
+// no item offer, native receipt, inventory save or completed-delivery authority.
+type QuestSupplyReservationStore interface {
+	Reserve(context.Context, questsupplies.Prepared) (QuestSupplyReservationResult, error)
+	Replay(context.Context, uint32, uint32, questsupplies.PaidReplayContract) (QuestSupplyReservationResult, bool, error)
+	Pending(context.Context, uint32, uint32) ([]QuestSupplyReservation, error)
+}
+
+// QuestLicenseStarterEpochStore couples an inventory snapshot to its durable
+// starter generation. It is required only by the opt-in license runtime.
+type QuestLicenseStarterEpochStore interface {
+	LoadSaveDataWithStarterEpoch(context.Context, uint32, uint32) (QuestLicenseStarterEpochSnapshot, error)
+	LoadBackupsWithStarterEpoch(context.Context, uint32, uint32, int64) ([]SavedataBackup, error)
+	SaveCharacterDataAtomicWithStarterEpoch(SaveAtomicParams, QuestLicenseStarterEpochBaseline) (int64, error)
+}
+
+// QuestLicenseStore keeps permanent account rights separate from character
+// progression. Replay recovers only an already committed server quote receipt.
+type QuestLicenseStore interface {
+	BindDefinitions(context.Context, []questlicense.Definition) error
+	BindStarterPolicies(context.Context, []QuestLicenseStarterPolicy) error
+	Purchase(context.Context, QuestLicensePurchaseRequest, QuestLicenseSale) (QuestLicensePurchaseResult, error)
+	Owned(context.Context, uint32, []string) ([]string, error)
+	Replay(context.Context, uint32, uint32, uint32, string) (QuestLicensePurchaseResult, bool, error)
+}
+
+// QuestLicenseStarterStore queues a free, character-specific starting material.
+// It never debits currency or replaces a quest's original completion rewards.
+type QuestLicenseStarterStore interface {
+	PrepareSave(context.Context, uint32, uint32, []uint32) ([]CampaignReward, error)
+	Ensure(context.Context, uint32, uint32, QuestLicenseStarterPolicy) (QuestLicenseStarterResult, error)
+	Pending(context.Context, uint32, uint32, string) ([]CampaignReward, error)
+	Acquire(context.Context, uint32, uint32, []uint32) error
+}
+
+type QuestLicenseRuntimeStore interface {
+	Load(context.Context) (QuestLicenseRuntimeSnapshot, error)
+}
+
+// Preview ownership is advisory. The purchase transaction rechecks coverage.
+type QuestLicensePreviewStore interface {
+	PreviewOwnership(context.Context, uint32, uint32, []string) (QuestLicenseOwnership, bool, error)
+}
+
+type QuestAccessStore interface {
+	Load(context.Context, QuestAccessLoadRequest) (*QuestAccessSnapshot, error)
+}
+
+// PalloneRepo is an event-scoped festival ledger, independent of savedata CP
+// and the Ryoudama caravan table. Result authorization is server-issued state.
+type PalloneRepo interface {
+	RegisterPalloneEvent(PalloneEvent, []PalloneRoute) error
+	GetPalloneEvent(int32) (*PalloneEvent, error)
+	GetPalloneRoutes(int32) ([]PalloneRoute, error)
+	SettlePalloneResult(PalloneRunReceipt, PalloneSubmission, time.Time) (PalloneSettlement, error)
+	GetPalloneScores(int32, uint32) ([]mhfpallone.Score, error)
+	GetPallonePersonalRanking(int32, *int32, uint32, int) ([]mhfpallone.PersonalRanking, error)
+	GetPalloneGuildRanking(int32, *int32) ([]mhfpallone.GuildRanking, error)
+	GetPalloneRanks(int32, uint32, uint32) ([]mhfpallone.RankScore, error)
+}
 
 // Repository interfaces decouple handlers from concrete PostgreSQL implementations,
 // enabling mock/stub injection for unit tests and alternative storage backends.
@@ -31,6 +111,10 @@ type CharacterRepo interface {
 	UpdateDailyCafe(charID uint32, dailyTime time.Time, bonusQuests, dailyQuests uint32) error
 	ResetDailyQuests(charID uint32) error
 	ReadEtcPoints(charID uint32) (bonusQuests, dailyQuests, promoPoints uint32, err error)
+	ClaimDailyCafe(charID uint32, claimUntil time.Time, bonusQuests, dailyQuests uint32, maximumNP int) (bool, error)
+	ReadDailyEtcPoints(charID uint32, now time.Time) (bonusQuests, dailyQuests, promoPoints uint32, err error)
+	AdjustEtcPoint(charID uint32, pointType uint8, delta int16) error
+	AddCappedNetcafePoints(charID uint32, delta int, maximumNP int) error
 	ResetCafeTime(charID uint32, cafeReset time.Time) error
 	UpdateGuildPostChecked(charID uint32) error
 	ReadGuildPostChecked(charID uint32) (time.Time, error)

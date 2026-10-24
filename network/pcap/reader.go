@@ -80,7 +80,7 @@ func (rd *Reader) ReadPacket() (PacketRecord, error) {
 	var rec PacketRecord
 
 	if err := binary.Read(rd.r, binary.BigEndian, &rec.TimestampNs); err != nil {
-		if err == io.EOF || err == io.ErrUnexpectedEOF {
+		if err == io.EOF {
 			return rec, io.EOF
 		}
 		return rec, fmt.Errorf("pcap: read timestamp: %w", err)

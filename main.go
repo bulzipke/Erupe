@@ -300,6 +300,14 @@ func main() {
 		logger.Warn("Without these files, quests will not load and clients will crash.")
 	}
 
+	// Validate one shared Collab content cohort before ANY service is exposed.
+	// No declaration means no metadata read or change to existing behavior.
+	commonCollab, err := channelserver.PrepareCommonCollabRuntimeFromConfig(config, channelserver.NewEventRepository(db))
+	if err != nil {
+		preventClose(config, fmt.Sprintf("Collab content preparation: %s", err.Error()))
+		return
+	}
+
 	// Now start our server(s).
 
 	// Entrance server.
@@ -409,7 +417,10 @@ func main() {
 					DiscordBot:     discordBot,
 					CollabEvent:    collabEvent,
 					WorldType:      ee.Type,
+					WorldName:      ee.Name,
+					ChannelNumber:  i + 1,
 					CollabRotation: collabRotation,
+					CommonCollab:   commonCollab,
 					MezFesRotation: mezFesRotation,
 					MezFesMinigame: ce.MezFesMinigame,
 				})

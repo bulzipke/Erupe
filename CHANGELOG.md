@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed 
+- Reject truncated capture timestamps instead of treating a partial final record as a clean end of file.
+- Return failure acknowledgements when any Festa prize receipt cannot be stored, preserving existing successful replies and reward rules.
+- Stage and sync offline quest calendar exports before replacing the destination so write failures preserve the previous file.
+- Reject observed source-file identity or metadata drift in the offline ZZ clear-count snapshot diagnostic.
+- Declare managed-only coverage in public quest schedules and calendar counts; reject incompatible schedule envelopes and stop refresh requests after a calendar is destroyed.
+- Validate annual quest rehearsal peaks against each fixture's declared bounded expectations instead of fixed maxima from an earlier proposal.
+- Preserve raw main quest byte 0x90 during JSON conversion, retaining the original native reward-selection override alongside reward descriptors.
+- Preserve the raw reward descriptor byte and word through quest JSON conversion, rejecting the reserved terminator without interpreting unknown flags.
+- Serialize daily cafe grants, expiry reads and point deltas on the character row, preserving allowance/reset rules while preventing partial writes and lost updates.
+- Return failure acknowledgements when daily quest point reads, expiry resets or point writes fail, instead of reporting unpersisted balances as successful.
+- Preserve raw general/main quest type and completion-limit scalars through quest JSON parsing and compilation instead of replacing them with zero.
+- Fail the complete managed quest-list snapshot when a published row cannot be encoded, clearing stale pages until the file is repaired.
+- Validate the complete opted-in ZZ Event House catalog even with sales disabled, reject native section overflow without trimming, and load its rows in one read-only database snapshot.
+- Preserve scenario counters beyond row 128 for opted-in ZZ quest delivery with a stable 255-entry wire limit; keep the legacy roster when disabled and for unaudited client versions.
+- Correct Pallone request serialization, native score/rank response rows and simple submission ACKs; require a server-qualified result before accepting festival points.
 - Box gachas now behave like the client's box: a reward entry's `weight` is its ball count (1-255, 0 counts as 1, sent to the client instead of a fixed 1), a roll draws without replacement only from the balls the character has not drawn yet, a roll that needs more balls than are left is refused before its cost is paid, and `GET_BOX_GACHA_INFO` returns one record per entry with its drawn count (the client subtracts it from the ball count). Previously every play drew from the full pool, so prizes repeated and the drawn list could outgrow the client's 64-record buffer.
 - One-time box gachas (`gacha_shop.one_time`, migration 0077): reset requests are refused, and bit 0x02 of the shop list byte after `gacha_type` tells the client; vorbis.dll D570 then keeps an emptied box as drawn and hides its reset button.
 - Gacha roll costs: types the ZZ client pays from the character save itself (7 items, 10 zenny, 12-14, 16) pass without a server deduction, server-held currencies (17, 19/20, 21) are deducted as before, and any other cost type is refused instead of rolling for free. A corrupt pending-items blob now refuses the roll before its cost is paid instead of dropping the rewards afterwards.
@@ -40,6 +55,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Correct Diva song-phase packet widths and ranking payloads; persist noon-limited bead choices, atomic song contributions and scheduled personal rankings across reconnects.
 
 ### Added
+- Use an expanded 16,384-slot event quest default and one frozen, all-or-error enumeration path, removing the stock-512 fallback and enumeration-time schedule writes without adding client admission checks.
+- Add an explicit offline quest JSON export that preserves auxiliary string bytes, validating their language and text projection before compilation without changing the default conversion path.
+- Add an optional exact-manifest listing-source inventory check to the offline quest schedule exporter, including closed and future managed quests.
+- Exercise the existing six-row special hunting kit in isolated database schemas, covering whole-bundle pricing, retries, partial collection and invalid-member refusal.
+- Add an offline read-only diagnostic for the five clear-count slots and token in explicitly declared stock ZZ decoded full saves; do not infer or migrate missing history.
+- Add an unwired seasonal-supply reservation backend with immutable occurrence quotas, account-scoped paid retries and atomic pending obligations; native delivery remains disabled.
+- Model the approved seasonal GW ticket gift and 1G hunter dice bag as disabled standard-item drafts, with stable per-character window scopes and paid retry contracts; live delivery and storage integration remain gated.
+- Add opt-in permanent quest licenses with atomic gold G purchases, server-bound LPV2 previews, stable definitions and legacy-compatible authority across quest lists, files, admission and results. Include the approved 10G VISA bundle, serialized legacy claims and once-per-character starter receipts with inventory generation and backup guards; keep the feature off by default and refuse starter sales until native collection is verified.
+- Add a Pallone ledger/rankings, route-001 quest/client reconstruction and profile-guarded menu delivery; include read-only maintenance preflight, explicit event-plan registration and opt-in native observations. Live play, completion-receipt capture and event rewards remain unverified or unarmed.
 
 - Add a documented first-expedition Sky Corridor floor-reward display, explicitly marked server-specific guild investigation substitutes, one-run guild mission scoring, and same-guild duplicate ancient-treasure gifts with receipt history. Automatic event rotation and unverified reward claiming remain out of scope.
 - Add native personal interception milestone logs every 10,000 points from accepted round results, preserving totals across guild transfers while attributing each crossing to its original guild and retaining the 200-row limit.

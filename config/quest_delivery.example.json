@@ -1,0 +1,17 @@
+{
+  "version": "example-not-a-live-deployment",
+  "profiles": [
+    {"id": "general", "worlds": ["브레이브"], "channels": [1]},
+    {"id": "relief", "worlds": ["신시어", "스트롱", "리버럴", "어니스트", "머시풀"], "channels": [1]}
+  ],
+  "schedules": [
+    {"id": "always"},
+    {"id": "rotation-a", "starts_at": "2026-10-20T12:00:00+09:00", "active_hours": 72, "repeat_hours": 96},
+    {"id": "rotation-b", "starts_at": "2026-10-21T12:00:00+09:00", "active_hours": 72, "repeat_hours": 96},
+    {"id": "rotation-c", "starts_at": "2026-10-22T12:00:00+09:00", "active_hours": 72, "repeat_hours": 96},
+    {"id": "rotation-d", "starts_at": "2026-10-23T12:00:00+09:00", "active_hours": 72, "repeat_hours": 96}
+  ],
+  "quests": [
+    {"quest_id": 53140, "profiles": ["general"], "schedule": "always"}
+  ]
+}

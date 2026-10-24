@@ -3,8 +3,11 @@ package channelserver
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
+	"reflect"
 	"testing"
 
+	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
 )
 
@@ -97,6 +100,8 @@ func TestHandleMsgMhfInfoScenarioCounter_WithScenarios(t *testing.T) {
 
 func TestHandleMsgMhfInfoScenarioCounter_TrimTo128(t *testing.T) {
 	server := createMockServer()
+	server.erupeConfig.RealClientMode = cfg.Z2
+	server.erupeConfig.QuestDelivery.Enabled = true
 	scenarios := make([]Scenario, 200)
 	for i := range scenarios {
 		scenarios[i] = Scenario{MainID: uint32(i), CategoryID: 0}
@@ -115,6 +120,161 @@ func TestHandleMsgMhfInfoScenarioCounter_TrimTo128(t *testing.T) {
 		}
 	default:
 		t.Fatal("No response queued")
+	}
+}
+
+func TestHandleMsgMhfInfoScenarioCounter_ZZCapacity(t *testing.T) {
+	for _, count := range []int{0, 128, 129, 171, 172, 255, 256, 300} {
+		t.Run(fmt.Sprintf("rows_%d", count), func(t *testing.T) {
+			server := createMockServer()
+			server.erupeConfig.RealClientMode = cfg.ZZ
+			server.erupeConfig.QuestDelivery.Enabled = true
+			rows := make([]Scenario, count)
+			for i := range rows {
+				rows[i] = Scenario{MainID: uint32(i + 1000), CategoryID: 1}
+			}
+			server.scenarioRepo = &mockScenarioRepo{scenarios: rows}
+			session := createMockSession(1, server)
+			handleMsgMhfInfoScenarioCounter(session, &mhfpacket.MsgMhfInfoScenarioCounter{AckHandle: 100})
+			select {
+			case packet := <-session.sendPackets:
+				_, status, data := parseAckBufData(t, packet.data)
+				if len(data) == 0 {
+					t.Fatal("scenario ACK has no count")
+				}
+				want := count
+				if want > 255 {
+					if status == 0 || len(data) != 1 || data[0] != 0 {
+						t.Fatalf("oversized roster did not fail as a whole: status=%d bytes=%x", status, data)
+					}
+					return
+				}
+				if status != 0 || len(data) != 1+want*6 || int(data[0]) != want {
+					t.Fatalf("status=%d bytes=%d count=%d; want status0 bytes%d count%d", status, len(data), data[0], 1+want*6, want)
+				}
+				// The plain scenario count 0xff has no campaign-style escape.
+				for i := 0; i < want; i++ {
+					offset := 1 + i*6
+					if got := binary.BigEndian.Uint32(data[offset : offset+4]); got != uint32(i+1000) {
+						t.Fatalf("record%d mainID=%d, want%d", i, got, i+1000)
+					}
+					if data[offset+4] != 0 || data[offset+5] != 1 {
+						t.Fatalf("record%d changed its exchange/category flags", i)
+					}
+				}
+			default:
+				t.Fatal("no ACK queued")
+			}
+		})
+	}
+}
+
+func TestHandleMsgMhfInfoScenarioCounter_ZZMixedBoundaryOrder(t *testing.T) {
+	for _, count := range []int{255, 300} {
+		t.Run(fmt.Sprintf("rows_%d", count), func(t *testing.T) {
+			server := createMockServer()
+			server.erupeConfig.RealClientMode = cfg.ZZ
+			server.erupeConfig.QuestDelivery.Enabled = true
+			rows := make([]Scenario, count)
+			for i := range rows {
+				rows[i] = Scenario{MainID: uint32(1000 - i), CategoryID: uint8(i % 8)}
+			}
+			before := append([]Scenario(nil), rows...)
+			server.scenarioRepo = &mockScenarioRepo{scenarios: rows}
+			session := createMockSession(1, server)
+			handleMsgMhfInfoScenarioCounter(session, &mhfpacket.MsgMhfInfoScenarioCounter{AckHandle: 100})
+			select {
+			case packet := <-session.sendPackets:
+				_, status, data := parseAckBufData(t, packet.data)
+				if count > 255 {
+					if status == 0 || len(data) != 1 || data[0] != 0 {
+						t.Fatal("oversized mixed roster did not fail as a whole")
+					}
+				} else {
+					if status != 0 || len(data) != 1+6*count || int(data[0]) != count {
+						t.Fatal("invalid boundary roster")
+					}
+					seen := make(map[Scenario]bool)
+					for i := 0; i < count; i++ {
+						offset := 1 + i*6
+						row := Scenario{MainID: binary.BigEndian.Uint32(data[offset : offset+4]), CategoryID: data[offset+5]}
+						if i > 0 {
+							previous := Scenario{MainID: binary.BigEndian.Uint32(data[offset-6 : offset-2]), CategoryID: data[offset-1]}
+							if row.CategoryID < previous.CategoryID || row.CategoryID == previous.CategoryID && row.MainID <= previous.MainID {
+								t.Fatalf("record%d is not in stable category/MainID order", i)
+							}
+						}
+						if seen[row] {
+							t.Fatal("duplicate serialized record")
+						}
+						seen[row] = true
+					}
+					for _, row := range before {
+						if !seen[row] {
+							t.Fatal("boundary roster omitted a source record")
+						}
+					}
+				}
+			default:
+				t.Fatal("no ACK queued")
+			}
+			if !reflect.DeepEqual(rows, before) {
+				t.Fatal("handler changed the source snapshot")
+			}
+		})
+	}
+}
+
+func TestHandleMsgMhfInfoScenarioCounter_ZZStableDetachedOrder(t *testing.T) {
+	server := createMockServer()
+	server.erupeConfig.RealClientMode = cfg.ZZ
+	server.erupeConfig.QuestDelivery.Enabled = true
+	rows := []Scenario{{MainID: 50, CategoryID: 7}, {MainID: 93, CategoryID: 1}, {MainID: 37, CategoryID: 1}, {MainID: 0, CategoryID: 0}}
+	before := append([]Scenario(nil), rows...)
+	server.scenarioRepo = &mockScenarioRepo{scenarios: rows}
+	session := createMockSession(1, server)
+	for pass := 0; pass < 2; pass++ {
+		handleMsgMhfInfoScenarioCounter(session, &mhfpacket.MsgMhfInfoScenarioCounter{AckHandle: 100})
+		select {
+		case packet := <-session.sendPackets:
+			_, status, data := parseAckBufData(t, packet.data)
+			want := []Scenario{{MainID: 0, CategoryID: 0}, {MainID: 37, CategoryID: 1}, {MainID: 93, CategoryID: 1}, {MainID: 50, CategoryID: 7}}
+			if status != 0 || len(data) != 1+6*len(want) || int(data[0]) != len(want) {
+				t.Fatal("invalid scenario response")
+			}
+			for i, row := range want {
+				offset := 1 + i*6
+				if binary.BigEndian.Uint32(data[offset:offset+4]) != row.MainID || data[offset+5] != row.CategoryID {
+					t.Fatalf("pass%d record%d order differs", pass, i)
+				}
+			}
+		default:
+			t.Fatal("no ACK queued")
+		}
+	}
+	if !reflect.DeepEqual(rows, before) {
+		t.Fatal("handler changed repository snapshot")
+	}
+}
+
+func TestHandleMsgMhfInfoScenarioCounter_ZZDisabledKeepsLegacyRoster(t *testing.T) {
+	server := createMockServer()
+	server.erupeConfig.RealClientMode = cfg.ZZ
+	rows := make([]Scenario, 172)
+	for i := range rows {
+		rows[i] = Scenario{MainID: uint32(1000 - i), CategoryID: 1}
+	}
+	server.scenarioRepo = &mockScenarioRepo{scenarios: rows}
+	session := createMockSession(1, server)
+	handleMsgMhfInfoScenarioCounter(session, &mhfpacket.MsgMhfInfoScenarioCounter{AckHandle: 100})
+	select {
+	case packet := <-session.sendPackets:
+		_, status, data := parseAckBufData(t, packet.data)
+		if status != 0 || len(data) != 1+128*6 || data[0] != 128 || binary.BigEndian.Uint32(data[1:5]) != 1000 {
+			t.Fatal("disabled rollout changed the legacy limit or order")
+		}
+	default:
+		t.Fatal("no ACK queued")
 	}
 }
 

@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"context"
 	"encoding/hex"
 	"strings"
 	"time"
@@ -107,6 +108,22 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 		doAckSimpleFail(s, ackHandle, make([]byte, 4))
 		return false
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	preparedAccess, accessErr := s.prepareQuestAccessAdmission(ctx, stageID)
+	var preparedReturn *returnQuestEligibilitySnapshot
+	var returnErr error
+	if accessErr == nil {
+		preparedReturn, returnErr = s.prepareReturnQuestAdmission(ctx, stageID)
+	}
+	cancel()
+	if returnErr != nil && s.logger != nil {
+		s.logger.Warn("Return quest expiry evidence unavailable before stage admission", zap.Error(returnErr))
+	}
+	if accessErr != nil {
+		s.logger.Warn("Quest authority unavailable before stage admission", zap.Error(accessErr))
+		doAckSimpleFail(s, ackHandle, make([]byte, 4))
+		return false
+	}
 	s.lifecycleMu.Lock()
 	lifecycleHeld := true
 	defer func() {
@@ -156,6 +173,16 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 		s.lifecycleMu.Unlock()
 		lifecycleHeld = false
 		doAckSimpleFail(s, ackHandle, []byte{0x00, 0x00, 0x00, 0x01})
+		return false
+	}
+	if !s.admitQuestDeliveryWithReturnLocked(stage, alreadyClient, time.Now(), preparedReturn, preparedAccess) {
+		stage.Unlock()
+		if created {
+			s.server.stages.CompareAndDelete(stageID, stage)
+		}
+		s.lifecycleMu.Unlock()
+		lifecycleHeld = false
+		doAckSimpleFail(s, ackHandle, make([]byte, 4))
 		return false
 	}
 	if stageKind(stageID) == "Qs" && !alreadyClient && len(stage.clients) == 0 {
@@ -343,6 +370,7 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	// Queue every transition packet before the database write, so statistics
 	// cannot hold up the client's stage transition.
 	if recordWeaponDeparture {
+		s.observePalloneStage("quest_stage_join_accepted", weaponQuestID, stageID)
 		s.captureDivaBattleSongDeparture(weaponQuestID, weaponGeneration)
 		s.captureDivaInterceptionDeparture(weaponQuestID, weaponGeneration)
 		s.recordQuestWeaponDeparture(weaponQuestID, weaponGeneration)
@@ -750,17 +778,21 @@ func handleMsgSysSetStageBinary(s *Session, p mhfpacket.MHFPacket) {
 	}
 	stage, exists := s.server.stages.Get(pkt.StageID)
 	if exists {
-		if runModeDecoded {
-			s.storeQuestRunMode(questID, runMode)
-			s.storeQuestConquestLevel(questID, conquestLevel)
-		}
 		const maxStageBinaryEntries = 256
 		key := stageBinaryKey{pkt.BinaryType0, pkt.BinaryType1}
 		var questClients []*Session
+		var deliveryRejected []questDeliveryDepartureRejection
 		stage.Lock()
 		_, replacing := stage.rawBinaryData[key]
 		stored := replacing || len(stage.rawBinaryData) < maxStageBinaryEntries
 		if stored {
+			var allowed bool
+			allowed, deliveryRejected = s.validateQuestDeliverySetupLocked(stage, pkt, questID, questSetupDecoded)
+			if !allowed {
+				stage.Unlock()
+				rejectQuestDeliveryDepartures(stage, deliveryRejected)
+				return
+			}
 			stage.rawBinaryData[key] = append([]byte(nil), pkt.RawDataPayload...)
 			if questSetupDecoded && stageKind(pkt.StageID) == "Qs" {
 				questClients = make([]*Session, 0, len(stage.clients))
@@ -770,6 +802,14 @@ func handleMsgSysSetStageBinary(s *Session, p mhfpacket.MHFPacket) {
 			}
 		}
 		stage.Unlock()
+		rejectQuestDeliveryDepartures(stage, deliveryRejected)
+		if stored && questSetupDecoded {
+			s.observePalloneStage("stage_setup_accepted", questID, pkt.StageID)
+		}
+		if runModeDecoded && !s.closed.Load() {
+			s.storeQuestRunMode(questID, runMode)
+			s.storeQuestConquestLevel(questID, conquestLevel)
+		}
 		type pendingWeaponDeparture struct {
 			session    *Session
 			generation uint64

@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"erupe-ce/common/byteframe"
@@ -128,6 +129,19 @@ func handleMsgSysGetFile(s *Session, p mhfpacket.MHFPacket) {
 		}
 		doAckBufSucceed(s, pkt.AckHandle, data)
 	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		accessErr := s.refreshQuestAccess(ctx)
+		cancel()
+		if accessErr != nil {
+			s.logger.Warn("Quest authority unavailable before file request", zap.Error(accessErr))
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
+		if !s.deliveryFileAllowed(pkt.Filename, time.Now()) || !s.accessFileAllowed(pkt.Filename, time.Now()) {
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
+		requestedFilename := pkt.Filename
 		if s.server.erupeConfig.DebugOptions.QuestTools {
 			s.logger.Debug(
 				"Quest",
@@ -138,7 +152,24 @@ func handleMsgSysGetFile(s *Session, p mhfpacket.MHFPacket) {
 		if s.server.erupeConfig.GameplayOptions.SeasonOverride {
 			pkt.Filename = seasonConversion(s, pkt.Filename)
 		}
+		// Season conversion can turn a nonstandard request into a real quest
+		// filename; check the resolved file as well as the original request.
+		if !s.deliveryFileAllowed(pkt.Filename, time.Now()) || !s.accessFileAllowed(pkt.Filename, time.Now()) {
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
 
+		var returnEligibility *returnQuestEligibilitySnapshot
+		if returnQuestFilename(requestedFilename) || returnQuestFilename(pkt.Filename) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			var eligibilityErr error
+			returnEligibility, eligibilityErr = s.loadReturnQuestEligibility(ctx)
+			cancel()
+			if eligibilityErr != nil || !s.returnQuestFileAllowed(returnEligibility, requestedFilename, pkt.Filename, time.Now()) {
+				doAckBufFail(s, pkt.AckHandle, nil)
+				return
+			}
+		}
 		data, err := loadQuestBinary(s, pkt.Filename)
 		if err != nil {
 			msg := "Failed to read quest file"
@@ -152,7 +183,12 @@ func handleMsgSysGetFile(s *Session, p mhfpacket.MHFPacket) {
 		if s.server.erupeConfig.RealClientMode <= cfg.Z1 && s.server.erupeConfig.DebugOptions.AutoQuestBackport {
 			data = BackportQuest(decryption.UnpackSimple(data), s.server.erupeConfig.RealClientMode)
 		}
+		if !s.returnQuestFileAllowed(returnEligibility, requestedFilename, pkt.Filename, time.Now()) {
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
 		doAckBufSucceed(s, pkt.AckHandle, data)
+		s.observePalloneFileReply(pkt.Filename, pkt.AckHandle, data)
 	}
 }
 
@@ -350,6 +386,10 @@ func loadQuestFile(s *Session, questId int) []byte {
 }
 
 func makeEventQuest(s *Session, eq EventQuest) ([]byte, error) {
+	return makeEventQuestWithAccess(s, eq, s.questAccessSnapshot.Load(), time.Now())
+}
+
+func makeEventQuestWithAccess(s *Session, eq EventQuest, access *QuestAccessSnapshot, now time.Time) ([]byte, error) {
 	eq = towerMilestoneListing(eq, s.server.erupeConfig.RealClientMode)
 	data := loadQuestFile(s, eq.QuestID)
 	if data == nil {
@@ -378,7 +418,11 @@ func makeEventQuest(s *Session, eq EventQuest) ([]byte, error) {
 		bf.WriteUint8(eq.MaxPlayers)
 	}
 	bf.WriteUint8(eq.QuestType)
-	if eq.QuestType == QuestTypeSpecialTool {
+	if s.server.questAccess != nil && (eq.QuestType == QuestTypeSpecialTool || s.server.questAccess.requires(eq.QuestID)) {
+		// Unknown live-added Type9 rows are locked until the protected roster is
+		// deliberately reloaded. Never fall through to an arbitrary LIMIT 1.
+		bf.WriteBool(s.server.questAccess.requires(eq.QuestID) && s.allowsQuestAccessSnapshot(access, eq.QuestID, now))
+	} else if eq.QuestType == QuestTypeSpecialTool {
 		var stamps, required int
 		var deadline time.Time
 		err := s.server.db.QueryRow(`SELECT COUNT(*) FROM campaign_state WHERE campaign_id = (
@@ -458,88 +502,38 @@ func makeEventQuest(s *Session, eq EventQuest) ([]byte, error) {
 
 func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfEnumerateQuest)
+	_, capacityErr := s.eventQuestCapacity()
+	if capacityErr != nil {
+		s.invalidateQuestDeliveryConfig()
+		s.logger.Error("Invalid event quest capacity", zap.Error(capacityErr))
+		doAckBufFail(s, pkt.AckHandle, nil)
+		return
+	}
+	preparation := s.beginQuestDeliveryPreparation(pkt.Offset)
+	if pkt.Offset == 0 || s.questAccessSnapshot.Load() == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := s.refreshQuestAccess(ctx)
+		cancel()
+		if err != nil {
+			s.abortQuestDeliveryPreparation(preparation)
+			s.logger.Warn("Quest authority unavailable before enumeration", zap.Error(err))
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
+	}
+	listingAccess := s.questAccessSnapshot.Load()
+	enumeratedAt := s.questDeliveryEnumerationTime() // One clock for the roster and Collab semantic tunes.
 	var totalCount, returnedCount uint16
-	var overCapacity int
 	bf := byteframe.NewByteFrame()
 	bf.WriteUint16(0)
 
-	quests, err := s.server.eventRepo.GetEventQuests()
-	if err == nil {
-		quests = s.appendBuiltInCollabQuests(quests)
-		quests = s.withReturnWorldQuests(quests)
-		currentTime := time.Now()
-		var updates []EventQuestUpdate
-		var towerData *TowerData // per-character tower row, read once per enumeration
-		quests = orderTowerQuests(quests)
-
-		for i, eq := range quests {
-			if !s.allowsCollabQuest(eq) {
-				continue
-			}
-			if !s.allowsTowerQuest(eq, &towerData) {
-				continue
-			}
-
-			// Use the Event Cycling system
-			if eq.ActiveDays > 0 {
-				cycleLength := (time.Duration(eq.ActiveDays) + time.Duration(eq.InactiveDays)) * 24 * time.Hour
-
-				// Count the number of full cycles elapsed since the last rotation.
-				extraCycles := int(currentTime.Sub(eq.StartTime) / cycleLength)
-
-				if extraCycles > 0 {
-					// Calculate the rotation time based on start time, active duration, and inactive duration.
-					rotationTime := eq.StartTime.Add(time.Duration(eq.ActiveDays+eq.InactiveDays) * 24 * time.Hour * time.Duration(extraCycles))
-					if currentTime.After(rotationTime) {
-						// Normalize rotationTime to 12PM JST to align with the in-game events update notification.
-						newRotationTime := time.Date(rotationTime.Year(), rotationTime.Month(), rotationTime.Day(), 12, 0, 0, 0, TimeAdjusted().Location())
-
-						updates = append(updates, EventQuestUpdate{ID: eq.ID, StartTime: newRotationTime})
-						quests[i].StartTime = newRotationTime // Set the new start time so the quest can be used/removed immediately.
-						eq = quests[i]
-					}
-				}
-
-				// Check if the quest is currently active
-				if currentTime.Before(eq.StartTime) || currentTime.After(eq.StartTime.Add(time.Duration(eq.ActiveDays)*24*time.Hour)) {
-					continue
-				}
-			}
-
-			// A full client table stores nothing more, so a larger advertised
-			// total would make it re-request the same offset forever (#194).
-			if totalCount >= questEnumerateClientCapacity {
-				overCapacity++
-				continue
-			}
-
-			data, err := makeEventQuest(s, eq)
-			if err != nil {
-				s.logger.Error("Failed to make event quest", zap.Error(err))
-				continue
-			} else {
-				if len(data) > questDataMaxLen || len(data) < questDataMinLen {
-					s.logger.Error("Invalid quest data length", zap.Int("len", len(data)))
-					continue
-				} else {
-					totalCount++
-					if totalCount > pkt.Offset && len(bf.Data()) < 60000 {
-						returnedCount++
-						bf.WriteBytes(data)
-						continue
-					}
-				}
-			}
-		}
-
-		if err := s.server.eventRepo.UpdateEventQuestStartTimes(updates); err != nil {
-			s.logger.Error("Failed to update event quest start times", zap.Error(err))
-		}
-		if overCapacity > 0 && pkt.Offset == 0 {
-			s.logger.Warn("Event quests exceed the client table capacity; extra quests are not sent",
-				zap.Int("capacity", questEnumerateClientCapacity), zap.Int("dropped", overCapacity))
-		}
+	snapshot, err := s.questDeliverySnapshotPrepared(preparation, enumeratedAt, listingAccess)
+	if err != nil {
+		s.logger.Error("Failed to prepare quest delivery snapshot", zap.Error(err))
+		doAckBufFail(s, pkt.AckHandle, nil)
+		return
 	}
+	totalCount, returnedCount = snapshot.appendPage(bf, pkt.Offset)
 
 	premiumRaviOrbRate := multiplierToTuneValue(s.server.erupeConfig.GameplayOptions.PremiumRaviOrbMultiplier)
 	tuneValues := []tuneValue{
@@ -658,7 +652,7 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 		tuneValues = append(tuneValues, tuneValue{1037, 1})
 	}
 
-	tuneValues = s.appendCollabTuneValues(tuneValues)
+	tuneValues = append(tuneValues, snapshot.collabTuneValues...)
 
 	if s.server.erupeConfig.GameplayOptions.DisableRoad {
 		tuneValues = append(tuneValues, tuneValue{1155, 1})

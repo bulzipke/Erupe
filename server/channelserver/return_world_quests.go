@@ -1,10 +1,10 @@
 package channelserver
 
 import (
+	"context"
 	"sort"
 	"time"
 
-	cfg "erupe-ce/config"
 	"go.uber.org/zap"
 )
 
@@ -39,25 +39,23 @@ func isReturnWorldQuest(questID int) bool {
 }
 
 func (s *Session) canUseReturnWorldQuests() bool {
-	if s.server == nil || s.server.worldType != 5 || s.server.erupeConfig == nil || s.server.erupeConfig.RealClientMode < cfg.G10 {
-		return false
-	}
-	repo, ok := s.server.userRepo.(returnWorldEligibilityRepo)
-	if !ok {
-		return false
-	}
-	allowed, err := repo.ReturnWorldEligible(s.userID, TimeAdjusted())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	snapshot, err := s.loadReturnQuestEligibility(ctx)
+	cancel()
 	if err != nil && s.logger != nil {
 		s.logger.Warn("Failed to resolve Return-world quest eligibility", zap.Error(err))
 	}
-	return err == nil && allowed
+	return err == nil && s.allowsReturnQuestSnapshot(snapshot, returnWorldQuestIDs[0], time.Now())
 }
 
-// Inject the catalog only for a currently eligible account in a Return world.
+// Inject the original catalog for a currently eligible account in any world.
 // Known IDs manually registered in the DB follow the same restriction.
 // Existing DB rows win; ordinary event quests and their settings stay intact.
 func (s *Session) withReturnWorldQuests(quests []EventQuest) []EventQuest {
-	allowed := s.canUseReturnWorldQuests()
+	return s.withReturnWorldQuestsAllowed(quests, s.canUseReturnWorldQuests())
+}
+
+func (s *Session) withReturnWorldQuestsAllowed(quests []EventQuest, allowed bool) []EventQuest {
 	seen := make(map[int]bool, len(quests))
 	result := make([]EventQuest, 0, len(quests)+len(returnWorldQuestIDs))
 	var nextID uint32

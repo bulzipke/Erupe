@@ -77,6 +77,26 @@ const (
 
 func handleMsgMhfSavedata(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfSavedata)
+	if !s.allowsQuestDeliverySave() {
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	if s.usesQuestLicenseStarterEpoch() {
+		if _, err := s.clientStarterEpochBaseline(); err != nil {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+	}
+	var starterRewardIDs []uint32
+	if s.questLicenseStarterPending.HasPending() {
+		var starterErr error
+		starterRewardIDs, starterErr = s.questLicenseStarterPending.SnapshotForClientSave(s.userID, s.charID)
+		if starterErr != nil {
+			s.logger.Warn("Rejected client save after unresolved starter claim", zap.Error(starterErr))
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+	}
 
 	// Serialize saves for the same character to prevent concurrent operations
 	// from racing and defeating corruption detection.
@@ -221,7 +241,7 @@ func handleMsgMhfSavedata(s *Session, p mhfpacket.MHFPacket) {
 	}
 
 	if characterSaveData.Name == s.Name || s.server.erupeConfig.RealClientMode <= cfg.S10 {
-		if err := characterSaveData.SaveWithDivaRewards(s, s.pendingDivaRewardClaims(7)); err != nil {
+		if err := characterSaveData.SaveWithClientRewards(s, s.pendingDivaRewardClaims(7), starterRewardIDs); err != nil {
 			s.logger.Error("Failed to save character data", zap.Error(err))
 			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 			return
@@ -303,6 +323,12 @@ func dumpSaveData(s *Session, data []byte, suffix string) {
 
 func handleMsgMhfLoaddata(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfLoaddata)
+	if s.usesQuestLicenseStarterEpoch() && s.questLicenseStarterPending.HasPending() {
+		// Reloading an unresolved locally added item could lose it while its
+		// receipt is still queued for the following client save.
+		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
 	unlock := s.server.charSaveLocks.Lock(s.charID)
 	defer unlock()
 
@@ -322,6 +348,12 @@ func handleMsgMhfLoaddata(s *Session, p mhfpacket.MHFPacket) {
 	var characterSaveData *CharacterSaveData
 	var err error
 	if usingOverride {
+		if s.usesQuestLicenseStarterEpoch() {
+			s.logger.Warn("Save override has no verified starter inventory snapshot")
+			s.markClosed()
+			s.closeConnection()
+			return
+		}
 		isNewCharacter, stateErr := s.server.charRepo.ReadBool(s.charID, "is_new_character")
 		storedName, nameErr := s.server.charRepo.GetName(s.charID)
 		if stateErr != nil || nameErr != nil {
@@ -411,6 +443,14 @@ func handleMsgMhfLoaddata(s *Session, p mhfpacket.MHFPacket) {
 		}
 	}
 
+	if s.usesQuestLicenseStarterEpoch() {
+		if characterSaveData.starterEpoch == nil || characterSaveData.starterEpoch.UserID != s.userID {
+			s.markClosed()
+			s.closeConnection()
+			return
+		}
+		s.questLicenseClientInventory.Store(&questLicenseClientInventory{characterID: s.charID, baseline: *characterSaveData.starterEpoch})
+	}
 	doAckBufSucceed(s, pkt.AckHandle, characterSaveData.compSave)
 	s.playtime = characterSaveData.Playtime
 	s.playtimeTime = time.Now()

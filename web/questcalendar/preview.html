@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>퀘스트 배포 달력 미리보기</title><link rel="stylesheet" href="calendar.css"></head>
+<body style="margin:0;background:#eaf0f2"><main id="quest-calendar" data-schedule-url="example-schedule.json"></main>
+<script src="calendar.js"></script><script>
+fetch('quest-links.json').then(function(r){if(!r.ok)throw new Error('links');return r.json();}).catch(function(){return {};}).then(function(links){ErupeQuestCalendar.mount(document.getElementById('quest-calendar'),{preview:true,links:links});});
+</script></body></html>

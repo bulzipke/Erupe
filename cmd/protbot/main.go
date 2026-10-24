@@ -32,7 +32,17 @@ func main() {
 	rollType := flag.Uint("roll-type", 0, "Gacha roll type: 0=single, 1=ten-pull (used with --action gacha)")
 	gachaType := flag.Uint("gacha-type", 0, "Gacha type code (used with --action gacha)")
 	doRoll := flag.Bool("roll", false, "Actually perform a paid roll (default: only inspect gacha state)")
+	questWorld := flag.Uint("quest-world", 0, "Quest enumeration world selector, 0..255 (used with --action quests)")
+	questCounter := flag.Uint("quest-counter", 0, "Quest enumeration counter selector, 0..65535 (used with --action quests)")
+	questExpected := flag.String("quest-expected-ids", "", "Expected-ID JSON bound to these selectors and the account's original conditions (optional)")
+	questReport := flag.String("quest-report", "", "Write a new JSON receipt report; existing files are never overwritten (optional)")
 	flag.Parse()
+
+	questOptions, err := prepareQuestRunOptions(*action, *questWorld, *questCounter, *questExpected, *questReport)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid quest verification options: %v\n", err)
+		os.Exit(1)
+	}
 
 	if *user == "" || *pass == "" {
 		fmt.Fprintln(os.Stderr, "error: --user and --pass are required")
@@ -137,13 +147,26 @@ func main() {
 			os.Exit(1)
 		}
 
-		data, err := scenario.EnumerateQuests(result.Channel, 0, 0)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "enumerate quests failed: %v\n", err)
+		quests, enumerationErr := scenario.EnumerateQuestsDetailed(result.Channel, questOptions.world, questOptions.counter)
+		receipt, verificationErr := buildQuestReceiptReport(questOptions, quests, enumerationErr)
+		reportErr := writeQuestReceiptReport(questOptions.reportPath, receipt)
+		if verificationErr != nil || reportErr != nil {
+			if verificationErr != nil {
+				fmt.Fprintf(os.Stderr, "verify quests failed: %v\n", verificationErr)
+			}
+			if reportErr != nil {
+				fmt.Fprintf(os.Stderr, "quest report failed: %v\n", reportErr)
+			}
 			_ = scenario.Logout(result.Channel)
 			os.Exit(1)
 		}
-		fmt.Printf("[quests] Received %d bytes of quest data\n", len(data))
+		fmt.Printf("[quests] Received %d entries, %d bytes of quest data\n", receipt.Received, receipt.EntryBytes)
+		if receipt.ExpectedIDsChecked {
+			fmt.Printf("[quests] Exact expected-ID roster matched (%d IDs)\n", receipt.Received)
+		}
+		if questOptions.reportPath != "" {
+			fmt.Printf("[quests] Receipt report: %s\n", questOptions.reportPath)
+		}
 		_ = scenario.Logout(result.Channel)
 
 	case "achievement":

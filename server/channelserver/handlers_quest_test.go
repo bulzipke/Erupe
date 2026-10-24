@@ -240,7 +240,7 @@ func TestEnumerateQuestBasicStructure(t *testing.T) {
 // while pageOffset + stored-this-page < total.
 func enumerateEventQuestsLikeClient(t *testing.T, s *Session) (stored, pages int) {
 	t.Helper()
-	for pages < 32 {
+	for pages < 1024 {
 		handleMsgMhfEnumerateQuest(s, &mhfpacket.MsgMhfEnumerateQuest{AckHandle: uint32(pages + 1), Offset: uint16(stored)})
 		pages++
 		payload := readAck(t, s).Payload
@@ -263,7 +263,7 @@ func newEnumerateQuestSession(questCount int) *Session {
 	srv.questCache = NewQuestCache(3600)
 	repo := &mockEventRepo{}
 	for i := 0; i < questCount; i++ {
-		questID := 10000 + i
+		questID := 1000 + i
 		repo.eventQuests = append(repo.eventQuests, EventQuest{ID: uint32(i + 1), QuestID: questID, QuestType: 1, MaxPlayers: 4, Flags: -1})
 		srv.questCache.Put(questID, "", make([]byte, 600))
 	}
@@ -285,13 +285,13 @@ func TestEnumerateQuestClientReceivesEveryPage(t *testing.T) {
 	}
 }
 
-// TestEnumerateQuestCapsAtClientCapacity covers issue #194: with more quests
-// than the client table holds, the client must still stop paging instead of
-// re-requesting the same offset forever.
-func TestEnumerateQuestCapsAtClientCapacity(t *testing.T) {
-	stored, _ := enumerateEventQuestsLikeClient(t, newEnumerateQuestSession(574))
-	if stored != questEnumerateClientCapacity {
-		t.Fatalf("client stored %d quests, want %d", stored, questEnumerateClientCapacity)
+// Reject the complete oversized list instead of publishing a truncated roster.
+func TestEnumerateQuestRejectsOverflowWithoutTruncation(t *testing.T) {
+	s := newEnumerateQuestSession(1025)
+	s.server.erupeConfig.EventQuestCapacity = 1024
+	handleMsgMhfEnumerateQuest(s, &mhfpacket.MsgMhfEnumerateQuest{AckHandle: 1})
+	if ack := readAck(t, s); ack.ErrorCode == 0 || s.questDeliveryList != nil {
+		t.Fatal("oversized enumeration silently truncated or retained a snapshot")
 	}
 }
 

@@ -12,7 +12,10 @@ func handleMsgSysReserve188(s *Session, p mhfpacket.MHFPacket) {
 func handleMsgSysReserve18B(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgSysReserve18B)
 
-	// Left as raw bytes because I couldn't easily find the request or resp parser function in the binary.
+	// The audited ZZ HD login path (0x11516920) compares this stable token
+	// against the character's stored value and resets all five native clear
+	// counters when it changes. Do not derive it from time, quest rotation or
+	// server uptime; a quota migration must preserve existing limits first.
 	doAckBufSucceed(s, pkt.AckHandle, []byte{0x00, 0x00, 0x00, 0x3C})
 }
 

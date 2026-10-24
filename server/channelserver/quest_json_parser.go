@@ -89,7 +89,7 @@ func ParseQuestBinary(data []byte, lang ...string) (*QuestJSON, error) {
 	// 0x50 unknown u32 — skipped
 	q.SubARankPoints = u32(0x54)
 	q.SubBRankPoints = u32(0x58)
-	// 0x5C questTypeID/unknown — skipped
+	q.GeneralQuestTypeIDRaw = u32(0x5C)
 	// 0x60 padding
 	q.StatTable2 = u8(0x61)
 	// 0x62–0x72 padding
@@ -110,6 +110,7 @@ func ParseQuestBinary(data []byte, lang ...string) (*QuestJSON, error) {
 	mp := questTypeFlagsPtr // shorthand
 
 	q.RankBand = u16(mp + 0x08)
+	q.MainQuestTypeIDRaw = u16(mp + 0x0A)
 	q.Fee = u32(mp + 0x0C)
 	q.RewardMain = u32(mp + 0x10)
 	q.RewardSubA = u16(mp + 0x18)
@@ -142,11 +143,14 @@ func ParseQuestBinary(data []byte, lang ...string) (*QuestJSON, error) {
 		q.ForcedEquipment = eq
 	}
 
+	q.MainByte90Raw = u8(mp + 0x90)
+
 	// +0x97 questVariants
 	q.QuestVariant1 = u8(mp + 0x97)
 	q.QuestVariant2 = u8(mp + 0x98)
 	q.QuestVariant3 = u8(mp + 0x99)
 	q.QuestVariant4 = u8(mp + 0x9A)
+	q.QuestClearsAllowedRaw = u32(mp + 0xC4)
 
 	// ── QuestText strings ────────────────────────────────────────────────
 	if questStringsPtr != 0 {
@@ -413,7 +417,7 @@ func readSupplySlots(data []byte, off, n int) []QuestSupplyItemJSON {
 }
 
 // parseRewardTables reads the reward table array starting at baseOff.
-// Header array: {u8 tableId, u8 pad, u16 pad, u32 tableOffset} per entry,
+// Header array: {u8 tableId, u8 rawByte1, u16 rawWord2, u32 tableOffset} per entry,
 // terminated by int16(-1). tableOffset is an absolute offset into the file
 // (confirmed against retail quest binaries and the questfile.bin.hexpat
 // pattern, which places RewardItem[] directly `@ tableOffset` with no base
@@ -433,6 +437,8 @@ func parseRewardTables(data []byte, baseOff int) ([]QuestRewardTableJSON, error)
 			return nil, fmt.Errorf("reward table header entry truncated at 0x%X", off)
 		}
 		tableID := data[off]
+		descriptorByte1 := data[off+1]
+		descriptorWord2 := binary.LittleEndian.Uint16(data[off+2:])
 		tableOff := int(binary.LittleEndian.Uint32(data[off+4:]))
 		off += 8
 
@@ -440,7 +446,10 @@ func parseRewardTables(data []byte, baseOff int) ([]QuestRewardTableJSON, error)
 		if err != nil {
 			return nil, fmt.Errorf("reward table %d items: %w", tableID, err)
 		}
-		tables = append(tables, QuestRewardTableJSON{TableID: tableID, Items: items})
+		tables = append(tables, QuestRewardTableJSON{
+			TableID: tableID, DescriptorByte1Raw: descriptorByte1,
+			DescriptorWord2Raw: descriptorWord2, Items: items,
+		})
 	}
 	return tables, nil
 }

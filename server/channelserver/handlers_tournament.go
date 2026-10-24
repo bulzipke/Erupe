@@ -279,7 +279,7 @@ func handleMsgMhfEntryTournament(s *Session, p mhfpacket.MHFPacket) {
 	tournament, err := s.server.tournamentRepo.GetActive(now)
 	if err != nil {
 		s.logger.Error("Failed to get active tournament for EntryTournament", zap.Error(err))
-		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
 	if !tournamentIsValid(tournament) {
@@ -291,7 +291,7 @@ func handleMsgMhfEntryTournament(s *Session, p mhfpacket.MHFPacket) {
 	if err != nil {
 		s.logger.Error("Failed to register for tournament", zap.Error(err),
 			zap.Uint32("charID", s.charID), zap.Uint32("tournamentID", tournament.ID))
-		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
 
@@ -317,6 +317,8 @@ func handleMsgMhfEnterTournamentQuest(s *Session, p mhfpacket.MHFPacket) {
 		pkt.StageHandle,
 	); err != nil {
 		s.logger.Error("Failed to submit tournament result", zap.Error(err))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }

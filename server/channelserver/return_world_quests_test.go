@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -19,11 +20,20 @@ func (r returnWorldUserMock) ReturnWorldEligible(uint32, time.Time) (bool, error
 	return r.allowed, r.err
 }
 
+func (r returnWorldUserMock) ReadReturnQuestExpiries(_ context.Context, userID uint32) (returnQuestExpiries, error) {
+	values := returnQuestExpiries{userID: userID}
+	if r.allowed {
+		values.returnExpiry.kind = returnQuestExpiryPositiveInfinity
+	}
+	return values, r.err
+}
+
 func TestReturnWorldQuestDelivery(t *testing.T) {
 	for _, world := range []uint8{0, 1, 2, 3, 4, 5, 6} {
 		for _, eligible := range []bool{false, true} {
 			t.Run(fmt.Sprintf("world%d/eligible%t", world, eligible), func(t *testing.T) {
 				s := createMockSession(1, createMockServer())
+				s.userID = 77
 				s.server.worldType = world
 				s.server.erupeConfig.RealClientMode = cfg.ZZ
 				s.server.userRepo = returnWorldUserMock{allowed: eligible}
@@ -32,7 +42,7 @@ func TestReturnWorldQuestDelivery(t *testing.T) {
 				input := []EventQuest{ordinary, override}
 				got := s.withReturnWorldQuests(input)
 				want := 1
-				if world == 5 && eligible {
+				if eligible {
 					want += 17
 				}
 				if len(got) != want || input[0] != ordinary || input[1] != override {
@@ -58,6 +68,7 @@ func TestReturnWorldQuestDelivery(t *testing.T) {
 
 func TestReturnWorldQuestFailClosed(t *testing.T) {
 	s := createMockSession(1, createMockServer())
+	s.userID = 77
 	s.server.worldType = 5
 	s.server.erupeConfig.RealClientMode = cfg.ZZ
 	s.server.userRepo = returnWorldUserMock{allowed: true, err: errors.New("lookup failed")}

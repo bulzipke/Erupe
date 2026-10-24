@@ -5,7 +5,6 @@ import (
 	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
 	"math/bits"
-	"time"
 
 	"go.uber.org/zap"
 )
@@ -13,19 +12,11 @@ import (
 func handleMsgMhfGetEtcPoints(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetEtcPoints)
 
-	dailyTime, err := s.server.charRepo.ReadTime(s.charID, "daily_time", time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
-	if err != nil {
-		s.logger.Warn("Failed to read daily_time for etc points", zap.Error(err))
-	}
-	if TimeAdjusted().After(dailyTime) {
-		if err := s.server.charRepo.ResetDailyQuests(s.charID); err != nil {
-			s.logger.Error("Failed to reset daily quests", zap.Error(err))
-		}
-	}
-
-	bonusQuests, dailyQuests, promoPoints, err := s.server.charRepo.ReadEtcPoints(s.charID)
+	bonusQuests, dailyQuests, promoPoints, err := s.server.charRepo.ReadDailyEtcPoints(s.charID, TimeAdjusted())
 	if err != nil {
 		s.logger.Error("Failed to get etc points", zap.Error(err))
+		doAckBufFail(s, pkt.AckHandle, nil)
+		return
 	}
 	resp := byteframe.NewByteFrame()
 	resp.WriteUint8(3) // Maybe a count of uint32(s)?
@@ -38,25 +29,17 @@ func handleMsgMhfGetEtcPoints(s *Session, p mhfpacket.MHFPacket) {
 func handleMsgMhfUpdateEtcPoint(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfUpdateEtcPoint)
 
-	var column string
 	switch pkt.PointType {
-	case 0:
-		column = "bonus_quests"
-	case 1:
-		column = "daily_quests"
-	case 2:
-		column = "promo_points"
+	case 0, 1, 2:
 	default:
 		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
 
-	value, err := readCharacterInt(s, column)
-	if err == nil {
-		newVal := max(value+int(pkt.Delta), 0)
-		if err := s.server.charRepo.SaveInt(s.charID, column, newVal); err != nil {
-			s.logger.Error("Failed to update etc point", zap.Error(err))
-		}
+	if err := s.server.charRepo.AdjustEtcPoint(s.charID, pkt.PointType, pkt.Delta); err != nil {
+		s.logger.Error("Failed to update etc point", zap.Error(err))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }
@@ -70,16 +53,35 @@ func handleMsgMhfKickExportForce(s *Session, p mhfpacket.MHFPacket) {} // stub: 
 
 func handleMsgMhfGetEarthStatus(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetEarthStatus)
-	event, err := s.server.towerEvent(TimeAdjusted())
+	now := TimeAdjusted()
+	pallone, err := s.server.selectedPalloneEvent()
 	if err != nil {
 		doAckBufFail(s, pkt.AckHandle, nil)
 		return
 	}
 	status := s.server.erupeConfig.EarthStatus
-	if s.server.erupeConfig.TowerRotation.Enabled {
+	var event TowerEvent
+	if pallone != nil {
+		event = TowerEvent{ID: pallone.ID, Start: pallone.Start, End: pallone.End, ClaimUntil: pallone.ClaimUntil}
 		status = 0
-		if event.Active(TimeAdjusted()) {
-			status = 21
+		if pallone.Active(now) {
+			status = 11
+		} else if pallone.Visible(now) {
+			status = 12
+			event.Start = pallone.End
+			event.End = pallone.ClaimUntil
+		}
+	} else {
+		event, err = s.server.towerEvent(now)
+		if err != nil {
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
+		if s.server.erupeConfig.TowerRotation.Enabled {
+			status = 0
+			if event.Active(now) {
+				status = 21
+			}
 		}
 	}
 	bf := byteframe.NewByteFrame()

@@ -36,6 +36,13 @@ deploy.sh
 # Test/build artifacts
 coverage.out
 
+# Generated deployment bundles, client candidates and local audit reports
+/outputs/
+
+# Python bytecode caches
+__pycache__/
+*.py[cod]
+
 # Local save blob dumps (PII)
 tmp/
 

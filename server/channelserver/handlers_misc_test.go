@@ -749,6 +749,7 @@ func TestHandleMsgMhfGetEtcPoints(t *testing.T) {
 	charRepo.etcBonusQuests = 100
 	charRepo.etcDailyQuests = 50
 	charRepo.etcPromoPoints = 25
+	charRepo.times["daily_time"] = TimeAdjusted().AddDate(0, 0, 1)
 	srv.charRepo = charRepo
 	s := createMockSession(100, srv)
 

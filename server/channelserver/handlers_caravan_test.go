@@ -1,10 +1,44 @@
 package channelserver
 
 import (
+	"bytes"
+	"testing"
+
 	"erupe-ce/common/byteframe"
 	"erupe-ce/network/mhfpacket"
-	"testing"
 )
+
+func TestPalloneScoreSubmissionReturnsSimpleFailure(t *testing.T) {
+	srv := createMockServer()
+	repo := &mockCaravanRepo{points: CaravanPoints{Points: 4200}}
+	srv.caravanRepo = repo
+	s := createMockSession(100, srv)
+	handleMsgMhfCaravanMyScore(s, &mhfpacket.MsgMhfCaravanMyScore{
+		AckHandle: 77, Unk0: 2, Unk1: 3, Unk2: 8, Unk3: 1000, Unk4: 900,
+	})
+	ack := readAck(t, s)
+	if ack.AckHandle != 77 || ack.IsBufferResponse || ack.ErrorCode == 0 || !bytes.Equal(ack.Payload, make([]byte, 4)) {
+		t.Fatalf("unsupported submission returned the wrong ACK: %+v", ack)
+	}
+	if len(s.sendPackets) != 0 {
+		t.Fatal("submission sent more than one ACK")
+	}
+	if repo.addedPoints != 0 || repo.addedGuildPts != 0 {
+		t.Fatal("festival submission changed unrelated Ryoudama points")
+	}
+}
+
+func TestPalloneScoreReadKeepsNativeEmptyHeader(t *testing.T) {
+	srv := createMockServer()
+	srv.erupeConfig.EarthID = 0x12345678
+	s := createMockSession(100, srv)
+	handleMsgMhfCaravanMyScore(s, &mhfpacket.MsgMhfCaravanMyScore{AckHandle: 78, Unk0: 1})
+	ack := readAck(t, s)
+	want := []byte{0x12, 0x34, 0x56, 0x78, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	if ack.AckHandle != 78 || !ack.IsBufferResponse || ack.ErrorCode != 0 || !bytes.Equal(ack.Payload, want) {
+		t.Fatalf("score read header = %+v, want %x", ack, want)
+	}
+}
 
 func TestHandleMsgMhfGetRyoudama_Case4_RealPoints(t *testing.T) {
 	srv := createMockServer()
@@ -163,7 +197,7 @@ func TestHandleMsgMhfCaravanMyScore_StillEmpty(t *testing.T) {
 	_ = bf.ReadUint32()
 	count := bf.ReadUint32()
 	if count != 0 {
-		t.Errorf("expected 0 entries (wire format unconfirmed), got %d", count)
+		t.Errorf("expected 0 entries (festival store not connected), got %d", count)
 	}
 }
 
@@ -181,7 +215,7 @@ func TestHandleMsgMhfCaravanRanking_StillEmpty(t *testing.T) {
 	_ = bf.ReadUint32()
 	count := bf.ReadUint32()
 	if count != 0 {
-		t.Errorf("expected 0 entries (wire format unconfirmed), got %d", count)
+		t.Errorf("expected 0 entries (festival store not connected), got %d", count)
 	}
 }
 
@@ -199,6 +233,6 @@ func TestHandleMsgMhfCaravanMyRank_StillEmpty(t *testing.T) {
 	_ = bf.ReadUint32()
 	count := bf.ReadUint32()
 	if count != 0 {
-		t.Errorf("expected 0 entries (wire format unconfirmed), got %d", count)
+		t.Errorf("expected 0 entries (festival store not connected), got %d", count)
 	}
 }

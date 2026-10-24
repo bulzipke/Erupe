@@ -33,14 +33,22 @@ type packet struct {
 // Session holds state for the channel server connection.
 type Session struct {
 	sync.Mutex
-	logger        *zap.Logger
-	server        *Server
-	rawConn       net.Conn
-	cryptConn     network.Conn
-	sendPackets   chan packet
-	clientContext *clientctx.ClientContext
-	lastPacketMu  sync.RWMutex
-	lastPacket    time.Time
+	logger                      *zap.Logger
+	server                      *Server
+	rawConn                     net.Conn
+	cryptConn                   network.Conn
+	sendPackets                 chan packet
+	clientContext               *clientctx.ClientContext
+	lastPacketMu                sync.RWMutex
+	lastPacket                  time.Time
+	questDeliveryListMu         sync.Mutex
+	questDeliveryList           *questDeliveryListSnapshot
+	questDeliveryListEpoch      uint64 // Owned only under questDeliveryListMu.
+	questDeliveryDeparture      atomic.Pointer[questDeliveryDeparture]
+	questDeliveryReceipt        atomic.Pointer[questDeliveryReceipt]
+	questAccessSnapshot         atomic.Pointer[QuestAccessSnapshot]
+	questLicenseStarterPending  questLicenseStarterPending
+	questLicenseClientInventory atomic.Pointer[questLicenseClientInventory]
 
 	objectID    uint16
 	objectIndex uint16
@@ -128,6 +136,9 @@ type Session struct {
 	towerGuardianQuestID         uint16    // Validated quest setup tied to that receipt.
 	questWeaponPendingGeneration uint64
 	questWeaponPendingStage      string
+	// Server-qualified final-route receipt, protected by lifecycleMu. Receiving
+	// CARAVAN_MY_SCORE cannot create it. Native route capture is not armed yet.
+	palloneReceipt *PalloneRunReceipt
 	// Live quest run, published to the dashboard. Set on entering a quest stage
 	// and cleared on leaving one; the title is resolved once here rather than on
 	// every dashboard poll, which would re-read the quest file each time.

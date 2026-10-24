@@ -4,9 +4,11 @@ import (
 	"context"
 	"erupe-ce/common/byteframe"
 	ps "erupe-ce/common/pascalstring"
+	"erupe-ce/common/questlicense"
 	"erupe-ce/common/stringsupport"
 	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
+	"go.uber.org/zap"
 	"time"
 )
 
@@ -141,43 +143,40 @@ func handleMsgMhfEnumerateCampaign(s *Session, p mhfpacket.MHFPacket) {
 		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
-	bf := byteframe.NewByteFrame()
+	enumerateCampaignCatalog(s, pkt, NewCampaignCatalogRepository(s.server.db))
+}
 
-	var events []CampaignEvent
-	var categories []CampaignCategory
-	var campaignLinks []CampaignLink
-
-	err := s.server.db.Select(&events, `SELECT c.*, COALESCE((SELECT p.price FROM campaign_coin_prices p
-		WHERE p.campaign_id=c.id AND EXISTS(SELECT 1 FROM campaign_category_links l
-		JOIN campaign_categories cat ON cat.id=l.category_id
-		WHERE l.campaign_id=c.id AND cat.type=1 AND cat.id IN(6,7))),0) AS coin_price FROM campaigns c`)
+func enumerateCampaignCatalog(s *Session, pkt *mhfpacket.MsgMhfEnumerateCampaign, store CampaignCatalogStore) {
+	if store == nil {
+		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snapshot, err := store.Load(ctx)
 	if err != nil {
 		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
-	// Hide every special event house category (type 0), plus the four legacy
-	// exchange-tent product categories (seed IDs 8..11). Keep premium kits.
-	// Keep the catalog, redemption codes and claim history in the database.
-	err = s.server.db.Select(&categories, `SELECT id, type, title, description FROM campaign_categories
-		WHERE type = 1 AND id NOT IN (8,9,10,11) ORDER BY id`)
-	if err != nil {
-		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
-		return
-	}
-	// Do not send category links for the omitted categories either. Campaigns
-	// shared with a visible category remain reachable through that category.
-	err = s.server.db.Select(&campaignLinks, `SELECT l.campaign_id, l.category_id
-		FROM campaign_category_links l JOIN campaign_categories c ON c.id = l.category_id
-		WHERE c.type = 1 AND c.id NOT IN (8,9,10,11) ORDER BY l.id`)
-	if err != nil {
-		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
-		return
-	}
+	events, categories, campaignLinks := snapshot.Events, snapshot.Categories, snapshot.Links
 	// The response has four sections in this order: events, code prefixes,
 	// categories, category links. The client parses all four (FUN_1151b7c0,
 	// FUN_1151bc30, FUN_1151bd60 HD; FUN_114f4f20.. non-HD); without the prefix
 	// section it read the category count as the prefix count and every later
 	// field out of place, so both tents drew garbage or an empty list.
+	now := time.Now()
+	events, campaignLinks, err = s.server.appendQuestLicenseCampaigns(events, categories, campaignLinks, now)
+	if err == nil && s.server.campaignCatalogGuardEnabled() {
+		err = validateCampaignCatalog(CampaignCatalogSnapshot{Events: events, Categories: categories, Links: campaignLinks})
+	}
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("Event house catalog unavailable", zap.Error(err))
+		}
+		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	bf := byteframe.NewByteFrame()
 	writeCampaignCount(bf, len(events))
 	for _, event := range events {
 		bf.WriteUint32(event.ID)
@@ -186,6 +185,9 @@ func handleMsgMhfEnumerateCampaign(s *Session, p mhfpacket.MHFPacket) {
 		metadata := uint32(0)
 		if event.CoinPrice > 0 {
 			metadata = 0x80000000 | event.CoinPrice
+			if s.server.isQuestLicenseCampaign(event.ID) {
+				metadata = questlicense.NativeProductMarker | event.CoinPrice
+			}
 		}
 		bf.WriteUint32(metadata)
 		bf.WriteInt16(event.MinHR)
@@ -203,7 +205,7 @@ func handleMsgMhfEnumerateCampaign(s *Session, p mhfpacket.MHFPacket) {
 		bf.WriteUint16(0)
 		bf.WriteUint32(uint32(event.Start.Unix()))
 		bf.WriteUint32(uint32(event.End.Unix()))
-		bf.WriteBool(event.End.Before(time.Now()))
+		bf.WriteBool(event.End.Before(now))
 		writeCampaignString(bf, event.Title, campaignTextMax)
 		writeCampaignString(bf, event.Reward, campaignTextMax)
 		writeCampaignString(bf, event.Prefix, campaignTextMax)
@@ -246,6 +248,12 @@ func handleMsgMhfStateCampaign(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfStateCampaign)
 	if s.server.db == nil {
 		doAckBufFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	if s.server.isQuestLicenseCampaign(pkt.CampaignID) {
+		// License authority is private LPV2 display, never native stamps or
+		// collectible type9 item rows. An unpatched client receives no reward.
+		doAckBufSucceed(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
 	bf := byteframe.NewByteFrame()
@@ -293,38 +301,17 @@ func handleMsgMhfApplyCampaign(s *Session, p mhfpacket.MHFPacket) {
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
+	if handleQuestLicenseApply(s, pkt) {
+		return
+	}
 	if len(pkt.Code) > 0 && pkt.Code[0] == '!' {
 		handleCampaignCoinPurchase(s, pkt)
 		return
 	}
-	// Priced kits are purchased, not unlocked with legacy reusable codes.
-	var priced bool
-	if err := s.server.db.Get(&priced, `SELECT EXISTS(SELECT 1 FROM campaign_coin_prices WHERE campaign_id=$1)`, pkt.CampaignID); err != nil || priced {
-		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
-		return
-	}
-	// Check if the code exists, belongs to this campaign, and check if it's a multi-code
-	var multi bool
-	err := s.server.db.QueryRow(`SELECT multi FROM public.campaign_codes WHERE code = $1 AND campaign_id = $2`, pkt.Code, pkt.CampaignID).Scan(&multi)
-	if err != nil {
-		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
-		return
-	}
-
-	// Check if the code is already used
-	var exists bool
-	if multi {
-		err = s.server.db.QueryRow(`SELECT COUNT(*) > 0 FROM public.campaign_state WHERE code = $1 AND character_id = $2`, pkt.Code, s.charID).Scan(&exists)
-	} else {
-		err = s.server.db.QueryRow(`SELECT COUNT(*) > 0 FROM public.campaign_state WHERE code = $1`, pkt.Code).Scan(&exists)
-	}
-	if err != nil || exists {
-		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
-		return
-	}
-
-	_, err = s.server.db.Exec(`INSERT INTO public.campaign_state (code, campaign_id, character_id) VALUES ($1, $2, $3)`, pkt.Code, pkt.CampaignID, s.charID)
-	if err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var legacy LegacyCampaignStore = NewLegacyCampaignRepository(s.server.db)
+	if err := legacy.Apply(ctx, s.userID, s.charID, pkt.CampaignID, pkt.Code); err != nil {
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
@@ -338,7 +325,14 @@ func handleMsgMhfEnumerateItem(s *Session, p mhfpacket.MHFPacket) {
 		return
 	}
 	if pkt.CampaignID&campaignPreviewFlag != 0 {
+		if handleQuestLicensePreview(s, pkt) {
+			return
+		}
 		handleCampaignCoinPreview(s, pkt)
+		return
+	}
+	if s.server.isQuestLicenseCampaign(pkt.CampaignID) {
+		doAckBufSucceed(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
 	bf := byteframe.NewByteFrame()
@@ -437,12 +431,12 @@ func handleMsgMhfAcquireItem(s *Session, p mhfpacket.MHFPacket) {
 			return
 		}
 	}
-	for _, id := range pkt.RewardIDs {
-		_, err := s.server.db.Exec(`INSERT INTO campaign_rewards_claimed (reward_id, character_id) VALUES ($1, $2)`, id, s.charID)
-		if err != nil {
-			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
-			return
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var legacy LegacyCampaignStore = NewLegacyCampaignRepository(s.server.db)
+	if err := legacy.Acquire(ctx, s.userID, s.charID, pkt.RewardIDs); err != nil {
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }
@@ -454,18 +448,12 @@ func handleMsgMhfTransferItem(s *Session, p mhfpacket.MHFPacket) {
 		return
 	}
 	if pkt.ItemType == 9 {
-		var campaignID uint32
-		err := s.server.db.QueryRow(`
-			SELECT ce.campaign_id FROM campaign_rewards ce
-			JOIN event_quests eq ON ce.item_id = eq.quest_id
-			WHERE eq.id = $1
-		`, pkt.QuestID).Scan(&campaignID)
-		if err == nil {
-			_, err = s.server.db.Exec(`INSERT INTO campaign_quest (campaign_id, character_id) VALUES ($1, $2)`, campaignID, s.charID)
-			if err != nil {
-				doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
-				return
-			}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		var legacy LegacyCampaignStore = NewLegacyCampaignRepository(s.server.db)
+		if err := legacy.CompleteQuest(ctx, s.userID, s.charID, pkt.QuestID); err != nil {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
 		}
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))

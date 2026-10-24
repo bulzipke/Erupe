@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"erupe-ce/common/mhfcourse"
+	"erupe-ce/common/questdelivery"
+	"erupe-ce/common/questlicense"
 
 	"github.com/spf13/viper"
 )
@@ -82,10 +84,17 @@ type Config struct {
 	DisableSaveIntegrityCheck bool     // Skip SHA-256 hash verification on load (needed for cross-server save transfers)
 	ClientMode                string
 	RealClientMode            Mode
-	QuestCacheExpiry          int    // Number of seconds to keep quest data cached
-	CommandPrefix             string // The prefix for commands
-	AutoCreateAccount         bool   // Automatically create accounts if they don't exist
-	LoopDelay                 int    // Delay in milliseconds between each loop iteration
+	QuestCacheExpiry          int // Number of seconds to keep quest data cached
+	EventQuestCapacity        int // Expanded client event slots; zero uses DefaultEventQuestCapacity. No stock-512 fallback.
+	QuestDelivery             QuestDeliveryOptions
+	QuestDeliveryCatalog      *questdelivery.Catalog                 `mapstructure:"-" json:"-"`
+	QuestDeliveryPublication  *questdelivery.CommonPublicationCohort `mapstructure:"-" json:"-"`
+	QuestLicenses             QuestLicenseOptions
+	QuestLicenseCatalog       *questlicense.Catalog        `mapstructure:"-" json:"-"`
+	QuestLicenseDisplay       *questlicense.DisplayCatalog `mapstructure:"-" json:"-"`
+	CommandPrefix             string                       // The prefix for commands
+	AutoCreateAccount         bool                         // Automatically create accounts if they don't exist
+	LoopDelay                 int                          // Delay in milliseconds between each loop iteration
 	DefaultCourses            []uint16
 	EarthStatus               int32
 	EarthID                   int32
@@ -546,6 +555,7 @@ func registerDefaults() {
 	viper.SetDefault("NGWordsFile", "bin/ng_words.csv")
 	viper.SetDefault("ClientMode", "ZZ")
 	viper.SetDefault("QuestCacheExpiry", 300)
+	viper.SetDefault("EventQuestCapacity", DefaultEventQuestCapacity)
 	viper.SetDefault("CommandPrefix", "!")
 	viper.SetDefault("AutoCreateAccount", true)
 	viper.SetDefault("LoopDelay", 50)
@@ -819,6 +829,12 @@ func LoadConfig() (*Config, error) {
 		if err := entry.ValidateChannelContent(c.RealClientMode); err != nil {
 			return nil, err
 		}
+	}
+	if err := c.LoadQuestDelivery(); err != nil {
+		return nil, err
+	}
+	if err := c.LoadQuestLicenses(); err != nil {
+		return nil, err
 	}
 	if hour := c.DebugOptions.InGameTimeOverrideHour; hour != nil && (*hour < 0 || *hour > 23) {
 		return nil, fmt.Errorf("invalid DebugOptions.InGameTimeOverrideHour %d (expected 0-23 or null)", *hour)

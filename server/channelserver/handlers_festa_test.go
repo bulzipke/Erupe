@@ -1,12 +1,93 @@
 package channelserver
 
 import (
+	"bytes"
+	"errors"
 	"testing"
 
 	cfg "erupe-ce/config"
+	"erupe-ce/network"
 	"erupe-ce/network/mhfpacket"
 	"time"
 )
+
+type festaClaimAckRepo struct {
+	*mockFestaRepo
+	claimErr error
+	calls    [][2]uint32
+}
+
+func (r *festaClaimAckRepo) ClaimPrize(prizeID, charID uint32) error {
+	r.calls = append(r.calls, [2]uint32{prizeID, charID})
+	return r.claimErr
+}
+
+func TestFestaPrizeClaimAckIntegrity(t *testing.T) {
+	for _, claim := range []struct {
+		name    string
+		prizeID uint32
+		handle  func(*Session, mhfpacket.MHFPacket)
+		packet  func(uint32) mhfpacket.MHFPacket
+	}{
+		{
+			name: "main", prizeID: 0, handle: handleMsgMhfAcquireFesta,
+			packet: func(ack uint32) mhfpacket.MHFPacket {
+				return &mhfpacket.MsgMhfAcquireFesta{AckHandle: ack}
+			},
+		},
+		{
+			name: "personal", prizeID: 37, handle: handleMsgMhfAcquireFestaPersonalPrize,
+			packet: func(ack uint32) mhfpacket.MHFPacket {
+				return &mhfpacket.MsgMhfAcquireFestaPersonalPrize{AckHandle: ack, PrizeID: 37}
+			},
+		},
+		{
+			name: "intermediate", prizeID: 91, handle: handleMsgMhfAcquireFestaIntermediatePrize,
+			packet: func(ack uint32) mhfpacket.MHFPacket {
+				return &mhfpacket.MsgMhfAcquireFestaIntermediatePrize{AckHandle: ack, PrizeID: 91}
+			},
+		},
+	} {
+		for _, result := range []struct {
+			name string
+			err  error
+			code byte
+		}{
+			{name: "success"},
+			{name: "storage_failure", err: errors.New("injected festa claim storage failure"), code: 1},
+		} {
+			t.Run(claim.name+"/"+result.name, func(t *testing.T) {
+				srv := createMockServer()
+				repo := &festaClaimAckRepo{mockFestaRepo: &mockFestaRepo{}, claimErr: result.err}
+				srv.festaRepo = repo
+				const charID, ackHandle = uint32(321), uint32(0x12345678)
+				s := createMockSession(charID, srv)
+				claim.handle(s, claim.packet(ackHandle))
+
+				if len(repo.calls) != 1 || repo.calls[0] != [2]uint32{claim.prizeID, charID} {
+					t.Fatalf("ClaimPrize calls = %v, want exactly [%d %d]", repo.calls, claim.prizeID, charID)
+				}
+				// Fixed simple-ACK wire form: opcode, original handle, unbuffered,
+				// result code, zero size field, and the unchanged four zero bytes.
+				opcode := uint16(network.MSG_SYS_ACK)
+				want := []byte{byte(opcode >> 8), byte(opcode), 0x12, 0x34, 0x56, 0x78, 0, result.code, 0, 0, 0, 0, 0, 0}
+				select {
+				case response := <-s.sendPackets:
+					if !bytes.Equal(response.data, want) {
+						t.Fatalf("ACK bytes = %x, want %x", response.data, want)
+					}
+				default:
+					t.Fatal("missing claim acknowledgement")
+				}
+				select {
+				case response := <-s.sendPackets:
+					t.Fatalf("unexpected additional acknowledgement: %x", response.data)
+				default:
+				}
+			})
+		}
+	}
+}
 
 func TestHandleMsgMhfEnumerateRanking_Default(t *testing.T) {
 	server := createMockServer()

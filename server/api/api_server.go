@@ -126,6 +126,7 @@ func (s *APIServer) Start() error {
 	r.HandleFunc("/api/dashboard/chat", s.DashboardChat).Methods("GET", "POST")
 	r.HandleFunc("/api/dashboard/unlock", s.DashboardUnlock).Methods("POST")
 	s.registerDashboardDeliveryRoutes(r)
+	s.registerQuestScheduleRoutes(r)
 
 	// Legacy routes (unchanged, no method enforcement)
 	r.HandleFunc("/launcher", s.Launcher)

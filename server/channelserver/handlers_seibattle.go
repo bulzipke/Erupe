@@ -2,6 +2,7 @@ package channelserver
 
 import (
 	"erupe-ce/common/byteframe"
+	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
 	"time"
 )
@@ -179,6 +180,10 @@ type WeeklySeibatuRankingReward struct {
 
 func handleMsgMhfGetWeeklySeibatuRankingReward(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetWeeklySeibatuRankingReward)
+	if pkt.Unk1 == 3 && s.server.erupeConfig.RealClientMode == cfg.ZZ {
+		s.handlePalloneRouteDelivery(pkt)
+		return
+	}
 	var data []*byteframe.ByteFrame
 	weeklySeibatuRankingRewards := []WeeklySeibatuRankingReward{
 		{0, 0, 0, 0, 0, 0},

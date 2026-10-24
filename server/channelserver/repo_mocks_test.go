@@ -250,6 +250,78 @@ func (m *mockCharacterRepo) ResetDailyQuests(_ uint32) error                    
 func (m *mockCharacterRepo) ReadEtcPoints(_ uint32) (uint32, uint32, uint32, error) {
 	return m.etcBonusQuests, m.etcDailyQuests, m.etcPromoPoints, m.etcPointsErr
 }
+func (m *mockCharacterRepo) ClaimDailyCafe(_ uint32, until time.Time, bonus, daily uint32, maximumNP int) (bool, error) {
+	if m.readErr != nil {
+		return false, m.readErr
+	}
+	stored, exists := m.times["daily_time"]
+	if !exists {
+		stored = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	}
+	if !until.After(stored) {
+		return false, nil
+	}
+	if m.saveErr != nil {
+		return false, m.saveErr
+	}
+	m.ints["netcafe_points"] = min(m.ints["netcafe_points"]+5, maximumNP)
+	m.times["daily_time"] = until
+	m.etcBonusQuests, m.etcDailyQuests = bonus, daily
+	m.ints["bonus_quests"], m.ints["daily_quests"] = int(bonus), int(daily)
+	return true, nil
+}
+func (m *mockCharacterRepo) ReadDailyEtcPoints(_ uint32, now time.Time) (uint32, uint32, uint32, error) {
+	if m.readErr != nil {
+		return 0, 0, 0, m.readErr
+	}
+	if m.etcPointsErr != nil {
+		return 0, 0, 0, m.etcPointsErr
+	}
+	stored, exists := m.times["daily_time"]
+	if !exists {
+		stored = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	}
+	if now.After(stored) {
+		if m.saveErr != nil {
+			return 0, 0, 0, m.saveErr
+		}
+		m.etcBonusQuests, m.etcDailyQuests = 0, 0
+		m.ints["bonus_quests"], m.ints["daily_quests"] = 0, 0
+	}
+	return m.etcBonusQuests, m.etcDailyQuests, m.etcPromoPoints, nil
+}
+func (m *mockCharacterRepo) AdjustEtcPoint(_ uint32, pointType uint8, delta int16) error {
+	columns := []string{"bonus_quests", "daily_quests", "promo_points"}
+	if int(pointType) >= len(columns) {
+		return nil
+	}
+	for _, err := range []error{m.readErr, m.saveErr, m.adjustErr} {
+		if err != nil {
+			return err
+		}
+	}
+	column := columns[pointType]
+	value := max(m.ints[column]+int(delta), 0)
+	m.ints[column] = value
+	switch pointType {
+	case 0:
+		m.etcBonusQuests = uint32(value)
+	case 1:
+		m.etcDailyQuests = uint32(value)
+	case 2:
+		m.etcPromoPoints = uint32(value)
+	}
+	return nil
+}
+func (m *mockCharacterRepo) AddCappedNetcafePoints(_ uint32, delta, maximumNP int) error {
+	for _, err := range []error{m.readErr, m.saveErr, m.adjustErr} {
+		if err != nil {
+			return err
+		}
+	}
+	m.ints["netcafe_points"] = min(m.ints["netcafe_points"]+delta, maximumNP)
+	return nil
+}
 func (m *mockCharacterRepo) ResetCafeTime(_ uint32, cafeReset time.Time) error {
 	m.ints["cafe_time"] = 0
 	m.times["cafe_reset"] = cafeReset
