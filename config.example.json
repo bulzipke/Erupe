@@ -15,6 +15,7 @@
     "CycleDays": 21
   },
   "GameplayOptions": {
+    "HunterGemPointMultiplier": 1.00,
     "DivaBonusRandom": false,
     "DivaMapRedTreasureMode": "off"
   },

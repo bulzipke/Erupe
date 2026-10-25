@@ -57,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Correct Diva song-phase packet widths and ranking payloads; persist noon-limited bead choices, atomic song contributions and scheduled personal rankings across reconnects.
 
 ### Added
+- Add `GameplayOptions.HunterGemPointMultiplier` for quest-earned Hunter Gem colors on ZZ with matching Vorbis; native courses stack and coin exchanges, CP and progression caps remain native.
 - Use an expanded 16,384-slot event quest default and one frozen, all-or-error enumeration path, removing the stock-512 fallback and enumeration-time schedule writes without adding client admission checks.
 - Add an explicit offline quest JSON export that preserves auxiliary string bytes, validating their language and text projection before compilation without changing the default conversion path.
 - Add an optional exact-manifest listing-source inventory check to the offline quest schedule exporter, including closed and future managed quests.

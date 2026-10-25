@@ -248,6 +248,7 @@ type GameplayOptions struct {
 	PremiumRaviOrbMultiplier       float32 // Adjusts the Premium course multiplier for all Raviente orb rewards
 	GUrgentRate                    float32 // Adjusts the rate of G Urgent quests spawning
 	GCPMultiplier                  float32 // Adjusts the multiplier of GCP rewarded for quest completion
+	HunterGemPointMultiplier       float32 // ZZ + matching Vorbis: final quest-earned Hunter Gem colors, 0..100; coins and CP unchanged
 	HRPMultiplier                  float32 // Adjusts the multiplier of Hunter Rank Points rewarded for quest completion
 	HRPMultiplierNC                float32 // Adjusts the multiplier of Hunter Rank Points rewarded for quest completion in a NetCafe
 	SRPMultiplier                  float32 // Adjusts the multiplier of Skill Rank Points rewarded for quest completion
@@ -639,7 +640,7 @@ func registerDefaults() {
 	// All reward multipliers default to 1.0 — without this, Go's zero value
 	// (0.0) would zero out all quest rewards for minimal configs.
 	for _, key := range []string{
-		"GCPMultiplier", "HRPMultiplier", "HRPMultiplierNC",
+		"GCPMultiplier", "HunterGemPointMultiplier", "HRPMultiplier", "HRPMultiplierNC",
 		"SRPMultiplier", "SRPMultiplierNC", "GRPMultiplier", "GRPMultiplierNC",
 		"GSRPMultiplier", "GSRPMultiplierNC", "ZennyMultiplier", "ZennyMultiplierNC",
 		"GZennyMultiplier", "GZennyMultiplierNC", "MaterialMultiplier", "MaterialMultiplierNC",
@@ -796,6 +797,9 @@ func LoadConfig() (*Config, error) {
 	if c.RealClientMode == 0 {
 		c.ClientMode = versionStrings[len(versionStrings)-1]
 		c.RealClientMode = ZZ
+	}
+	if err := ValidateHunterGemPointMultiplier(c.GameplayOptions.HunterGemPointMultiplier, c.RealClientMode); err != nil {
+		return nil, err
 	}
 
 	if c.GameplayOptions.MinFeatureWeapons > c.GameplayOptions.MaxFeatureWeapons {

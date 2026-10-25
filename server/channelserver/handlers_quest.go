@@ -717,6 +717,9 @@ func handleMsgMhfEnumerateQuest(s *Session, p mhfpacket.MHFPacket) {
 		(s.server.erupeConfig.UsesMezFesMinigameTune() || s.server.mezFesMinigame == 2 || s.server.mezFesMinigame == 4) {
 		tuneValues = append([]tuneValue{{ID: mezFesMinigameTuneID, Value: s.effectiveMezFesMinigame()}}, tuneValues...)
 	}
+	if s.server.erupeConfig.RealClientMode == cfg.ZZ {
+		tuneValues = append([]tuneValue{{ID: hunterGemPointTuneID, Value: multiplierToTuneValue(s.server.erupeConfig.GameplayOptions.HunterGemPointMultiplier)}}, tuneValues...)
+	}
 	tuneLimit := tuneLimitZZ
 	if s.server.erupeConfig.RealClientMode <= cfg.G1 {
 		tuneLimit = tuneLimitG1

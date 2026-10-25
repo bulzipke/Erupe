@@ -534,13 +534,14 @@ func TestMinimalConfigDefaults(t *testing.T) {
 
 	// Multipliers must be 1.0 (not Go's zero value 0.0)
 	multipliers := map[string]float32{
-		"HRPMultiplier":       cfg.GameplayOptions.HRPMultiplier,
-		"SRPMultiplier":       cfg.GameplayOptions.SRPMultiplier,
-		"GRPMultiplier":       cfg.GameplayOptions.GRPMultiplier,
-		"ZennyMultiplier":     cfg.GameplayOptions.ZennyMultiplier,
-		"MaterialMultiplier":  cfg.GameplayOptions.MaterialMultiplier,
-		"GCPMultiplier":       cfg.GameplayOptions.GCPMultiplier,
-		"GMaterialMultiplier": cfg.GameplayOptions.GMaterialMultiplier,
+		"HRPMultiplier":            cfg.GameplayOptions.HRPMultiplier,
+		"SRPMultiplier":            cfg.GameplayOptions.SRPMultiplier,
+		"GRPMultiplier":            cfg.GameplayOptions.GRPMultiplier,
+		"ZennyMultiplier":          cfg.GameplayOptions.ZennyMultiplier,
+		"MaterialMultiplier":       cfg.GameplayOptions.MaterialMultiplier,
+		"GCPMultiplier":            cfg.GameplayOptions.GCPMultiplier,
+		"HunterGemPointMultiplier": cfg.GameplayOptions.HunterGemPointMultiplier,
+		"GMaterialMultiplier":      cfg.GameplayOptions.GMaterialMultiplier,
 	}
 	for name, val := range multipliers {
 		if val != 1.0 {
