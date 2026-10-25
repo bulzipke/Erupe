@@ -28,21 +28,14 @@ func TestTowerPendingRewardsAndClaimFiltering(t *testing.T) {
 	}
 }
 
-func TestTowerDailyRewardsRemainClaimableAfterNoon(t *testing.T) {
-	oldDay := towerDailyStart(time.Date(2026, 9, 24, 18, 0, 0, 0, time.FixedZone("JST", 9*3600)))
-	missions := towerDailyMissions(oldDay)
+func TestTowerDailyRewardsNotDuplicatedThroughPresentBox(t *testing.T) {
+	day := towerDailyStart(TimeAdjusted())
 	state := TowerRewardState{Daily: []TowerDailyDay{{
-		Start: oldDay,
-		Counters: TowerDailyCounters{
-			Floors: 4, Antiques: 3, Chests: 3, TRP: 1500, Slays: 3,
-		},
+		Start:    day,
+		Counters: TowerDailyCounters{Floors: 4, Antiques: 3, Chests: 3, TRP: 1500, Slays: 3},
 	}}}
-	got := towerPendingRewards(state, []uint32{towerPresentDaily})
-	if len(got) != 6 {
-		t.Fatalf("six completed daily missions = %d pending rewards", len(got))
-	}
-	if got[0].itemID != missions[0].Reward1ID {
-		t.Fatal("daily reward no longer matches the day's advertised table")
+	if got := towerPendingRewards(state, []uint32{towerPresentDaily}); len(got) != 0 {
+		t.Fatalf("daily items were duplicated through inferred present type: %+v", got)
 	}
 }
 

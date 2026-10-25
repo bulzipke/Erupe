@@ -765,6 +765,8 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 		stageRunMode := s.peekQuestRunMode(questID)
 		questConquestLevel := s.peekQuestConquestLevel(questID)
 		recordRunMode := decodeQuestRunModeFromRecordLog(pkt.Data)
+		clientSettings := decodeHuntClientSettings(pkt.Data)
+		mainTargetCleared := huntRecordMainTargetCleared(pkt.Data)
 		validRecordTime := elapsedFrames > 0 && elapsedFrames <= maxRankedQuestDurationFrames
 		hadParty := s.questHadParty.Load()
 		var questWeaponType *uint8
@@ -795,7 +797,10 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 				// Berserk Raviente is ranked as one whole communal siege by the
 				// dedicated run tracker.  Its individual phase quest times must never
 				// leak into the personal hunt leaderboard.
-				recordMonsterTime := validRecordTime && !hadParty && i != mhfmon.BerserkRaviente
+				// Normal/violent Raviente retains its legacy eligibility. Other
+				// personal times require client-confirmed main-target completion.
+				recordMonsterTime := validRecordTime && !hadParty && i != mhfmon.BerserkRaviente &&
+					(i == mhfmon.Raviente || mainTargetCleared)
 				if recordMonsterTime && s.server.huntRecordRepo != nil {
 					if !metadataLoaded {
 						questName = questTitleForRecord(s, questID)
@@ -841,6 +846,7 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 						StatTable2:     questMetadata.StatTable2,
 						WeaponType:     questWeaponType,
 						BestTimeFrames: elapsedFrames,
+						ClientSettings: clientSettings,
 						RecordedAt:     recordedAt,
 					}
 					if err := s.server.huntRecordRepo.UpsertPersonalBest(record); err != nil {

@@ -85,7 +85,7 @@ func decodeQuestRunSetupFromStageBinary(stageID string, binaryType0, binaryType1
 // result. Unknown sizes and values are deliberately rejected, and this value
 // is never used by itself to classify an optional-HC hunt.
 func decodeQuestRunModeFromRecordLog(data []byte) questRunMode {
-	if len(data) != questRunRecordPayloadSize {
+	if len(data) != questRunRecordPayloadSize && decodeHuntClientTrailer(data) == nil {
 		return questRunModeUnknown
 	}
 	switch data[questRunRecordHardcoreModeOffset] {

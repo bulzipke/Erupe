@@ -255,6 +255,7 @@ func TestHandleMsgSysRecordLog_ZZMode(t *testing.T) {
 	data[questResultCodeOffset] = questResultCodeCleared
 	// Set monster index 5 to have 2 kills (a large monster per mhfmon)
 	data[32+6] = 2
+	data = mainTargetRecordFixture(data, 2, 9)
 
 	pkt := &mhfpacket.MsgSysRecordLog{
 		AckHandle: 100,
@@ -304,6 +305,7 @@ func TestHandleMsgSysRecordLog_PartyHuntExcludedFromTimeRanking(t *testing.T) {
 	binary.LittleEndian.PutUint16(data[questIDOffset:questIDOffset+2], 12345)
 	binary.LittleEndian.PutUint32(data[questElapsedFramesOffset:questElapsedFramesOffset+4], 3_750)
 	data[killLogHeaderSize+6] = 1
+	data = mainTargetRecordFixture(data, 2, 9)
 
 	handleMsgSysRecordLog(session, &mhfpacket.MsgSysRecordLog{AckHandle: 100, Data: data})
 	if len(huntRecordRepo.records) != 0 {
@@ -371,6 +373,7 @@ func TestHandleMsgSysRecordLog_GuaranteedPhantomEventSplitsBothMonsters(t *testi
 	binary.LittleEndian.PutUint32(data[questElapsedFramesOffset:questElapsedFramesOffset+4], 3_750)
 	data[killLogHeaderSize+53] = 1
 	data[killLogHeaderSize+95] = 1
+	data = mainTargetRecordFixture(data, 2, 9)
 
 	handleMsgSysRecordLog(session, &mhfpacket.MsgSysRecordLog{AckHandle: 100, Data: data})
 	if len(huntRecordRepo.records) != 2 {

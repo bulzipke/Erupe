@@ -23,7 +23,8 @@ type SaveAtomicParams struct {
 	WeaponID   uint16
 	Playtime   uint32
 	// Item receipts consumed with this savedata, not separate inventory grants.
-	DivaRewardIDs []uint32
+	DivaRewardIDs       []uint32
+	TowerDailyRewardIDs []int64
 	// Only authenticated client saves may consume these staged starter receipts.
 	StarterUserID    uint32
 	StarterRewardIDs []uint32
@@ -424,6 +425,9 @@ func (r *CharacterRepository) saveCharacterDataAtomic(params SaveAtomicParams, b
 		}
 	}
 
+	if err := commitTowerDailyRewardReceipts(tx, params.CharID, params.TowerDailyRewardIDs); err != nil {
+		return 0, fmt.Errorf("save Tower daily item receipts: %w", err)
+	}
 	if err := commitDivaRewardReceipts(tx, params.CharID, params.DivaRewardIDs, 7); err != nil {
 		return 0, fmt.Errorf("save diva item receipts: %w", err)
 	}

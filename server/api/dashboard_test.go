@@ -72,7 +72,8 @@ func TestDashboardStatsJSON_NoDB(t *testing.T) {
 	if len(stats.OnlineCharacters) != 0 {
 		t.Errorf("Expected empty OnlineCharacters without DB, got %v", stats.OnlineCharacters)
 	}
-	if stats.Rankings.MonsterHunts == nil || stats.Rankings.Guilds == nil ||
+	if stats.Rankings.PopularGachas == nil || stats.Rankings.PopularKits == nil ||
+		stats.Rankings.MonsterHunts == nil || stats.Rankings.Guilds == nil ||
 		stats.Rankings.Playtime == nil || stats.Rankings.MostUsedWeapons == nil ||
 		stats.Rankings.LeastUsedWeapons == nil || stats.Rankings.MonsterTimes == nil ||
 		stats.Rankings.RavienteRuns == nil {
@@ -147,6 +148,11 @@ func TestDashboardStatsJSON_JSONShape(t *testing.T) {
 	rankings, ok := raw["rankings"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("rankings has unexpected JSON type %T", raw["rankings"])
+	}
+	for _, key := range []string{"popularGachas", "popularKits"} {
+		if _, ok := rankings[key].([]interface{}); !ok {
+			t.Errorf("rankings.%s must be an array", key)
+		}
 	}
 	if _, ok := rankings["playtime"]; !ok {
 		t.Error("Missing rankings.playtime JSON key")

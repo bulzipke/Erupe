@@ -326,6 +326,9 @@ func optionalHardcoreRecordData(questID uint16, elapsedFrames uint32, mode quest
 	if full && mode == questRunModeHardcore {
 		data[questRunRecordHardcoreModeOffset] = 1
 	}
+	if full {
+		return mainTargetRecordFixture(data, 2, 9)
+	}
 	return data
 }
 
@@ -489,6 +492,7 @@ func TestConquestLevelSurvivesTownReturnAndIsConsumedByRecordLog(t *testing.T) {
 	binary.LittleEndian.PutUint32(data[questElapsedFramesOffset:questElapsedFramesOffset+4], 900)
 	data[questResultCodeOffset] = questResultCodeCleared
 	data[killLogHeaderSize+monsterID] = 1
+	data = mainTargetRecordFixture(data, 2, 9)
 	handleMsgSysRecordLog(session, &mhfpacket.MsgSysRecordLog{AckHandle: 2, Data: data})
 
 	if len(repo.records) != 1 {

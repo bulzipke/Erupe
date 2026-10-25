@@ -12,7 +12,7 @@ import (
 
 const (
 	towerPresentAdvance uint32 = 260001
-	towerPresentDaily   uint32 = 260002 // inferred from adjacent Tower present types
+	towerPresentDaily   uint32 = 260002 // legacy inferred type; never issues daily items
 	towerPresentFloor   uint32 = 260003
 )
 
@@ -59,14 +59,8 @@ func towerPendingRewards(state TowerRewardState, requested []uint32) []towerPres
 		add(towerRewardAdvance, 1, towerPresentAdvance,
 			uint16(reward.Unk4), uint16(reward.Unk5))
 	}
-	for _, day := range state.Daily {
-		for slot, mission := range towerDailyMissions(day.Start) {
-			if towerDailyMissionMet(day.Counters, mission) {
-				add(towerRewardDaily, towerDailyRewardIndex(day.Start, slot+1),
-					towerPresentDaily, mission.Reward1ID, uint16(mission.Reward1Quantity))
-			}
-		}
-	}
+	// Daily items use the native TINY_BIN 0/1/2 queue. The old inferred
+	// PRESENT_BOX type must not issue a second copy of those same rewards.
 	return out
 }
 

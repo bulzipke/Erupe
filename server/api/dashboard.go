@@ -19,6 +19,7 @@ import (
 	"erupe-ce/common/mhfmon"
 	"erupe-ce/common/mhfquest"
 
+	"github.com/jmoiron/sqlx/types"
 	"github.com/lib/pq"
 	"go.uber.org/zap"
 )
@@ -343,20 +344,21 @@ type PlaytimeRankEntry struct {
 // MonsterTimeRankEntry is one hunter's personal-best quest time for a large
 // monster. Frames are reported by the ZZ client at 30 Hz.
 type MonsterTimeRankEntry struct {
-	MonsterID     int    `db:"monster_id" json:"monsterId"`
-	RankKind      string `db:"rank_kind" json:"rankKind"`
-	VariantKind   string `db:"variant_kind" json:"variantKind"`
-	ConquestLevel int    `db:"conquest_level" json:"conquestLevel,omitempty"`
-	RankingKey    string `json:"rankingKey"`
-	FeaturedGroup string `json:"featuredGroup"`
-	MonsterName   string `json:"monsterName"`
-	Icon          string `json:"icon,omitempty"`
-	Name          string `db:"character_name" json:"name"`
-	WeaponType    *int   `db:"weapon_type" json:"weaponType,omitempty"`
-	WeaponName    string `json:"weaponName,omitempty"`
-	QuestID       int    `db:"quest_id" json:"questId"`
-	QuestName     string `db:"quest_name" json:"questName"`
-	Frames        int64  `db:"best_time_frames" json:"frames"`
+	MonsterID      int            `db:"monster_id" json:"monsterId"`
+	RankKind       string         `db:"rank_kind" json:"rankKind"`
+	VariantKind    string         `db:"variant_kind" json:"variantKind"`
+	ConquestLevel  int            `db:"conquest_level" json:"conquestLevel,omitempty"`
+	RankingKey     string         `json:"rankingKey"`
+	FeaturedGroup  string         `json:"featuredGroup"`
+	MonsterName    string         `json:"monsterName"`
+	Icon           string         `json:"icon,omitempty"`
+	Name           string         `db:"character_name" json:"name"`
+	WeaponType     *int           `db:"weapon_type" json:"weaponType,omitempty"`
+	WeaponName     string         `json:"weaponName,omitempty"`
+	QuestID        int            `db:"quest_id" json:"questId"`
+	QuestName      string         `db:"quest_name" json:"questName"`
+	Frames         int64          `db:"best_time_frames" json:"frames"`
+	ClientSettings types.JSONText `db:"client_settings" json:"clientSettings,omitempty"`
 }
 
 // RavienteRunRankEntry is one completed Raviente great-hunt run. Unlike the
@@ -413,15 +415,17 @@ func dashboardWeaponDisplayName(weaponType int) string {
 
 // DashboardRankings contains the read-only rankings shown on the dashboard.
 type DashboardRankings struct {
-	MonsterHunts     []MonsterHuntRankEntry `json:"monsterHunts"`
-	Guilds           []GuildRankEntry       `json:"guilds"`
-	Playtime         []PlaytimeRankEntry    `json:"playtime"`
-	MostUsedWeapons  []WeaponUsageRankEntry `json:"mostUsedWeapons"`
-	LeastUsedWeapons []WeaponUsageRankEntry `json:"leastUsedWeapons"`
-	MonsterTimes     []MonsterTimeRankEntry `json:"monsterTimes"`
-	RavienteRuns     []RavienteRunRankEntry `json:"ravienteRuns"`
-	QuestClears      []QuestResultRankEntry `json:"questClears"`
-	QuestFails       []QuestResultRankEntry `json:"questFails"`
+	PopularGachas    []ProductPopularityEntry `json:"popularGachas"`
+	PopularKits      []ProductPopularityEntry `json:"popularKits"`
+	MonsterHunts     []MonsterHuntRankEntry   `json:"monsterHunts"`
+	Guilds           []GuildRankEntry         `json:"guilds"`
+	Playtime         []PlaytimeRankEntry      `json:"playtime"`
+	MostUsedWeapons  []WeaponUsageRankEntry   `json:"mostUsedWeapons"`
+	LeastUsedWeapons []WeaponUsageRankEntry   `json:"leastUsedWeapons"`
+	MonsterTimes     []MonsterTimeRankEntry   `json:"monsterTimes"`
+	RavienteRuns     []RavienteRunRankEntry   `json:"ravienteRuns"`
+	QuestClears      []QuestResultRankEntry   `json:"questClears"`
+	QuestFails       []QuestResultRankEntry   `json:"questFails"`
 }
 
 const dashboardRankingTTL = time.Minute
@@ -474,6 +478,7 @@ const dashboardMonsterTimesQuery = `
 				ELSE '퀘스트 번호 없음'
 			END AS quest_name,
 			r.best_time_frames,
+			r.client_settings,
 			ROW_NUMBER() OVER (
 				PARTITION BY
 					r.character_id,
@@ -517,13 +522,14 @@ const dashboardMonsterTimesQuery = `
 			quest_id,
 			quest_name,
 			best_time_frames,
+			client_settings,
 			ROW_NUMBER() OVER (
 				PARTITION BY monster_id, rank_kind, variant_kind, conquest_level
 				ORDER BY best_time_frames ASC, character_id ASC
 			) AS position
 		FROM personal_bests
 	)
-	SELECT monster_id, rank_kind, variant_kind, conquest_level, character_name, weapon_type, quest_id, quest_name, best_time_frames
+	SELECT monster_id, rank_kind, variant_kind, conquest_level, character_name, weapon_type, quest_id, quest_name, best_time_frames, client_settings
 	FROM ranked
 	WHERE position <= 10
 	ORDER BY
@@ -801,6 +807,8 @@ func enrichDashboardOnlineCharacters(online []OnlineCharacter, sessions map[uint
 
 func emptyDashboardRankings() DashboardRankings {
 	return DashboardRankings{
+		PopularGachas:    make([]ProductPopularityEntry, 0),
+		PopularKits:      make([]ProductPopularityEntry, 0),
 		MonsterHunts:     make([]MonsterHuntRankEntry, 0),
 		Guilds:           make([]GuildRankEntry, 0),
 		Playtime:         make([]PlaytimeRankEntry, 0),
@@ -913,6 +921,10 @@ func (s *APIServer) getDashboardRankings(ctx context.Context) DashboardRankings 
 	}
 	if err := s.db.SelectContext(ctx, &rankings.RavienteRuns, dashboardRavienteRunsQuery); err != nil {
 		s.logger.Warn("Dashboard: failed to query Raviente run rankings", zap.Error(err))
+		return dashboardRankingsAfterQueryError(s.dashboardRankings, s.dashboardRankingsAt, rankings)
+	}
+	if err := s.loadDashboardShopRankings(ctx, &rankings); err != nil {
+		s.logger.Warn("Dashboard: failed to query shop popularity", zap.Error(err))
 		return dashboardRankingsAfterQueryError(s.dashboardRankings, s.dashboardRankingsAt, rankings)
 	}
 	for i := range rankings.RavienteRuns {

@@ -236,6 +236,17 @@ func rewardsToItems(rewards []GachaReward) []GachaItem {
 	return items
 }
 
+// Popularity is recorded only after the existing play flow succeeds. A
+// telemetry failure must not turn already-paid rewards into a failed request.
+func (svc *GachaService) recordSuccessfulPlay(gachaID uint32, draws int) {
+	if draws < 1 {
+		draws = 1
+	} // guaranteed-only step still counts as one draw
+	if err := svc.gachaRepo.RecordPlay(gachaID, draws); err != nil {
+		svc.logger.Error("Failed to record gacha popularity", zap.Uint32("gachaID", gachaID), zap.Error(err))
+	}
+}
+
 // PlayNormalGacha processes a normal gacha roll: validates the reward pool,
 // deducts cost, selects random rewards, saves items, and returns the result.
 func (svc *GachaService) PlayNormalGacha(userID, charID, gachaID uint32, rollType uint8) (*GachaPlayResult, error) {
@@ -255,6 +266,7 @@ func (svc *GachaService) PlayNormalGacha(userID, charID, gachaID uint32, rollTyp
 	}
 	rewards := svc.resolveRewards(entries, rolls, false)
 	svc.saveGachaItems(charID, rewardsToItems(rewards))
+	svc.recordSuccessfulPlay(gachaID, rolls)
 	return &GachaPlayResult{Rewards: rewards}, nil
 }
 
@@ -321,6 +333,7 @@ func (svc *GachaService) PlayStepupGacha(userID, charID, gachaID uint32, rollTyp
 
 	svc.saveGachaItems(charID, rewardsToItems(randomRewards))
 	svc.saveGachaItems(charID, rewardsToItems(guaranteedRewards))
+	svc.recordSuccessfulPlay(gachaID, rolls)
 	return &StepupPlayResult{
 		RandomRewards:     randomRewards,
 		GuaranteedRewards: guaranteedRewards,
@@ -384,6 +397,7 @@ func (svc *GachaService) PlayBoxGacha(userID, charID, gachaID uint32, rollType u
 		}
 	}
 	svc.saveGachaItems(charID, rewardsToItems(rewards))
+	svc.recordSuccessfulPlay(gachaID, len(rewardEntries))
 	return &GachaPlayResult{Rewards: rewards}, nil
 }
 

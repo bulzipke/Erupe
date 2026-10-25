@@ -108,6 +108,7 @@ type Session struct {
 	// One guild investigation submission may follow a successful tower progress
 	// packet. Cleared at the next quest departure and consumed by PostTenrouirai.
 	towerMissionSubmissionReady atomic.Bool
+	towerDaily                  towerDailySession
 	questRunState               atomic.Uint32 // Packed quest ID and runtime normal/HC selection for the active quest.
 	// questConquestLevelState retains the runtime Conquest level until the
 	// matching result log arrives. The client returns to town before sending

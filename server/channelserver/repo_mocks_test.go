@@ -1159,6 +1159,11 @@ func (m *mockSessionRepo) UpdatePlayerCount(_ uint16, _ int) error { return m.up
 // --- mockGachaRepo ---
 
 type mockGachaRepo struct {
+	recordedPlays []struct {
+		id    uint32
+		draws int
+	}
+	recordPlayErr error
 	// GetEntryForTransaction
 	txItemType   uint8
 	txItemNumber uint16
@@ -1201,6 +1206,13 @@ type mockGachaRepo struct {
 	weightDivisor float64
 }
 
+func (m *mockGachaRepo) RecordPlay(id uint32, draws int) error {
+	m.recordedPlays = append(m.recordedPlays, struct {
+		id    uint32
+		draws int
+	}{id, draws})
+	return m.recordPlayErr
+}
 func (m *mockGachaRepo) GetEntryForTransaction(_ uint32, _ uint8) (uint8, uint16, int, error) {
 	itemType := m.txItemType
 	if itemType == 0 {

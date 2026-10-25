@@ -24,6 +24,17 @@ func NewGachaRepository(db *sqlx.DB, logger *zap.Logger) *GachaRepository {
 	return &GachaRepository{db: db, logger: logger}
 }
 
+// RecordPlay increments one successful request and its draw count atomically.
+// Character progress resets and reward claims never change these totals.
+func (r *GachaRepository) RecordPlay(gachaID uint32, drawCount int) error {
+	_, err := r.db.Exec(`INSERT INTO gacha_play_totals(gacha_id,play_count,draw_count)
+		VALUES($1,1,$2) ON CONFLICT(gacha_id) DO UPDATE SET
+		play_count=gacha_play_totals.play_count+1,
+		draw_count=gacha_play_totals.draw_count+EXCLUDED.draw_count,
+		last_played_at=now()`, gachaID, drawCount)
+	return err
+}
+
 // GetEntryForTransaction reads the cost type/amount and roll count for a gacha transaction.
 func (r *GachaRepository) GetEntryForTransaction(gachaID uint32, rollID uint8) (itemType uint8, itemNumber uint16, rolls int, err error) {
 	err = r.db.QueryRowx(

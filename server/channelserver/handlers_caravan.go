@@ -86,6 +86,16 @@ func isTowerDailyBin(k0, k1, k2 uint8) bool {
 
 func handleMsgMhfGetTinyBin(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetTinyBin)
+	if pkt.Unk0 == 0 && pkt.Unk1 == 1 && pkt.Unk2 == 2 {
+		data, err := s.listTowerDailyRewards()
+		if err != nil {
+			s.logger.Warn("Failed to list Tower daily rewards", zap.Error(err))
+			doAckBufFail(s, pkt.AckHandle, nil)
+		} else {
+			doAckBufSucceed(s, pkt.AckHandle, data)
+		}
+		return
+	}
 	if isTowerDailyBin(pkt.Unk0, pkt.Unk1, pkt.Unk2) && s.server.towerRepo != nil {
 		if _, err := s.server.towerEvent(TimeAdjusted()); err != nil {
 			doAckBufFail(s, pkt.AckHandle, nil)
@@ -105,21 +115,8 @@ func handleMsgMhfGetTinyBin(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfPostTinyBin(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfPostTinyBin)
-	if isTowerDailyBin(pkt.Unk0, pkt.Unk1, pkt.Unk2) && len(pkt.Data) == towerDailyBinSize && s.server.towerRepo != nil {
-		if s.server.erupeConfig.TowerRotation.Enabled {
-			if _, err := s.server.towerEvent(TimeAdjusted()); err != nil {
-				doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
-				return
-			}
-		}
-		event, valid := s.towerResultEvent()
-		if !valid {
-			doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
-			return
-		}
-		if err := s.towerRoundRepo(event.ID).SaveTowerDailyBin(s.charID, pkt.Data); err != nil {
-			s.logger.Error("Failed to save tower daily progress", zap.Error(err))
-		}
+	if handleTowerDailyTinyPost(s, pkt) {
+		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }

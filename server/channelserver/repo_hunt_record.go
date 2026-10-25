@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -33,6 +34,7 @@ type HuntRecordUpsert struct {
 	WeaponType     *uint8
 	BestTimeFrames uint32
 	RecordedAt     time.Time
+	ClientSettings *HuntClientSettings
 }
 
 // NewHuntRecordRepository creates a personal-best hunt record repository.
@@ -44,12 +46,20 @@ func NewHuntRecordRepository(db *sqlx.DB) *HuntRecordRepository {
 // monster, quest, rank, and form. Equal or slower hunts leave the existing
 // record and its metadata untouched.
 func (r *HuntRecordRepository) UpsertPersonalBest(record HuntRecordUpsert) error {
+	var settings []byte
+	if record.ClientSettings != nil {
+		var err error
+		settings, err = json.Marshal(record.ClientSettings)
+		if err != nil {
+			return err
+		}
+	}
 	_, err := r.db.Exec(`
 		INSERT INTO monster_hunt_records
 			(character_id, monster_id, quest_id, quest_name, rank_kind, variant_kind, conquest_level,
 			 quest_variant1, quest_variant2, quest_variant3, quest_variant4,
-			 rank_band, stat_table1, stat_table2, weapon_type, best_time_frames, recorded_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+			 rank_band, stat_table1, stat_table2, weapon_type, best_time_frames, recorded_at, client_settings)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		ON CONFLICT (character_id, monster_id, quest_id, rank_kind, variant_kind, conquest_level) DO UPDATE
 		SET quest_name = EXCLUDED.quest_name,
 			quest_variant1 = EXCLUDED.quest_variant1,
@@ -60,6 +70,7 @@ func (r *HuntRecordRepository) UpsertPersonalBest(record HuntRecordUpsert) error
 			stat_table1 = EXCLUDED.stat_table1,
 			stat_table2 = EXCLUDED.stat_table2,
 			weapon_type = EXCLUDED.weapon_type,
+			client_settings = EXCLUDED.client_settings,
 			best_time_frames = EXCLUDED.best_time_frames,
 			recorded_at = EXCLUDED.recorded_at
 		WHERE EXCLUDED.best_time_frames < monster_hunt_records.best_time_frames
@@ -81,6 +92,7 @@ func (r *HuntRecordRepository) UpsertPersonalBest(record HuntRecordUpsert) error
 		record.WeaponType,
 		record.BestTimeFrames,
 		record.RecordedAt,
+		settings,
 	)
 	return err
 }

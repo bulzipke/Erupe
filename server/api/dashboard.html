@@ -266,6 +266,10 @@ tbody tr:last-child td{border-bottom:0}
 .raviente-participant-list li{min-width:0;padding:4px 5px;overflow-wrap:anywhere;color:#d9dfda;font-size:.71rem}
 .raviente-participant-empty{padding:16px 12px;color:var(--muted);font-size:.71rem;text-align:center}
 .ranking-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.shop-ranking-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.shop-ranking-grid>.ranking-block:nth-child(2n){border-right:0}
+.shop-ranking-grid .ranking-name{white-space:normal;overflow-wrap:anywhere}
+.shop-ranking-note{margin:-6px 0 10px;color:var(--muted);font-size:.69rem}
 .ranking-grid>.ranking-block:nth-child(3n){border-right:0}
 .ranking-grid>.ranking-block:nth-child(n+4){border-top:1px solid var(--line)}
 .ranking-block{min-width:0;padding:18px;border-right:1px solid var(--line)}
@@ -477,6 +481,25 @@ tbody tr:last-child td{border-bottom:0}
 
     <section class="rankings">
         <div class="rankings-header">
+            <h2>뽑기·키트 인기 순위</h2>
+            <p>전체 유저의 누적 횟수 상위 5개를 표시합니다.</p>
+        </div>
+        <div class="ranking-grid shop-ranking-grid">
+            <article class="ranking-block">
+                <h3 class="ranking-heading">가장 많이 한 뽑기</h3>
+                <p class="shop-ranking-note">뽑기 횟수 기준 · 집계 시작 이후 누적</p>
+                <ol class="ranking-list" id="gacha-popularity-ranking" aria-label="뽑기 이용 순위"></ol>
+            </article>
+            <article class="ranking-block">
+                <h3 class="ranking-heading">가장 많이 구매한 키트</h3>
+                <p class="shop-ranking-note">구매 횟수 기준 · 저장된 전체 구매 내역</p>
+                <ol class="ranking-list" id="kit-popularity-ranking" aria-label="키트 구매 순위"></ol>
+            </article>
+        </div>
+    </section>
+
+    <section class="rankings">
+        <div class="rankings-header">
             <h2>대형 몬스터별 최단 토벌</h2>
             <p>토벌 시간은 개인 기록을 원칙으로 합니다. 라비엔테 맹광기는 완료된 대토벌 전체 소요 시간과 참가 인원을 별도로 표시합니다. 각 랭킹의 상위 10개 중 3위 이후는 내부에서 세로로 스크롤할 수 있습니다.</p>
         </div>
@@ -602,10 +625,24 @@ tbody tr:last-child td{border-bottom:0}
         return parts.join(" ");
     }
 
+    function huntSettingsDescription(entry) {
+        var settings = entry.clientSettings;
+        if (!settings || settings.version !== 1) {
+            return "몬스터 HP 표시: 미수집\n시간 표시: 미수집";
+        }
+        var modes = ["OFF", "ON", "클리어 시 표시"];
+        var hp = "몬스터 HP 표시: " + (settings.hpView ? "ON" : "OFF");
+        if (settings.hpViewUsed && !settings.hpView) hp += " (퀘스트 중 ON 사용)";
+        var elapsed = "시간 표시: " + (modes[settings.elapsedMode] || "미수집");
+        if (settings.elapsedUsed && settings.elapsedMode === 0) elapsed += " (퀘스트 중 사용)";
+        return hp + "\n" + elapsed;
+    }
+
     function huntTimeLabel(frames) {
-        var totalSeconds = Math.max(0, (Number(frames) || 0) / 30);
-        var minutes = Math.floor(totalSeconds / 60);
-        var seconds = (totalSeconds % 60).toFixed(2).padStart(5, "0");
+        var wholeFrames = Math.max(0, Math.floor(Number(frames) || 0));
+        var minutes = Math.floor(wholeFrames / 1800);
+        var centiseconds = Math.floor((wholeFrames % 30) * 10 / 3);
+        var seconds = String(Math.floor(wholeFrames / 30) % 60).padStart(2, "0") + "." + String(centiseconds).padStart(2, "0");
         return String(minutes).padStart(2, "0") + ":" + seconds;
     }
 
@@ -1252,6 +1289,11 @@ tbody tr:last-child td{border-bottom:0}
             var quest = text("td", "monster-time-quest", questName);
             quest.title = questName;
             row.appendChild(quest);
+            var settingsDescription = huntSettingsDescription(entry);
+            row.title = settingsDescription;
+            Array.prototype.forEach.call(row.cells, function (cell) {
+                cell.title = (cell.title ? cell.title + "\n" : "") + settingsDescription;
+            });
             tbody.appendChild(row);
         });
         table.appendChild(tbody);
@@ -1557,6 +1599,12 @@ tbody tr:last-child td{border-bottom:0}
         renderWeaponRanking("weapon-most-ranking", mostUsedWeapons);
         renderRanking("playtime-ranking", rankings.playtime || [], function (entry) {
             return playtimeLabel(entry.seconds);
+        });
+        renderRanking("gacha-popularity-ranking", rankings.popularGachas || [], function (entry) {
+            return numberFormatter.format(entry.count) + "회";
+        });
+        renderRanking("kit-popularity-ranking", rankings.popularKits || [], function (entry) {
+            return numberFormatter.format(entry.count) + "회";
         });
         renderMonsterTimes(rankings.monsterTimes || []);
 		renderRavienteRuns(rankings.ravienteRuns || []);

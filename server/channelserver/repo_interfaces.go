@@ -320,6 +320,7 @@ type UserRepo interface {
 
 // GachaRepo defines the contract for gacha system data access.
 type GachaRepo interface {
+	RecordPlay(gachaID uint32, drawCount int) error
 	GetEntryForTransaction(gachaID uint32, rollID uint8) (itemType uint8, itemNumber uint16, rolls int, err error)
 	GetRewardPool(gachaID uint32) ([]GachaEntry, error)
 	GetItemsForEntry(entryID uint32) ([]GachaItem, error)

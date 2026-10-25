@@ -323,6 +323,10 @@ func dumpSaveData(s *Session, data []byte, suffix string) {
 
 func handleMsgMhfLoaddata(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfLoaddata)
+	if len(s.pendingTowerDailyClaims()) != 0 {
+		doAckBufFail(s, pkt.AckHandle, nil)
+		return
+	}
 	if s.usesQuestLicenseStarterEpoch() && s.questLicenseStarterPending.HasPending() {
 		// Reloading an unresolved locally added item could lose it while its
 		// receipt is still queued for the following client save.

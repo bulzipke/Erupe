@@ -285,6 +285,12 @@ func (save *CharacterSaveData) saveWithRewards(s *Session, divaRewardIDs, starte
 	if len(starterRewardIDs) != 0 {
 		params.StarterUserID = s.userID
 	}
+	if clientOriginated {
+		if save.CharID != s.charID {
+			return errors.New("client reward savedata character mismatch")
+		}
+		params.TowerDailyRewardIDs = s.pendingTowerDailyClaims()
+	}
 
 	// Time-gated rotating backup: include the previous compressed savedata
 	// in the transaction if enough time has elapsed since the last backup.
@@ -331,6 +337,7 @@ func (save *CharacterSaveData) saveWithRewards(s *Session, divaRewardIDs, starte
 			s.questLicenseClientInventory.Store(&questLicenseClientInventory{characterID: s.charID, baseline: baseline})
 		}
 	}
+	s.completeTowerDailyClaims(params.TowerDailyRewardIDs)
 	s.completeDivaRewardClaims(7, params.DivaRewardIDs)
 	s.questLicenseStarterPending.Complete(s.userID, s.charID, params.StarterRewardIDs)
 

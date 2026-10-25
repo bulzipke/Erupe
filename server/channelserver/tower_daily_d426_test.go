@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"testing"
+	"time"
 
 	"erupe-ce/network/mhfpacket"
 )
@@ -46,9 +47,12 @@ func TestTowerDailyBinRoundTrip(t *testing.T) {
 	server.towerRepo = repo
 	s := createMockSession(1, server)
 	blob := make([]byte, towerDailyBinSize)
-	for i := range blob {
-		blob[i] = byte(i + 1)
-	}
+	day := towerDailyStart(TimeAdjusted())
+	binary.LittleEndian.PutUint32(blob, uint32(day.Add(24*time.Hour).Unix()))
+	s.questWeaponGeneration = 1
+	s.towerProgressGeneration = 1
+	s.towerSettlementGeneration = 1
+	s.towerMissionDayStart = day
 	handleMsgMhfPostTinyBin(s, &mhfpacket.MsgMhfPostTinyBin{AckHandle: 1, Unk1: 1, Unk2: 1, Unk3: 1, Data: blob})
 	<-s.sendPackets
 	if !bytes.Equal(repo.savedBin, blob) {
