@@ -767,6 +767,7 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 		recordRunMode := decodeQuestRunModeFromRecordLog(pkt.Data)
 		clientSettings := decodeHuntClientSettings(pkt.Data)
 		mainTargetCleared := huntRecordMainTargetCleared(pkt.Data)
+		supportAllowed := huntRecordSupportAllowed(pkt.Data)
 		validRecordTime := elapsedFrames > 0 && elapsedFrames <= maxRankedQuestDurationFrames
 		hadParty := s.questHadParty.Load()
 		var questWeaponType *uint8
@@ -797,9 +798,11 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 				// Berserk Raviente is ranked as one whole communal siege by the
 				// dedicated run tracker.  Its individual phase quest times must never
 				// leak into the personal hunt leaderboard.
-				// Normal/violent Raviente retains its legacy eligibility. Other
-				// personal times require client-confirmed main-target completion.
-				recordMonsterTime := validRecordTime && !hadParty && i != mhfmon.BerserkRaviente &&
+				// All personal times require explicit Support OFF evidence. Normal/
+				// violent Raviente retains its native outcome rule; other hunts also
+				// require client-confirmed main-target completion. Kill logs above and
+				// quest progression below are saved regardless of Support use.
+				recordMonsterTime := validRecordTime && supportAllowed && !hadParty && i != mhfmon.BerserkRaviente &&
 					(i == mhfmon.Raviente || mainTargetCleared)
 				if recordMonsterTime && s.server.huntRecordRepo != nil {
 					if !metadataLoaded {

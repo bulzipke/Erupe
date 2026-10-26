@@ -16,6 +16,7 @@ func TestHuntRecordRepositoryKeepsPersonalBest(t *testing.T) {
 	now := time.Now().UTC()
 	bestWeapon := uint8(3)
 	best := HuntRecordUpsert{
+		ClientSettings: &HuntClientSettings{Version: 1, FOV: 45, SupportKnown: true},
 		CharacterID:    charID,
 		MonsterID:      6,
 		QuestID:        100,

@@ -34,7 +34,7 @@ func mainTargetRecordFixture(native []byte, mode, state byte) []byte {
 	copy(data, native)
 	data[questResultCodeOffset] = questResultCodeCleared
 	tail := data[nativeQuestRecordBytes:]
-	copy(tail, "VUI2")
+	copy(tail, "VUI3")
 	tail[6], tail[7], tail[15] = 45, mode, state
 	copy(tail[8:12], data[12:16])
 	copy(tail[12:14], data[:2])
@@ -103,13 +103,13 @@ func TestHuntRecordSettingsStayWithFasterTime(t *testing.T) {
 	user := CreateTestUser(t, db, "hunt_ui_user")
 	char := CreateTestCharacter(t, db, user, "HuntUIHunter")
 	repo := NewHuntRecordRepository(db)
-	best := HuntRecordUpsert{CharacterID: char, MonsterID: 6, QuestID: 50001, RankKind: "g", VariantKind: "normal", BestTimeFrames: 8051, RecordedAt: time.Now(), ClientSettings: decodeHuntClientSettings(settingsRecordFixture())}
+	best := HuntRecordUpsert{CharacterID: char, MonsterID: 6, QuestID: 50001, RankKind: "g", VariantKind: "normal", BestTimeFrames: 8051, RecordedAt: time.Now(), ClientSettings: decodeHuntClientSettings(supportRecordFixture(false, 6))}
 	if err := repo.UpsertPersonalBest(best); err != nil {
 		t.Fatal(err)
 	}
 	slower := best
 	slower.BestTimeFrames = 9000
-	slower.ClientSettings = &HuntClientSettings{Version: 1, FOV: 45}
+	slower.ClientSettings = &HuntClientSettings{Version: 1, FOV: 45, SupportKnown: true}
 	if err := repo.UpsertPersonalBest(slower); err != nil {
 		t.Fatal(err)
 	}
@@ -224,8 +224,8 @@ func TestMainTargetTimeRankingEligibility(t *testing.T) {
 		{"retired", 7, 2, 63, false, 6, 0},
 		{"unfinished success", 3, 2, 63, false, 6, 0},
 		{"legacy clear unknown main", 4, 2, 63, true, 6, 0},
-		{"normal Raviente legacy", 4, 0, 0, true, mhfmon.Raviente, 1},
-		{"normal Raviente prior failure rule", 6, 0, 0, true, mhfmon.Raviente, 1},
+		{"normal Raviente legacy support unknown", 4, 0, 0, true, mhfmon.Raviente, 0},
+		{"normal Raviente old failure support unknown", 6, 0, 0, true, mhfmon.Raviente, 0},
 		{"Berserk prior phase exclusion", 4, 0, 0, true, mhfmon.BerserkRaviente, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

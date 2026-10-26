@@ -46,6 +46,9 @@ func NewHuntRecordRepository(db *sqlx.DB) *HuntRecordRepository {
 // monster, quest, rank, and form. Equal or slower hunts leave the existing
 // record and its metadata untouched.
 func (r *HuntRecordRepository) UpsertPersonalBest(record HuntRecordUpsert) error {
+	if record.ClientSettings == nil || !record.ClientSettings.SupportKnown || record.ClientSettings.SupportUsed {
+		return nil // Do not replace a legitimate best with assisted/unknown time.
+	}
 	var settings []byte
 	if record.ClientSettings != nil {
 		var err error
