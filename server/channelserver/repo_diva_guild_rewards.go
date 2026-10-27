@@ -433,9 +433,7 @@ func divaSpecialHallPeriod(event DivaEvent, now time.Time) bool {
 	if event.ID == 0 {
 		return false
 	}
-	start := int64(event.StartTime) + divaPhaseDuration + divaWeekDuration + divaInterlude
-	end := int64(event.StartTime) + divaPhaseDuration + 2*divaWeekDuration
-	return now.Unix() >= start && now.Unix() < end
+	return !now.Before(event.phaseTime(4)) && now.Before(event.phaseTime(5))
 }
 
 // The earned-area flag is not itself permission to enter early: only the

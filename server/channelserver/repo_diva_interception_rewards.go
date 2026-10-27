@@ -59,7 +59,7 @@ func divaInterceptionRewardEvent(q sqlx.Queryer, now time.Time) (DivaEvent, erro
 		DivaEvent
 		Legacy bool `db:"legacy"`
 	}
-	err := sqlx.Get(q, &row, `SELECT e.id,EXTRACT(epoch FROM e.start_time)::bigint AS start_time,
+	err := sqlx.Get(q, &row, `SELECT e.id,EXTRACT(epoch FROM e.start_time)::bigint AS start_time,e.diva_continuous,
 		EXISTS(SELECT 1 FROM diva_interception_legacy_events l WHERE l.event_id=e.id) AS legacy
 		FROM diva_interception_periods p JOIN events e ON e.id=p.event_id
 		WHERE p.starts_at <= $1 AND e.event_type='diva'

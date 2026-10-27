@@ -18,7 +18,7 @@ const divaRandomBonusSlotSeconds int64 = 3 * 3600
 // deck; wall clock, request order, session, channel and process RNG do not.
 func divaRandomBonusRules(event DivaEvent) ([]cfg.DivaBonusTarget, error) {
 	start := int64(event.StartTime)
-	end := start + divaPhaseDuration
+	end := start + event.prayerDuration()
 	if event.ID == 0 || end > 0xffffffff {
 		return nil, fmt.Errorf("invalid Diva event or overflowing bonus timestamps")
 	}

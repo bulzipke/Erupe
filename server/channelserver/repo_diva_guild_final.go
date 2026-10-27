@@ -11,12 +11,13 @@ func (r *DivaRepository) ensureDivaGuildFinalRanks(eventID uint32, cutoff time.T
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	var start time.Time
-	if err := tx.Get(&start, `SELECT start_time FROM events WHERE id=$1 AND event_type='diva' FOR UPDATE`, eventID); err != nil {
+	var event DivaEvent
+	if err := tx.Get(&event, `SELECT id,EXTRACT(epoch FROM start_time)::bigint AS start_time,diva_continuous
+		FROM events WHERE id=$1 AND event_type='diva' FOR UPDATE`, eventID); err != nil {
 		return err
 	}
-	end := start.Add(time.Duration(divaPhaseDuration) * time.Second)
-	if cutoff.Before(end) || TimeAdjusted().Before(end.Add(time.Duration(divaInterlude)*time.Second)) {
+	start, end := event.phaseTime(0), event.phaseTime(1)
+	if cutoff.Before(end) || TimeAdjusted().Before(event.phaseTime(2)) {
 		return nil
 	}
 	result, err := tx.Exec(`INSERT INTO diva_guild_finalizations(event_id) VALUES($1) ON CONFLICT DO NOTHING`, eventID)

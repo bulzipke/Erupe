@@ -89,9 +89,9 @@ func (r *DivaRepository) AddDivaInterceptionPoints(charID, eventID uint32, quest
 	}
 	var event DivaEvent
 	var legacy bool
-	err = tx.QueryRow(`SELECT e.id,EXTRACT(epoch FROM e.start_time)::bigint,
+	err = tx.QueryRow(`SELECT e.id,EXTRACT(epoch FROM e.start_time)::bigint,e.diva_continuous,
 		EXISTS(SELECT 1 FROM diva_interception_legacy_events l WHERE l.event_id=e.id)
-		FROM events e WHERE e.id=$1 AND e.event_type='diva' FOR SHARE OF e`, eventID).Scan(&event.ID, &event.StartTime, &legacy)
+		FROM events e WHERE e.id=$1 AND e.event_type='diva' FOR SHARE OF e`, eventID).Scan(&event.ID, &event.StartTime, &event.Continuous, &legacy)
 	if err != nil {
 		return err
 	}

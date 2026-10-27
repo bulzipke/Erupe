@@ -29,6 +29,9 @@ func divaLifecycleStart(now time.Time, mode int) time.Time {
 }
 
 func divaLifecycleExpiry(event DivaEvent, mode int) time.Time {
+	if mode == -1 {
+		return event.phaseTime(5)
+	}
 	seconds := int64(divaTotalLifespan)
 	switch mode {
 	case 2:
@@ -71,7 +74,7 @@ func (r *DivaRepository) EnsureDivaEvent(now time.Time, override int) (DivaEvent
 // use this helper after reading the DB clock to close boundary races.
 func ensureDivaEventTx(tx *sqlx.Tx, now time.Time, override int) (DivaEvent, error) {
 	var event DivaEvent
-	err := tx.Get(&event, `SELECT e.id,EXTRACT(epoch FROM e.start_time)::bigint AS start_time
+	err := tx.Get(&event, `SELECT e.id,EXTRACT(epoch FROM e.start_time)::bigint AS start_time,e.diva_continuous
 		FROM diva_event_lifecycle l JOIN events e ON e.id=l.event_id
 		WHERE l.mode=$1 AND e.event_type='diva'`, override)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -81,7 +84,7 @@ func ensureDivaEventTx(tx *sqlx.Tx, now time.Time, override int) (DivaEvent, err
 	if firstAnchor && override == -1 {
 		// Adopt an existing schedule only once. Later cycles use their own stable
 		// pointer rather than accidentally adopting a backdated debug event.
-		err = tx.Get(&event, `SELECT e.id,EXTRACT(epoch FROM e.start_time)::bigint AS start_time
+		err = tx.Get(&event, `SELECT e.id,EXTRACT(epoch FROM e.start_time)::bigint AS start_time,e.diva_continuous
 			FROM events e WHERE e.event_type='diva'
 			AND NOT EXISTS(SELECT 1 FROM diva_debug_song_event d WHERE d.event_id=e.id)
 			AND NOT EXISTS(SELECT 1 FROM diva_event_lifecycle l WHERE l.event_id=e.id AND l.mode IN (2,3))
@@ -108,13 +111,18 @@ func ensureDivaEventTx(tx *sqlx.Tx, now time.Time, override int) (DivaEvent, err
 			}
 		}
 		start := divaLifecycleStart(now, override)
-		if start.Unix() <= 0 || start.Unix()+divaTotalLifespan > 0xffffffff {
+		if override == -1 {
+			start = divaNextNormalStart(event, now)
+		}
+		candidate := DivaEvent{Continuous: override == -1}
+		if start.Unix() <= 0 || start.Unix()+candidate.lifespan() > 0xffffffff {
 			return DivaEvent{}, errors.New("diva event is outside protocol timestamp range")
 		}
-		if err = tx.QueryRow(`INSERT INTO events(event_type,start_time) VALUES('diva',$1) RETURNING id`, start.UTC()).Scan(&event.ID); err != nil {
+		if err = tx.QueryRow(`INSERT INTO events(event_type,start_time,diva_continuous) VALUES('diva',$1,$2) RETURNING id`, start.UTC(), override == -1).Scan(&event.ID); err != nil {
 			return DivaEvent{}, err
 		}
 		event.StartTime = uint32(start.Unix())
+		event.Continuous = override == -1
 		if legacyBootstrap {
 			if _, err = tx.Exec(`INSERT INTO diva_interception_legacy_events(event_id) VALUES($1)`, event.ID); err != nil {
 				return DivaEvent{}, err

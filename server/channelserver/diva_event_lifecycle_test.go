@@ -19,7 +19,7 @@ func TestDivaLifecyclePhaseAnchors(t *testing.T) {
 			if !start.Equal(midnight.Add(24 * time.Hour)) {
 				t.Fatalf("normal start=%v", start)
 			}
-			if !divaLifecycleExpiry(event, mode).Equal(start.Add(divaTotalLifespan * time.Second)) {
+			if !divaLifecycleExpiry(event, mode).Equal(event.phaseTime(5)) {
 				t.Fatal("normal expiry")
 			}
 			continue

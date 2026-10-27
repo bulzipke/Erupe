@@ -20,8 +20,8 @@ type divaInterceptionRun struct {
 }
 
 func divaInterceptionWindow(event DivaEvent) (time.Time, time.Time) {
-	start := time.Unix(int64(event.StartTime)+divaPhaseDuration+divaInterlude, 0)
-	end := time.Unix(int64(event.StartTime)+divaPhaseDuration+divaWeekDuration, 0)
+	start := event.phaseTime(2)
+	end := event.phaseTime(3)
 	return start, end
 }
 

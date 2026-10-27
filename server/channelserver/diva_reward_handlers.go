@@ -281,8 +281,8 @@ func handleDivaRewardAcquire(s *Session, pkt *mhfpacket.MsgMhfAcquireUdItem) {
 		return
 	}
 	start := time.Unix(int64(event.StartTime), 0)
-	songEnd := start.Add(time.Duration(divaPhaseDuration) * time.Second)
-	if event.ID == 0 || now.Before(start) || now.Unix() >= int64(event.StartTime)+divaTotalLifespan {
+	songEnd := event.phaseTime(1)
+	if event.ID == 0 || now.Before(start) || now.Unix() >= int64(event.StartTime)+event.lifespan() {
 		empty()
 		return
 	}
@@ -290,7 +290,7 @@ func handleDivaRewardAcquire(s *Session, pkt *mhfpacket.MsgMhfAcquireUdItem) {
 	if cutoff.After(songEnd) {
 		cutoff = songEnd
 	}
-	if (pkt.RewardType == 2 || pkt.RewardType == 3) && (now.Before(songEnd.Add(time.Duration(divaInterlude)*time.Second)) || s.server.erupeConfig.DebugOptions.DivaOverride == 1) {
+	if (pkt.RewardType == 2 || pkt.RewardType == 3) && (now.Before(event.phaseTime(2)) || s.server.erupeConfig.DebugOptions.DivaOverride == 1) {
 		empty()
 		return // Ranking is final only after the prayer phase has ended.
 	}

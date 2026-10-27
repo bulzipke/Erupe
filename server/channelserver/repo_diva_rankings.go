@@ -16,7 +16,7 @@ func (r *DivaRepository) GetDivaGuildRanking(eventID, charID uint32, cutoff time
 		SELECT r.guild_id,SUM(r.quest_points+r.bonus_points) points FROM diva_song_records r
 		JOIN events e ON e.id=r.event_id
 		WHERE r.event_id=$1 AND r.guild_id IS NOT NULL AND r.submitted_at<$3
-		AND r.submitted_at>=e.start_time AND r.submitted_at<e.start_time+INTERVAL '601200 seconds'
+		AND r.submitted_at>=e.start_time AND r.submitted_at<e.start_time+CASE WHEN e.diva_continuous THEN INTERVAL '7 days' ELSE INTERVAL '601200 seconds' END
 		GROUP BY r.guild_id HAVING SUM(r.quest_points+r.bonus_points)>0
 	), ranked AS (
 		SELECT s.guild_id,COALESCE(g.name,'') name,s.points,

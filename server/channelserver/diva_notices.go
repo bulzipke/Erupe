@@ -70,7 +70,7 @@ func divaNoticeTexts(language string, random bool, manualCount int) [4]string {
 // timestamps as GET_UD_SCHEDULE, not maintenance dates from historical notices.
 func divaNoticeWithSchedule(text string, event DivaEvent, language string) string {
 	title, body, _ := strings.Cut(text, "\n")
-	ts := generateDivaTimestamps(nil, event.StartTime, false)
+	ts := divaEventTimestamps(event)
 	date := func(timestamp uint32) string {
 		return time.Unix(int64(timestamp), 0).In(divaLocation).Format("2006/01/02 15:04")
 	}
@@ -86,17 +86,18 @@ func divaNoticeWithSchedule(text string, event DivaEvent, language string) strin
 func divaEventNotices(event DivaEvent, options *cfg.Config) []divaNotice {
 	mode := options.DebugOptions.DivaOverride
 	if event.ID == 0 || event.StartTime == 0 || mode == 0 || mode < -1 || mode > 3 ||
-		uint64(event.StartTime)+divaTotalLifespan > 0xffffffff {
+		uint64(event.StartTime)+uint64(event.lifespan()) > 0xffffffff {
 		return nil
 	}
 	texts := divaNoticeTexts(options.Language, options.GameplayOptions.DivaBonusRandom,
 		len(options.GameplayOptions.DivaBonusTargets))
 	start := event.StartTime
 	// Cache all phase notices; the client changes the active text by its clock.
-	// Include interludes in the preceding notice, with no overlapping endpoints.
-	boundaries := [5]uint32{start, start + divaPhaseDuration + divaInterlude,
-		start + divaPhaseDuration + divaWeekDuration + divaInterlude,
-		start + divaPhaseDuration + 2*divaWeekDuration, start + divaTotalLifespan}
+	// Legacy interludes belong to the preceding notice. Continuous rounds use
+	// three contiguous phases; the unused fourth native slot is cleared below.
+	offsets := event.phaseOffsets()
+	boundaries := [5]uint32{start, start + uint32(offsets[2]),
+		start + uint32(offsets[4]), start + uint32(offsets[5]), start + uint32(event.lifespan())}
 	var rows []divaNotice
 	for i := 0; i < divaNoticeSlots; i++ {
 		if mode > 0 && i != mode-1 {
@@ -104,9 +105,12 @@ func divaEventNotices(event DivaEvent, options *cfg.Config) []divaNotice {
 		}
 		end := boundaries[i+1]
 		if mode == 1 {
-			end = start + divaPhaseDuration
+			end = start + uint32(offsets[1])
 		} else if mode == 2 {
-			end = start + divaPhaseDuration + divaWeekDuration
+			end = start + uint32(offsets[3])
+		}
+		if end <= boundaries[i] {
+			continue // Continuous rounds have no fourth (idle) phase.
 		}
 		rows = append(rows, divaNotice{Text: divaNoticeWithSchedule(texts[i], event, options.Language), Start: boundaries[i], End: end - 1})
 	}

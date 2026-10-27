@@ -38,7 +38,7 @@ var divaTacticsLegacyBonusQuests = [...]struct {
 // at the retail maintenance time, so intersect every slot with the actual
 // phase. The anchor never depends on request time, reconnects or midnight.
 func divaTacticsBonusSchedule(event DivaEvent) ([]divaTacticsBonusQuest, error) {
-	if event.ID == 0 || int64(event.StartTime)+divaPhaseDuration+divaWeekDuration > 0xffffffff {
+	if event.ID == 0 || event.phaseTime(3).Unix() > 0xffffffff {
 		return nil, fmt.Errorf("invalid Diva event or overflowing interception bonus timestamps")
 	}
 	phaseStart, phaseEnd := divaInterceptionWindow(event)

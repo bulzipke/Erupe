@@ -10,7 +10,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// Diva Defense event duration constants (all values in seconds)
+// Legacy/forced Diva Defense durations. New normal rounds use phaseOffsets.
+// Retain these values for old round deadlines and receipt replay.
 const (
 	divaPhaseDuration = 601200      // 6d 23h = first song phase
 	divaInterlude     = 3900        // 65 min = gap between phases
@@ -18,8 +19,8 @@ const (
 	divaTotalLifespan = 2977200     // ~34.5 days = full event window
 )
 
-// Serialization is side-effect free. Lifecycle creation/renewal happens once in
-// divaEvent, under the repository lock, before either ID or dates are sent.
+// Legacy serializer retained for forced/debug compatibility. Live schedule
+// responses use divaEventTimestamps with the round's persisted schedule policy.
 func generateDivaTimestamps(_ *Session, start uint32, debug bool) []uint32 {
 	timestamps := make([]uint32, 6)
 	if debug && start >= 1 && start <= 3 {
@@ -56,7 +57,7 @@ func handleMsgMhfGetUdSchedule(s *Session, p mhfpacket.MHFPacket) {
 		doAckBufFail(s, pkt.AckHandle, nil)
 		return
 	}
-	timestamps := generateDivaTimestamps(s, event.StartTime, false)
+	timestamps := divaEventTimestamps(event)
 
 	if s.server.erupeConfig.RealClientMode >= cfg.Z2 {
 		bf.WriteUint32(event.ID)
@@ -132,7 +133,7 @@ func handleMsgMhfSetKiju(s *Session, p mhfpacket.MHFPacket) {
 		return
 	}
 	now := TimeAdjusted()
-	if now.Before(s.divaSongStart(event)) || now.Unix() >= int64(event.StartTime)+divaPhaseDuration {
+	if now.Before(s.divaSongStart(event)) || !now.Before(event.phaseTime(1)) {
 		doAckBufSucceed(s, pkt.AckHandle, []byte{0xF9})
 		return
 	}

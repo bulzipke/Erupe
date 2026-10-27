@@ -95,7 +95,7 @@ func divaMelodyAllowedCost(cost uint8) bool {
 
 func divaMelodyUnexpired(event DivaEvent, now time.Time) bool {
 	start, _ := divaInterceptionWindow(event)
-	end := time.Unix(int64(event.StartTime)+divaPhaseDuration+2*divaWeekDuration, 0)
+	end := event.phaseTime(5)
 	return event.ID != 0 && !now.Before(start) && now.Before(end)
 }
 

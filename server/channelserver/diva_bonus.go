@@ -38,7 +38,7 @@ func divaBonusTargets(event DivaEvent, rules []cfg.DivaBonusTarget) ([]divaBonus
 	if err := cfg.ValidateDivaBonusTargets(rules); err != nil {
 		return nil, err
 	}
-	if event.ID == 0 || int64(event.StartTime)+divaPhaseDuration > 0xffffffff {
+	if event.ID == 0 || int64(event.StartTime)+event.prayerDuration() > 0xffffffff {
 		return nil, fmt.Errorf("invalid Diva event or overflowing bonus timestamps")
 	}
 	firstDay := divaNoon(time.Unix(int64(event.StartTime), 0)).Unix()
@@ -46,7 +46,10 @@ func divaBonusTargets(event DivaEvent, rules []cfg.DivaBonusTarget) ([]divaBonus
 	result := make([]divaBonusTarget, 0, len(rules))
 	for i, rule := range rules {
 		start := int64(event.StartTime) + rule.StartOffsetSeconds
-		end := int64(event.StartTime) + rule.EndOffsetSeconds - 1
+		end := min(int64(event.StartTime)+rule.EndOffsetSeconds, event.phaseTime(1).Unix()) - 1
+		if end < start {
+			continue
+		}
 		day := -1
 		for d := range buckets {
 			lo := firstDay + int64(d)*86400
@@ -129,7 +132,7 @@ func handleMsgMhfGetUdBonusQuestInfo(s *Session, p mhfpacket.MHFPacket) {
 		return
 	}
 	now := TimeAdjusted().Unix()
-	if event.ID == 0 || now < int64(event.StartTime) || now >= int64(event.StartTime)+divaPhaseDuration {
+	if event.ID == 0 || now < int64(event.StartTime) || now >= int64(event.StartTime)+event.prayerDuration() {
 		doAckBufSucceed(s, pkt.AckHandle, divaBonusPayload(nil))
 		return
 	}

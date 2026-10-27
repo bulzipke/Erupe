@@ -23,7 +23,7 @@ func divaMapRewardEvent(q sqlx.Queryer, now time.Time) (DivaEvent, error) {
 		PersonalLegacy bool `db:"personal_legacy"`
 		MapActivated   bool `db:"map_activated"`
 	}
-	err := sqlx.Get(q, &row, `SELECT e.id,EXTRACT(epoch FROM e.start_time)::bigint AS start_time,
+	err := sqlx.Get(q, &row, `SELECT e.id,EXTRACT(epoch FROM e.start_time)::bigint AS start_time,e.diva_continuous,
 		EXISTS(SELECT 1 FROM diva_interception_legacy_events l WHERE l.event_id=e.id) AS personal_legacy,
 		EXISTS(SELECT 1 FROM diva_map_activations a WHERE a.event_id=e.id AND a.activated_at<=$1) AS map_activated
 		FROM diva_interception_periods p JOIN events e ON e.id=p.event_id

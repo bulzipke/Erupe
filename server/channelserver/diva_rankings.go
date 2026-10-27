@@ -29,7 +29,7 @@ func (s *Session) divaGuildRanks() ([]DivaRank, error) {
 	if err != nil || event.ID == 0 {
 		return nil, err
 	}
-	return repo.GetDivaGuildRanking(event.ID, s.charID, divaSongRankingCutoff(TimeAdjusted(), s.divaSongStart(event)))
+	return repo.GetDivaGuildRanking(event.ID, s.charID, event.songRankingCutoff(TimeAdjusted()))
 }
 
 // Resolve the round and cutoff once so a midnight/publication boundary cannot
@@ -39,7 +39,7 @@ func (s *Session) divaMyRanks() ([]DivaRank, []DivaRank, error) {
 	if err != nil || event.ID == 0 {
 		return nil, nil, err
 	}
-	cutoff := divaSongRankingCutoff(TimeAdjusted(), s.divaSongStart(event))
+	cutoff := event.songRankingCutoff(TimeAdjusted())
 	personal, err := s.server.divaRepo.GetDivaRanking(event.ID, s.charID, cutoff)
 	if err != nil {
 		return nil, nil, err

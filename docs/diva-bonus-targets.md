@@ -39,6 +39,10 @@
   후보가 4~7마리로 줄어도 균형·같은 구간 중복 금지를 유지하며, 연속 구간 사이에는
   수학적으로 피할 수 없는 최소 `8-후보 수`마리만 겹친다. 서로 다른 후보가 4마리 미만이면 거절한다.
 - 모든 행은 `MultiplierPercent=200`, 즉 총 2배다.
+  Schedule update (2026-10-28): the following 601,200-second duration is the
+  legacy policy only. New normal rounds use **604,800 seconds (seven days)**;
+  see [continuous rotation](diva-continuous-rotation.md). Manual rules allow
+  offsets through 604800 and are clipped to the selected round's actual end.
 - 실제 기도 기간은 **601,200초=6일 23시간**이다. 8일은 클라이언트 저장 버킷 수다.
   첫/마지막 구간은 실제 시작/종료에 맞춰 자르며, 이벤트 기간을 8일로 늘리지 않는다.
 - 자정 시작이면 56구간×4색=224행(3,586바이트), 시작시각에 따라 최대 228행이다.

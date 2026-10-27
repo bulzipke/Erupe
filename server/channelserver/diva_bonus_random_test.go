@@ -19,7 +19,7 @@ func TestDivaBonusRandomGridClippingAndCapacity(t *testing.T) {
 	if divaPhaseDuration != 601200 {
 		t.Fatal("song duration changed")
 	}
-	if cfg.DivaBonusPhaseSeconds != divaPhaseDuration {
+	if cfg.DivaBonusPhaseSeconds != secsPerWeek {
 		t.Fatal("bonus configuration and song phase disagree")
 	}
 	catalog := make(map[int64]bool)

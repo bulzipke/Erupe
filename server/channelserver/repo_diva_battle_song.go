@@ -71,7 +71,7 @@ func (r *DivaRepository) useDivaBattleSongAt(charID, eventID uint32, now time.Ti
 		return DivaBattleSongState{}, errDivaBattleSongUnavailable
 	}
 	var event DivaEvent
-	if err = tx.Get(&event, `SELECT id,EXTRACT(epoch FROM start_time)::bigint start_time
+	if err = tx.Get(&event, `SELECT id,EXTRACT(epoch FROM start_time)::bigint start_time,diva_continuous
 		FROM events WHERE id=$1 AND event_type='diva'`, eventID); err != nil {
 		return DivaBattleSongState{}, err
 	}
@@ -84,7 +84,7 @@ func (r *DivaRepository) useDivaBattleSongAt(charID, eventID uint32, now time.Ti
 	err = tx.Get(&participated, `SELECT EXISTS(SELECT 1 FROM diva_song_records
 		WHERE char_id=$1 AND event_id=$2 AND quest_points+bonus_points>0
 		AND bead_index BETWEEN 1 AND 4 AND submitted_at>=to_timestamp($3)
-		AND submitted_at<to_timestamp($3)+interval '601200 seconds')`, charID, eventID, event.StartTime)
+		AND submitted_at<to_timestamp($4))`, charID, eventID, event.StartTime, event.phaseTime(1).Unix())
 	if err != nil {
 		return DivaBattleSongState{}, err
 	}
@@ -186,7 +186,7 @@ func (r *DivaRepository) ConsumeDivaBattleSongEffects(charID uint32, run divaBat
 		return errDivaBattleSongUnavailable
 	}
 	var event DivaEvent
-	if err = tx.Get(&event, `SELECT id,EXTRACT(epoch FROM start_time)::bigint start_time FROM events
+	if err = tx.Get(&event, `SELECT id,EXTRACT(epoch FROM start_time)::bigint start_time,diva_continuous FROM events
 		WHERE id=$1 AND event_type='diva'`, run.EventID); err != nil {
 		return err
 	}

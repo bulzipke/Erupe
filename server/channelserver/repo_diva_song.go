@@ -20,7 +20,7 @@ func (r *DivaRepository) EnsureDivaSongEvent(now time.Time) (DivaEvent, error) {
 		return DivaEvent{}, err
 	}
 	var event DivaEvent
-	err = tx.Get(&event, `SELECT e.id,EXTRACT(epoch FROM e.start_time)::bigint AS start_time
+	err = tx.Get(&event, `SELECT e.id,EXTRACT(epoch FROM e.start_time)::bigint AS start_time,e.diva_continuous
 		FROM diva_debug_song_event d JOIN events e ON e.id=d.event_id WHERE d.singleton`)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return DivaEvent{}, err
@@ -189,7 +189,7 @@ func (r *DivaRepository) GetDivaRanking(eventID, charID uint32, cutoff time.Time
 		SELECT r.char_id,SUM(r.quest_points+r.bonus_points) points FROM diva_song_records r
 		JOIN events e ON e.id=r.event_id
 		WHERE r.event_id=$1 AND r.submitted_at<$3 AND r.submitted_at>=e.start_time
-		AND r.submitted_at<e.start_time+INTERVAL '601200 seconds'
+		AND r.submitted_at<e.start_time+CASE WHEN e.diva_continuous THEN INTERVAL '7 days' ELSE INTERVAL '601200 seconds' END
 		GROUP BY r.char_id HAVING SUM(r.quest_points+r.bonus_points)>0
 	), ranked AS (
 		SELECT s.char_id,COALESCE(c.name,'') name,s.points,

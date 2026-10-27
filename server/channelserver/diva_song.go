@@ -156,5 +156,5 @@ func (s *Session) divaPersonalRanks() ([]DivaRank, error) {
 	if err != nil || event.ID == 0 {
 		return nil, err
 	}
-	return s.server.divaRepo.GetDivaRanking(event.ID, s.charID, divaSongRankingCutoff(TimeAdjusted(), s.divaSongStart(event)))
+	return s.server.divaRepo.GetDivaRanking(event.ID, s.charID, event.songRankingCutoff(TimeAdjusted()))
 }

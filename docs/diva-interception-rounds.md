@@ -4,6 +4,10 @@
 
 ## 데이터와 전환 시점
 
+See [continuous rotation](diva-continuous-rotation.md) for the 2026-10-28
+normal-schedule update. Historical rounds and receipt snapshots retain their
+original policy; new normal rounds use contiguous seven-day phases.
+
 - 0046 마이그레이션은 기존 `guild_characters.interception_points` JSON을 삭제하거나 새 회차로 복사하지 않는다.
 - 설치 시 이미 시작한 가희 이벤트 ID를 `diva_interception_legacy_events`에 기록한다. 아직 시작하지 않은 예약 회차는 제외하지 않는다.
 - 전환 전 진행 중 회차는 기존 JSON 조회/가산을 유지하지만 새 개인 보수의 지급 근거로 쓰지 않는다.

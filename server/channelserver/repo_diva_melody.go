@@ -12,8 +12,8 @@ import (
 // credit: only an explicit type-29 receipt claim changes the shared wallet.
 func offerDivaMelodyTx(tx *sqlx.Tx, charID, eventID uint32, now time.Time) error {
 	var event DivaEvent
-	if err := tx.QueryRow(`SELECT id,EXTRACT(epoch FROM start_time)::bigint FROM events
-		WHERE id=$1 AND event_type='diva'`, eventID).Scan(&event.ID, &event.StartTime); err != nil {
+	if err := tx.QueryRow(`SELECT id,EXTRACT(epoch FROM start_time)::bigint,diva_continuous FROM events
+		WHERE id=$1 AND event_type='diva'`, eventID).Scan(&event.ID, &event.StartTime, &event.Continuous); err != nil {
 		return err
 	}
 	clock, err := divaMapClock(tx, now)
@@ -58,9 +58,9 @@ func claimDivaMelodyTx(tx *sqlx.Tx, charID uint32, r DivaRewardOffer, now time.T
 	}
 	var event DivaEvent
 	var owner uint32
-	if err := tx.QueryRow(`SELECT e.id,EXTRACT(epoch FROM e.start_time)::bigint,c.user_id
+	if err := tx.QueryRow(`SELECT e.id,EXTRACT(epoch FROM e.start_time)::bigint,e.diva_continuous,c.user_id
 		FROM events e CROSS JOIN characters c WHERE e.id=$1 AND e.event_type='diva' AND c.id=$2`, r.EventID, charID).
-		Scan(&event.ID, &event.StartTime, &owner); err != nil {
+		Scan(&event.ID, &event.StartTime, &event.Continuous, &owner); err != nil {
 		return err
 	}
 	clock, err := divaMapClock(tx, now)

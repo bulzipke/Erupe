@@ -16,7 +16,7 @@ type DivaBonusTarget struct {
 
 const (
 	MaxDivaBonusTargets   = 320 // Native storage: 8 days * 4 colors * 10 entries.
-	DivaBonusPhaseSeconds = 601200
+	DivaBonusPhaseSeconds = 604800
 	// An operator safety limit, not a claimed retail maximum.
 	MaxDivaBonusPercent = 10000
 )
@@ -100,7 +100,7 @@ func ValidateDivaBonusTargets(targets []DivaBonusTarget) error {
 		}
 		if target.StartOffsetSeconds < 0 || target.StartOffsetSeconds >= target.EndOffsetSeconds ||
 			target.EndOffsetSeconds > DivaBonusPhaseSeconds {
-			return invalid("window must satisfy 0 <= StartOffsetSeconds < EndOffsetSeconds <= 601200")
+			return invalid("window must satisfy 0 <= StartOffsetSeconds < EndOffsetSeconds <= 604800")
 		}
 		if target.MultiplierPercent < 100 || target.MultiplierPercent > MaxDivaBonusPercent {
 			return invalid(fmt.Sprintf("MultiplierPercent must be 100..%d (200 means x2)", MaxDivaBonusPercent))

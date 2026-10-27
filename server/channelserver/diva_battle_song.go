@@ -36,9 +36,7 @@ type DivaBattleSongRepository interface {
 }
 
 func divaBattleSongPhase(event DivaEvent, now time.Time) bool {
-	start := int64(event.StartTime)
-	return event.ID != 0 && now.Unix() >= start+divaPhaseDuration+divaInterlude &&
-		now.Unix() < start+divaPhaseDuration+divaWeekDuration
+	return event.ID != 0 && !now.Before(event.phaseTime(2)) && now.Before(event.phaseTime(3))
 }
 
 func divaBattleSongActive(state DivaBattleSongState, now time.Time) bool {

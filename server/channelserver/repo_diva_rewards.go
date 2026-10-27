@@ -63,11 +63,11 @@ func (r *DivaRepository) GetDivaRewardProgress(charID, eventID uint32, start, en
 		COALESCE(s.participation_days,0) participation_days,COALESCE(r.rank,0) rank,
 		COALESCE((SELECT f.rank FROM diva_guild_final_ranks f
 			JOIN diva_guild_membership_history h ON h.guild_id=f.guild_id AND h.char_id=c.id
-			WHERE f.event_id=$2 AND h.valid_from < $3::timestamptz+INTERVAL '601200 seconds'
-			AND (h.valid_until IS NULL OR h.valid_until >= $3::timestamptz+INTERVAL '601200 seconds')
+			WHERE f.event_id=$2 AND h.valid_from < (SELECT e.start_time+CASE WHEN e.diva_continuous THEN INTERVAL '7 days' ELSE INTERVAL '601200 seconds' END FROM events e WHERE e.id=$2)
+			AND (h.valid_until IS NULL OR h.valid_until >= (SELECT e.start_time+CASE WHEN e.diva_continuous THEN INTERVAL '7 days' ELSE INTERVAL '601200 seconds' END FROM events e WHERE e.id=$2))
 			AND EXISTS(SELECT 1 FROM diva_song_records j WHERE j.char_id=c.id AND j.event_id=$2
 				AND j.guild_id=f.guild_id AND j.quest_points+j.bonus_points>0
-				AND j.submitted_at >= $3 AND j.submitted_at < $3::timestamptz+INTERVAL '601200 seconds')
+				AND j.submitted_at >= $3 AND j.submitted_at < (SELECT e.start_time+CASE WHEN e.diva_continuous THEN INTERVAL '7 days' ELSE INTERVAL '601200 seconds' END FROM events e WHERE e.id=$2))
 			ORDER BY h.valid_from DESC LIMIT 1),0) guild_rank
 	FROM characters c LEFT JOIN scores s ON s.char_id=c.id LEFT JOIN ranks r ON r.char_id=c.id
 	WHERE c.id=$1`, charID, eventID, start, end)
@@ -207,7 +207,7 @@ func (r *DivaRepository) offerDivaRewardsWithRotationAt(charID, eventID uint32, 
 			FROM diva_reward_receipts WHERE char_id=$1 AND event_id=$2 AND reward_type=6
 			AND claimed_at IS NULL AND (item_type<>29 OR EXISTS(
 				SELECT 1 FROM events e WHERE e.id=$2 AND e.event_type='diva'
-				AND e.start_time+INTERVAL '1810800 seconds'>$3)) ORDER BY id LIMIT 32`, charID, eventID, clock)
+				AND e.start_time+CASE WHEN e.diva_continuous THEN INTERVAL '21 days' ELSE INTERVAL '1810800 seconds' END>$3)) ORDER BY id LIMIT 32`, charID, eventID, clock)
 		if err != nil {
 			return nil, err
 		}
