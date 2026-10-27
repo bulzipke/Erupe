@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"errors"
 	cfg "erupe-ce/config"
 	"fmt"
 	"math"
@@ -1100,6 +1101,12 @@ func handleMsgMhfPostGemInfo(s *Session, p mhfpacket.MHFPacket) {
 		}
 		if err := repo.TransferGem(s.charID, uint32(pkt.CID), uint16(pkt.Gem), uint16(pkt.Message)); err != nil {
 			s.logger.Warn("Rejected ancient treasure gift", zap.Error(err), zap.Uint32("sender", s.charID), zap.Int32("receiver", pkt.CID))
+			if errors.Is(err, errTowerGemRecipientOwned) {
+				bf := byteframe.NewByteFrame()
+				bf.WriteUint32(towerGiftRecipientOwnedResult)
+				doAckSimpleSucceed(s, pkt.AckHandle, bf.Data())
+				return
+			}
 			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 			return
 		}

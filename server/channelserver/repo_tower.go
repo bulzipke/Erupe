@@ -393,8 +393,11 @@ func (r *TowerRepository) TransferGem(senderID, receiverID uint32, gemID uint16,
 	if err != nil {
 		return err
 	}
-	if senderGems[index] < 2 || receiverGems[index] != 0 {
-		return errors.New("ancient treasure gift requires a duplicate and an unowned recipient slot")
+	if senderGems[index] < 2 {
+		return errors.New("ancient treasure gift requires a duplicate")
+	}
+	if receiverGems[index] != 0 {
+		return errTowerGemRecipientOwned
 	}
 	senderGems[index]--
 	receiverGems[index]++

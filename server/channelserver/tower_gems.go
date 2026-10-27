@@ -1,5 +1,13 @@
 package channelserver
 
+import "errors"
+
+// G10 gift result 2 selects its existing recipient-already-owns message.
+// This is the uint32 simple-ACK payload, not the transport ErrorCode byte.
+const towerGiftRecipientOwnedResult uint32 = 2
+
+var errTowerGemRecipientOwned = errors.New("ancient treasure recipient already owns this gem")
+
 // towerGemTypes maps the five CSV slots to the active client msx type IDs.
 // Type 5 is unused; type 8 is the candlestick. Colors occupy the high byte.
 var towerGemTypes = [...]uint16{1, 2, 3, 4, 8}
