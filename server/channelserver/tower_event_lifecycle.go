@@ -39,17 +39,25 @@ type TowerDailyExtrasRepository interface {
 }
 
 func towerRotationDurations(o cfg.TowerRotationOptions) (time.Duration, time.Duration, error) {
-	if o.ActiveDays <= 0 || o.CycleDays <= o.ActiveDays || o.CycleDays > 365 {
-		return 0, 0, errors.New("TowerRotation requires 0 < ActiveDays < CycleDays <= 365")
+	if o.ActiveDays <= 0 || o.CycleDays < o.ActiveDays || o.CycleDays > 365 {
+		return 0, 0, errors.New("TowerRotation requires 0 < ActiveDays <= CycleDays <= 365")
 	}
 	return time.Duration(o.ActiveDays) * 24 * time.Hour, time.Duration(o.CycleDays) * 24 * time.Hour, nil
 }
+
+func towerClaimDuration(active, cycle time.Duration) time.Duration {
+	if active == cycle {
+		return 2 * cycle
+	}
+	return cycle
+}
+
 func towerInitialStart(now time.Time, o cfg.TowerRotationOptions) (time.Time, error) {
-	_, cycle, err := towerRotationDurations(o)
+	active, cycle, err := towerRotationDurations(o)
 	if err != nil {
 		return time.Time{}, err
 	}
-	anchor := towerDailyStart(now.In(divaLocation))
+	anchor := rotationMondayNoon(now)
 	if o.StartAt != "" {
 		anchor, err = time.Parse(time.RFC3339, o.StartAt)
 		if err != nil {
@@ -59,7 +67,7 @@ func towerInitialStart(now time.Time, o cfg.TowerRotationOptions) (time.Time, er
 	if !now.Before(anchor) {
 		anchor = anchor.Add(time.Duration(now.Sub(anchor)/cycle) * cycle)
 	}
-	if anchor.Unix() < 0 || anchor.Add(cycle).Unix() > 1<<32-1 {
+	if anchor.Unix() < 0 || anchor.Add(towerClaimDuration(active, cycle)).Unix() > 1<<32-1 {
 		return time.Time{}, errors.New("Tower schedule outside protocol time range")
 	}
 	return anchor.UTC(), nil
@@ -104,7 +112,7 @@ func (r *TowerRepository) EnsureTowerEvent(now time.Time, o cfg.TowerRotationOpt
 		if source == existing {
 			id = baseline
 		}
-		event = TowerEvent{ID: id, Start: start, End: start.Add(active), ClaimUntil: start.Add(cycle)}
+		event = TowerEvent{ID: id, Start: start, End: start.Add(active), ClaimUntil: start.Add(towerClaimDuration(active, cycle))}
 		if event.ID > 65535 {
 			return event, errors.New("existing EarthID exceeds Tower reward namespace")
 		}
@@ -132,7 +140,7 @@ func (r *TowerRepository) EnsureTowerEvent(now time.Time, o cfg.TowerRotationOpt
 				return event, errors.New("persisted Tower anchor differs")
 			}
 		}
-		if !now.Before(event.ClaimUntil) {
+		if !now.Before(event.Start.Add(cycle)) {
 			steps := int64(now.Sub(event.Start) / cycle)
 			if int64(event.ID)+steps > 65535 {
 				return event, errors.New("Tower round ID exhausted")
@@ -141,7 +149,7 @@ func (r *TowerRepository) EnsureTowerEvent(now time.Time, o cfg.TowerRotationOpt
 				return event, err
 			}
 			start := event.Start.Add(time.Duration(steps) * cycle)
-			event = TowerEvent{ID: event.ID + int32(steps), Start: start, End: start.Add(active), ClaimUntil: start.Add(cycle)}
+			event = TowerEvent{ID: event.ID + int32(steps), Start: start, End: start.Add(active), ClaimUntil: start.Add(towerClaimDuration(active, cycle))}
 			if event.ClaimUntil.Unix() > 1<<32-1 {
 				return event, errors.New("Tower schedule outside protocol time range")
 			}

@@ -17,6 +17,7 @@ const (
 )
 
 type towerPresentReward struct {
+	earthID     int32
 	kind        int32
 	index       int32
 	claimIndex  uint32
@@ -74,6 +75,7 @@ func towerRoundRewardIDs(event TowerEvent, rewards []towerPresentReward) ([]towe
 	}
 	seen := make(map[uint32]bool, len(rewards))
 	for i := range rewards {
+		rewards[i].earthID = event.ID
 		var local uint32
 		switch rewards[i].kind {
 		case towerRewardFloor:
@@ -214,28 +216,36 @@ func handleTowerPresentBox(s *Session, pkt *mhfpacket.MsgMhfPresentBox) {
 		}
 		return
 	}
-	earthID := event.ID
-	state, err := s.server.towerRepo.GetTowerRewardState(earthID, s.charID, towerDailyStart(TimeAdjusted()))
-	if err != nil {
-		s.logger.Error("Failed to list Tower rewards", zap.Error(err))
-		towerPresentAck(s, pkt, 0, pkt.Unk1 == 2)
-		return
-	}
-	if state.Claimed == nil {
-		state.Claimed = make(map[uint64]bool)
-	}
 	types := pkt.Unk7
 	if pkt.Unk1 == 2 {
 		types = []uint32{towerPresentFloor, towerPresentAdvance, towerPresentDaily}
 	}
-	pending := towerPendingRewards(state, types)
-	if s.server.erupeConfig.TowerRotation.Enabled {
-		pending, err = towerRoundRewardIDs(event, pending)
+	events, err := s.server.towerRewardEvents(event, TimeAdjusted())
+	if err != nil {
+		towerPresentAck(s, pkt, 0, pkt.Unk1 == 2)
+		return
+	}
+	var pending []towerPresentReward
+	for _, rewardEvent := range events {
+		state, err := s.server.towerRepo.GetTowerRewardState(rewardEvent.ID, s.charID, towerDailyStart(TimeAdjusted()))
 		if err != nil {
-			s.logger.Error("Tower reward ID collision", zap.Error(err))
+			s.logger.Error("Failed to list Tower rewards", zap.Error(err))
 			towerPresentAck(s, pkt, 0, pkt.Unk1 == 2)
 			return
 		}
+		rewards := towerPendingRewards(state, types)
+		for i := range rewards {
+			rewards[i].earthID = rewardEvent.ID
+		}
+		if s.server.erupeConfig.TowerRotation.Enabled {
+			rewards, err = towerRoundRewardIDs(rewardEvent, rewards)
+			if err != nil {
+				s.logger.Error("Tower reward ID collision", zap.Error(err))
+				towerPresentAck(s, pkt, 0, pkt.Unk1 == 2)
+				return
+			}
+		}
+		pending = append(pending, rewards...)
 	}
 	switch pkt.Unk1 {
 	case 1:
@@ -253,7 +263,7 @@ func handleTowerPresentBox(s *Session, pkt *mhfpacket.MsgMhfPresentBox) {
 		claims, unknown := towerClaimRequestRewards(pkt.Unk7, pending)
 		recorded, repeated := 0, 0
 		for _, reward := range claims {
-			inserted, err := s.server.towerRepo.RecordTowerRewardClaim(earthID, s.charID,
+			inserted, err := s.server.towerRepo.RecordTowerRewardClaim(reward.earthID, s.charID,
 				reward.kind, reward.index, reward.itemID, reward.quantity)
 			if err != nil {
 				s.logger.Error("Tower reward receipt failed", zap.Uint32("charID", s.charID),

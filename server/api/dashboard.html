@@ -268,10 +268,9 @@ tbody tr:last-child td{border-bottom:0}
 .raviente-participant-list li{min-width:0;padding:4px 5px;overflow-wrap:anywhere;color:#d9dfda;font-size:.71rem}
 .raviente-participant-empty{padding:16px 12px;color:var(--muted);font-size:.71rem;text-align:center}
 .ranking-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
-.quest-usage-ranking-grid{grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid var(--line)}
-.shop-ranking-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-.shop-ranking-grid>.ranking-block:nth-child(2n){border-right:0}
-.shop-ranking-grid .ranking-name{white-space:normal;overflow-wrap:anywhere}
+.quest-usage-ranking-grid{grid-template-columns:repeat(2,minmax(0,1fr));border-top:1px solid var(--line)}
+.usage-ranking-grid{grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid var(--line)}
+.usage-ranking-grid .ranking-name{white-space:normal;overflow-wrap:anywhere}
 .ranking-block{min-width:0;padding:18px;border-right:1px solid var(--line)}
 .ranking-block:last-child{border-right:0}
 .ranking-heading{margin:0 0 14px;color:var(--accent-soft);font-size:.78rem;font-weight:800}
@@ -473,6 +472,8 @@ tbody tr:last-child td{border-bottom:0}
                     <ol class="ranking-list quest-ranking" id="quest-fail-ranking"></ol>
                 </div>
             </article>
+        </div>
+        <div class="ranking-grid usage-ranking-grid">
             <article class="ranking-block">
                 <h3 class="ranking-heading">가장 많이 사용한 무기</h3>
                 <ol class="ranking-list" id="weapon-most-ranking" aria-label="가장 많이 사용한 무기와 사용 횟수"></ol>
@@ -481,14 +482,6 @@ tbody tr:last-child td{border-bottom:0}
                 <h3 class="ranking-heading">가장 많이 사용한 레전드 라스터</h3>
                 <ol class="ranking-list" id="legend-rasta-ranking" aria-label="레전드 라스터별 퀘스트 동행 횟수"></ol>
             </article>
-        </div>
-    </section>
-
-    <section class="rankings">
-        <div class="rankings-header">
-            <h2>뽑기·키트 인기 순위</h2>
-        </div>
-        <div class="ranking-grid shop-ranking-grid">
             <article class="ranking-block">
                 <h3 class="ranking-heading">가장 많이 한 뽑기</h3>
                 <ol class="ranking-list" id="gacha-popularity-ranking" aria-label="뽑기 이용 순위"></ol>

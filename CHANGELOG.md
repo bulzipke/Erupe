@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed 
+- Start normal Diva rounds independently of NPC requests on Monday noon (UTC+9); rotate Tower every three weeks without downtime, retaining previous-round rewards throughout the next round and preserving current progress during schedule realignment.
 - Persist native Tower daily mission awards and receive them through TINY_BIN, preserving unreceived items and committing receipts with inventory saves.
 - Read ordinary quest-list visibility from the database on each new enumeration without changing quest access, progress records or dedicated receptions.
 - Reject truncated capture timestamps instead of treating a partial final record as a clean end of file.

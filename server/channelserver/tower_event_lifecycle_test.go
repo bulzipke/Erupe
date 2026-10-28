@@ -28,7 +28,7 @@ func TestTowerRotationAnchorAndValidation(t *testing.T) {
 	o := cfg.TowerRotationOptions{ActiveDays: 7, CycleDays: 21}
 	now := time.Date(2026, 10, 4, 2, 0, 0, 0, time.UTC) // 11:00 JST
 	start, err := towerInitialStart(now, o)
-	want := time.Date(2026, 10, 3, 3, 0, 0, 0, time.UTC)
+	want := time.Date(2026, 9, 28, 3, 0, 0, 0, time.UTC)
 	if err != nil || !start.Equal(want) {
 		t.Fatalf("noon anchor %v %v", start, err)
 	}
@@ -43,7 +43,7 @@ func TestTowerRotationAnchorAndValidation(t *testing.T) {
 		t.Fatalf("future anchor %v %v", start, err)
 	}
 	for _, tc := range []cfg.TowerRotationOptions{
-		{ActiveDays: 0, CycleDays: 21}, {ActiveDays: 7, CycleDays: 7}, {ActiveDays: 7, CycleDays: 366},
+		{ActiveDays: 0, CycleDays: 21}, {ActiveDays: 8, CycleDays: 7}, {ActiveDays: 7, CycleDays: 366},
 		{ActiveDays: 7, CycleDays: 21, StartAt: "not a date"},
 	} {
 		if _, err := towerInitialStart(now, tc); err == nil {

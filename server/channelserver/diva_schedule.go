@@ -44,15 +44,25 @@ func (e DivaEvent) songRankingCutoff(now time.Time) time.Time {
 	return divaRankingCutoff(now, e.phaseTime(0))
 }
 
-// Keep the first new prayer phase whole when upgrading during an old idle
-// period. Never invent a backdated interception that would expire old rewards.
-// Subsequent rounds remain anchored even after downtime or delayed requests.
+// Monday noon in UTC+9, including the previous week before Monday noon.
+func rotationMondayNoon(now time.Time) time.Time {
+	t := now.In(divaLocation)
+	start := time.Date(t.Year(), t.Month(), t.Day(), 12, 0, 0, 0, divaLocation)
+	start = start.AddDate(0, 0, -(int(t.Weekday())+6)%7)
+	if now.Before(start) {
+		start = start.AddDate(0, 0, -7)
+	}
+	return start
+}
+
+// Bootstrap at Monday noon; subsequent rounds retain the persisted three-week
+// anchor after downtime. Historical legacy rounds retain their own deadlines.
 func divaNextNormalStart(event DivaEvent, now time.Time) time.Time {
 	if event.ID == 0 || !event.Continuous {
 		if event.ID != 0 && now.Equal(event.phaseTime(5)) {
 			return event.phaseTime(5)
 		}
-		return now.Truncate(time.Second)
+		return rotationMondayNoon(now)
 	}
 	end := event.phaseTime(5)
 	cycle := time.Duration(3*secsPerWeek) * time.Second

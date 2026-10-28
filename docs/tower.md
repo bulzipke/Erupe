@@ -8,6 +8,18 @@ or implemented in Erupe.
 > 2026-09-23 behavior, reward sources and remaining limitations, see
 > [tower-rewards.md](tower-rewards.md).
 
+Current automatic operation (2026-10-28): `TowerRotation.Enabled=true`,
+`ActiveDays=21`, `CycleDays=21`. Exploration runs continuously for three weeks
+from Monday 12:00 UTC+9. The next round begins immediately when it ends.
+Floor, advance-contribution and queued daily rewards from the previous round
+remain receivable throughout the new round, then expire at the following
+round's start. The reward window shows previous and current pending items
+together, with receipts scoped to their original round. Permanent TR/TRP/TSP
+and skills survive rollover; round floors, guardians, antiques and guild
+mission progress follow the existing archive/reset policy. Migration 0098
+realigns the current schedule without resetting progress and saves its old
+dates in `rotation_schedule_adjustments`.
+
 The core of this system **is already implemented on `develop`** via the repository and
 service pattern (`repo_tower.go`, `svc_tower.go`, `handlers_tower.go`). Two branches carry
 earlier work: `wip/tower` predates the refactor and uses direct SQL; `feature/tower` merges

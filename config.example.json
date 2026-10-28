@@ -9,9 +9,9 @@
   },
   "ClientMode": "ZZ",
   "TowerRotation": {
-    "Enabled": false,
+    "Enabled": true,
     "StartAt": "",
-    "ActiveDays": 7,
+    "ActiveDays": 21,
     "CycleDays": 21
   },
   "GameplayOptions": {

@@ -41,9 +41,9 @@
   "EarthStatus": 0,
   "EarthID": 0,
   "TowerRotation": {
-    "Enabled": false,
+    "Enabled": true,
     "StartAt": "",
-    "ActiveDays": 7,
+    "ActiveDays": 21,
     "CycleDays": 21
   },
   "EarthMonsters": [0, 0, 0, 0],

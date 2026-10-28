@@ -224,9 +224,20 @@ func (s *Session) listTowerDailyRewards() ([]byte, error) {
 	if !ok {
 		return nil, errors.New("Tower daily reward repository unavailable")
 	}
-	rows, err := repo.ListTowerDailyRewards(s.charID, event.ID, towerDailyRewardPageSize)
+	events, err := s.server.towerRewardEvents(event, TimeAdjusted())
 	if err != nil {
 		return nil, err
+	}
+	var rows []TowerDailyRewardRow
+	for _, rewardEvent := range events {
+		page, err := repo.ListTowerDailyRewards(s.charID, rewardEvent.ID, towerDailyRewardPageSize-len(rows))
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, page...)
+		if len(rows) == towerDailyRewardPageSize {
+			break
+		}
 	}
 	d.Offer = slices.Clone(rows)
 	return towerDailyItemBytes(rows), nil
