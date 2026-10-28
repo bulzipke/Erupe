@@ -17,7 +17,7 @@ function fixture(){
  const context=vm.createContext({byId,numberFormatter:new Intl.NumberFormat("ko-KR"),
   document:{createElement:tag=>new Element(tag),createDocumentFragment:()=>new Element("fragment")},
   text(tag,cls,content){const e=new Element(tag);e.className=cls;e.textContent=content;return e;},
-  renderOnline:noop,renderQuestRanking:noop,renderWeaponRanking:noop,renderMonsterTimes:noop,renderRavienteRuns:noop,playtimeLabel:String});
+  renderOnline:noop,renderQuestRanking:noop,renderWeaponRanking:noop,renderLegendRanking:noop,renderMonsterTimes:noop,renderRavienteRuns:noop,playtimeLabel:String});
  vm.runInContext(rankingCode+renderCode,context);return {byId,render:data=>{context.data=data;vm.runInContext("render(data)",context);}};
 }
 test("both cards render real aggregate counts as text",()=>{

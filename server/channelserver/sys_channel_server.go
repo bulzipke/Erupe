@@ -163,14 +163,15 @@ type Server struct {
 
 	handlerTable map[network.PacketID]handlerFunc
 
-	guildMissionRepo    GuildMissionRepo
-	guildMissionService *GuildMissionService
-	huntRecordRepo      HuntRecordRepo
-	weaponUsageRepo     WeaponUsageRepo
-	ravienteRunRepo     RavienteRunRepo
-	ravienteRunTracker  *RavienteRunTracker
-	questStatsRepo      QuestStatsRepo
-	securityAuditRepo   *securityaudit.Repository
+	guildMissionRepo     GuildMissionRepo
+	guildMissionService  *GuildMissionService
+	huntRecordRepo       HuntRecordRepo
+	weaponUsageRepo      WeaponUsageRepo
+	legendQuestUsageRepo LegendQuestUsageRepo
+	ravienteRunRepo      RavienteRunRepo
+	ravienteRunTracker   *RavienteRunTracker
+	questStatsRepo       QuestStatsRepo
+	securityAuditRepo    *securityaudit.Repository
 
 	// Immutable server-authoritative filter loaded from Config.NGWordsFile.
 	ngWordFilter  *stringsupport.NGWordFilter
@@ -244,6 +245,7 @@ func NewServer(config *Config) *Server {
 	s.guildMissionRepo = NewGuildMissionRepository(config.DB)
 	s.huntRecordRepo = NewHuntRecordRepository(config.DB)
 	s.weaponUsageRepo = NewWeaponUsageRepository(config.DB)
+	s.legendQuestUsageRepo = NewLegendQuestUsageRepository(config.DB)
 	if config.DB != nil {
 		s.ravienteRunRepo = NewRavienteRunRepository(config.DB)
 		s.ravienteRunTracker = NewRavienteRunTracker(s.ravienteRunRepo, config.Logger)

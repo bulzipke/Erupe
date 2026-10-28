@@ -421,6 +421,7 @@ type DashboardRankings struct {
 	Guilds           []GuildRankEntry         `json:"guilds"`
 	Playtime         []PlaytimeRankEntry      `json:"playtime"`
 	MostUsedWeapons  []WeaponUsageRankEntry   `json:"mostUsedWeapons"`
+	LegendRastas     []LegendUsageRankEntry   `json:"legendRastas"`
 	LeastUsedWeapons []WeaponUsageRankEntry   `json:"leastUsedWeapons"`
 	MonsterTimes     []MonsterTimeRankEntry   `json:"monsterTimes"`
 	RavienteRuns     []RavienteRunRankEntry   `json:"ravienteRuns"`
@@ -813,6 +814,7 @@ func emptyDashboardRankings() DashboardRankings {
 		Guilds:           make([]GuildRankEntry, 0),
 		Playtime:         make([]PlaytimeRankEntry, 0),
 		MostUsedWeapons:  make([]WeaponUsageRankEntry, 0),
+		LegendRastas:     make([]LegendUsageRankEntry, 0),
 		LeastUsedWeapons: make([]WeaponUsageRankEntry, 0),
 		MonsterTimes:     make([]MonsterTimeRankEntry, 0),
 		RavienteRuns:     make([]RavienteRunRankEntry, 0),
@@ -892,6 +894,10 @@ func (s *APIServer) getDashboardRankings(ctx context.Context) DashboardRankings 
 
 	if err := s.db.SelectContext(ctx, &rankings.MostUsedWeapons, dashboardMostUsedWeaponsQuery); err != nil {
 		s.logger.Warn("Dashboard: failed to query most-used weapon rankings", zap.Error(err))
+		return dashboardRankingsAfterQueryError(s.dashboardRankings, s.dashboardRankingsAt, rankings)
+	}
+	if err := s.loadDashboardLegendUsage(ctx, &rankings); err != nil {
+		s.logger.Warn("Dashboard: failed to query legend companion usage", zap.Error(err))
 		return dashboardRankingsAfterQueryError(s.dashboardRankings, s.dashboardRankingsAt, rankings)
 	}
 	if err := s.db.SelectContext(ctx, &rankings.LeastUsedWeapons, dashboardLeastUsedWeaponsQuery); err != nil {

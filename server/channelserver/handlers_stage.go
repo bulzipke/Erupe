@@ -750,6 +750,10 @@ func handleMsgSysSetStagePass(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgSysSetStageBinary(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgSysSetStageBinary)
+	if pkt.BinaryType0 == 254 && pkt.BinaryType1 == 32 {
+		s.recordLegendQuestRoster(pkt)
+		return
+	}
 	questID, runMode, conquestLevel, questSetupDecoded := decodeQuestRunSetupFromStageBinary(
 		pkt.StageID,
 		pkt.BinaryType0,

@@ -224,6 +224,7 @@ tbody tr:last-child td{border-bottom:0}
 .monster-time-rank{color:#66716c;font-family:Georgia,"Times New Roman",serif;font-variant-numeric:tabular-nums}
 .monster-time-name,.monster-time-quest{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .monster-time-name{color:var(--text);font-weight:750}
+.hunt-hp-trigger{max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .monster-time-weapon{display:flex;align-items:center;justify-content:center;padding-top:4px !important;padding-bottom:4px !important}
 .monster-time-weapon-icon{display:block;width:26px;height:26px;object-fit:contain}
 .monster-time-weapon-empty{color:#66716c;text-align:center}
@@ -261,17 +262,16 @@ tbody tr:last-child td{border-bottom:0}
     box-shadow:0 12px 32px rgba(0,0,0,.52)
 }
 .raviente-participants-popover::backdrop{background:transparent}
+.hunt-hp-popover{width:max-content;max-width:calc(100vw - 24px);padding:10px 12px;font-size:.73rem;font-weight:750}
 .raviente-participants-title{margin:0;padding:10px 12px;border-bottom:1px solid var(--line);color:var(--accent-soft);font-size:.73rem;font-weight:800}
 .raviente-participant-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));max-height:220px;margin:0;padding:8px 12px;overflow-y:auto;list-style:none;scrollbar-color:#53605a #171e1b}
 .raviente-participant-list li{min-width:0;padding:4px 5px;overflow-wrap:anywhere;color:#d9dfda;font-size:.71rem}
 .raviente-participant-empty{padding:16px 12px;color:var(--muted);font-size:.71rem;text-align:center}
 .ranking-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+.quest-usage-ranking-grid{grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid var(--line)}
 .shop-ranking-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 .shop-ranking-grid>.ranking-block:nth-child(2n){border-right:0}
 .shop-ranking-grid .ranking-name{white-space:normal;overflow-wrap:anywhere}
-.shop-ranking-note{margin:-6px 0 10px;color:var(--muted);font-size:.69rem}
-.ranking-grid>.ranking-block:nth-child(3n){border-right:0}
-.ranking-grid>.ranking-block:nth-child(n+4){border-top:1px solid var(--line)}
 .ranking-block{min-width:0;padding:18px;border-right:1px solid var(--line)}
 .ranking-block:last-child{border-right:0}
 .ranking-heading{margin:0 0 14px;color:var(--accent-soft);font-size:.78rem;font-weight:800}
@@ -445,7 +445,6 @@ tbody tr:last-child td{border-bottom:0}
     <section class="rankings">
         <div class="rankings-header">
             <h2>월드 랭킹</h2>
-            <p>랭킹 데이터는 1분간 캐시되며 읽기 전용으로 제공됩니다.</p>
         </div>
         <div class="ranking-grid">
             <article class="ranking-block">
@@ -460,6 +459,8 @@ tbody tr:last-child td{border-bottom:0}
                 <h3 class="ranking-heading">수렵단 RP</h3>
                 <ol class="ranking-list" id="guild-ranking"></ol>
             </article>
+        </div>
+        <div class="ranking-grid quest-usage-ranking-grid">
             <article class="ranking-block">
                 <h3 class="ranking-heading">가장 많이 클리어한 퀘스트</h3>
                 <div class="quest-ranking-scroll">
@@ -476,23 +477,24 @@ tbody tr:last-child td{border-bottom:0}
                 <h3 class="ranking-heading">가장 많이 사용한 무기</h3>
                 <ol class="ranking-list" id="weapon-most-ranking" aria-label="가장 많이 사용한 무기와 사용 횟수"></ol>
             </article>
+            <article class="ranking-block">
+                <h3 class="ranking-heading">가장 많이 사용한 레전드 라스터</h3>
+                <ol class="ranking-list" id="legend-rasta-ranking" aria-label="레전드 라스터별 퀘스트 동행 횟수"></ol>
+            </article>
         </div>
     </section>
 
     <section class="rankings">
         <div class="rankings-header">
             <h2>뽑기·키트 인기 순위</h2>
-            <p>전체 유저의 누적 횟수 상위 5개를 표시합니다.</p>
         </div>
         <div class="ranking-grid shop-ranking-grid">
             <article class="ranking-block">
                 <h3 class="ranking-heading">가장 많이 한 뽑기</h3>
-                <p class="shop-ranking-note">뽑기 횟수 기준 · 집계 시작 이후 누적</p>
                 <ol class="ranking-list" id="gacha-popularity-ranking" aria-label="뽑기 이용 순위"></ol>
             </article>
             <article class="ranking-block">
                 <h3 class="ranking-heading">가장 많이 구매한 키트</h3>
-                <p class="shop-ranking-note">구매 횟수 기준 · 저장된 전체 구매 내역</p>
                 <ol class="ranking-list" id="kit-popularity-ranking" aria-label="키트 구매 순위"></ol>
             </article>
         </div>
@@ -501,7 +503,6 @@ tbody tr:last-child td{border-bottom:0}
     <section class="rankings">
         <div class="rankings-header">
             <h2>대형 몬스터별 최단 토벌</h2>
-            <p>토벌 시간은 개인 기록을 원칙으로 합니다. 라비엔테 맹광기는 완료된 대토벌 전체 소요 시간과 참가 인원을 별도로 표시합니다. 각 랭킹의 상위 10개 중 3위 이후는 내부에서 세로로 스크롤할 수 있습니다.</p>
         </div>
         <div class="monster-time-scroll" id="monster-time-ranking" aria-label="대형 몬스터별 최단 토벌 기록">
             <section class="monster-time-group" aria-labelledby="monster-time-challenge-heading">
@@ -542,7 +543,6 @@ tbody tr:last-child td{border-bottom:0}
 
     <footer class="footer">
         <span>마지막 갱신: <time id="last-updated">아직 없음</time></span>
-        <span>개인 토벌 시간은 퀘스트 종료 로그, 라비엔테 전체 시간은 완료된 대토벌 회차 기준입니다.</span>
     </footer>
 </main>
 
@@ -627,15 +627,8 @@ tbody tr:last-child td{border-bottom:0}
 
     function huntSettingsDescription(entry) {
         var settings = entry.clientSettings;
-        if (!settings || settings.version !== 1) {
-            return "몬스터 HP 표시: 미수집\n시간 표시: 미수집";
-        }
-        var modes = ["OFF", "ON", "클리어 시 표시"];
-        var hp = "몬스터 HP 표시: " + (settings.hpView ? "ON" : "OFF");
-        if (settings.hpViewUsed && !settings.hpView) hp += " (퀘스트 중 ON 사용)";
-        var elapsed = "시간 표시: " + (modes[settings.elapsedMode] || "미수집");
-        if (settings.elapsedUsed && settings.elapsedMode === 0) elapsed += " (퀘스트 중 사용)";
-        return hp + "\n" + elapsed;
+        var used = settings && settings.version === 1 && (settings.hpView === true || settings.hpViewUsed === true);
+        return used ? "HP표시사용" : "HP표시미사용";
     }
 
     function huntTimeLabel(frames) {
@@ -1240,6 +1233,25 @@ tbody tr:last-child td{border-bottom:0}
         list.replaceChildren(fragment);
     }
 
+    function renderLegendRanking(targetId, entries) {
+        var list = byId(targetId);
+        if (!entries.length) {
+            list.replaceChildren(text("li", "ranking-empty", "표시할 기록이 없습니다."));
+            return;
+        }
+
+        var fragment = document.createDocumentFragment();
+        entries.forEach(function (entry, index) {
+            var item = document.createElement("li");
+            item.className = "ranking-item";
+            item.appendChild(text("span", "ranking-number", String(index + 1).padStart(2, "0")));
+            item.appendChild(text("span", "ranking-name", entry.name || ("레전드 #" + entry.id)));
+            item.appendChild(text("span", "ranking-score", numberFormatter.format(entry.uses) + "회"));
+            fragment.appendChild(item);
+        });
+        list.replaceChildren(fragment);
+    }
+
     function monsterTimeGroup(entry) {
         var group = entry.featuredGroup || "";
         if (["zenith", "challenge", "upper_shiten", "other"].indexOf(group) !== -1) {
@@ -1254,6 +1266,27 @@ tbody tr:last-child td{border-bottom:0}
 
     function buildMonsterTimeWeaponCell(entry) {
         return buildWeaponIconCell(entry, "monster-time-weapon", "monster-time-weapon-icon", "monster-time-weapon-empty");
+    }
+
+    function buildMonsterTimeNameControl(entry, popoverID) {
+        var cell = document.createElement("td");
+        cell.className = "monster-time-name";
+        var description = huntSettingsDescription(entry);
+        var trigger = text("button", "raviente-participant-trigger hunt-hp-trigger", entry.name);
+        trigger.type = "button";
+        trigger.setAttribute("aria-label", entry.name + ", HP 표시 정보");
+        trigger.setAttribute("aria-describedby", popoverID);
+        trigger.setAttribute("aria-controls", popoverID);
+        trigger.setAttribute("aria-expanded", "false");
+        cell.appendChild(trigger);
+
+        var popover = text("div", "raviente-participants-popover hunt-hp-popover", description);
+        popover.id = popoverID;
+        popover.setAttribute("popover", "auto");
+        popover.setAttribute("role", "tooltip");
+        cell.appendChild(popover);
+        bindRankingPopover(trigger, popover);
+        return cell;
     }
 
     function buildMonsterTimeCard(monster, entries) {
@@ -1280,20 +1313,13 @@ tbody tr:last-child td{border-bottom:0}
         entries.slice(0, 10).forEach(function (entry, index) {
             var row = document.createElement("tr");
             row.appendChild(text("td", "monster-time-rank", String(index + 1)));
-            var name = text("td", "monster-time-name", entry.name);
-            name.title = entry.name;
-            row.appendChild(name);
+            row.appendChild(buildMonsterTimeNameControl(entry, "hunt-hp-" + encodeURIComponent(monster.key) + "-" + index));
             row.appendChild(buildMonsterTimeWeaponCell(entry));
             row.appendChild(text("td", "monster-time-value", huntTimeLabel(entry.frames)));
             var questName = entry.questName || (entry.questId ? "퀘스트 #" + entry.questId : "퀘스트 번호 없음");
             var quest = text("td", "monster-time-quest", questName);
             quest.title = questName;
             row.appendChild(quest);
-            var settingsDescription = huntSettingsDescription(entry);
-            row.title = settingsDescription;
-            Array.prototype.forEach.call(row.cells, function (cell) {
-                cell.title = (cell.title ? cell.title + "\n" : "") + settingsDescription;
-            });
             tbody.appendChild(row);
         });
         table.appendChild(tbody);
@@ -1396,42 +1422,7 @@ tbody tr:last-child td{border-bottom:0}
 		});
 	}
 
-	function buildRavienteParticipantControl(entry) {
-		var cell = document.createElement("td");
-		var names = Array.isArray(entry.participants) ? entry.participants.slice() : [];
-		names = names.filter(function (name) { return String(name || "").trim() !== ""; });
-		names.sort(participantNameCollator.compare);
-		var participantCount = Math.max(0, Number(entry.participantCount) || names.length);
-		var runID = String(entry.id || "unknown");
-		var popoverID = "raviente-participants-" + runID.replace(/[^a-zA-Z0-9_-]/g, "-");
-
-		var trigger = text("button", "raviente-participant-trigger", numberFormatter.format(participantCount) + "명 ⓘ");
-		trigger.type = "button";
-		trigger.dataset.runId = runID;
-		trigger.setAttribute("aria-label", "참가 인원 " + participantCount + "명, 참가자 목록 열기");
-		trigger.setAttribute("aria-haspopup", "dialog");
-		trigger.setAttribute("aria-controls", popoverID);
-		trigger.setAttribute("aria-expanded", "false");
-		cell.appendChild(trigger);
-
-		var popover = document.createElement("div");
-		popover.className = "raviente-participants-popover";
-		popover.id = popoverID;
-		popover.setAttribute("popover", "auto");
-		popover.setAttribute("role", "dialog");
-		popover.setAttribute("aria-label", "참가 헌터 " + participantCount + "명");
-		popover.tabIndex = 0;
-		popover.appendChild(text("p", "raviente-participants-title", "참가 헌터 " + numberFormatter.format(participantCount) + "명"));
-		if (names.length) {
-			var list = document.createElement("ul");
-			list.className = "raviente-participant-list";
-			names.forEach(function (name) { list.appendChild(text("li", "", name)); });
-			popover.appendChild(list);
-		} else {
-			popover.appendChild(text("p", "raviente-participant-empty", "기록된 참가자 이름이 없습니다."));
-		}
-		cell.appendChild(popover);
-
+	function bindRankingPopover(trigger, popover) {
 		var nativePopover = typeof popover.showPopover === "function";
 		if (!nativePopover) {
 			popover.removeAttribute("popover");
@@ -1485,6 +1476,45 @@ tbody tr:last-child td{border-bottom:0}
 				if (!open) pinned = false;
 			});
 		}
+	}
+
+	function buildRavienteParticipantControl(entry) {
+		var cell = document.createElement("td");
+		var names = Array.isArray(entry.participants) ? entry.participants.slice() : [];
+		names = names.filter(function (name) { return String(name || "").trim() !== ""; });
+		names.sort(participantNameCollator.compare);
+		var participantCount = Math.max(0, Number(entry.participantCount) || names.length);
+		var runID = String(entry.id || "unknown");
+		var popoverID = "raviente-participants-" + runID.replace(/[^a-zA-Z0-9_-]/g, "-");
+
+		var trigger = text("button", "raviente-participant-trigger", numberFormatter.format(participantCount) + "명");
+		trigger.type = "button";
+		trigger.dataset.runId = runID;
+		trigger.setAttribute("aria-label", "참가 인원 " + participantCount + "명, 참가자 목록 열기");
+		trigger.setAttribute("aria-haspopup", "dialog");
+		trigger.setAttribute("aria-controls", popoverID);
+		trigger.setAttribute("aria-expanded", "false");
+		cell.appendChild(trigger);
+
+		var popover = document.createElement("div");
+		popover.className = "raviente-participants-popover";
+		popover.id = popoverID;
+		popover.setAttribute("popover", "auto");
+		popover.setAttribute("role", "dialog");
+		popover.setAttribute("aria-label", "참가 헌터 " + participantCount + "명");
+		popover.tabIndex = 0;
+		popover.appendChild(text("p", "raviente-participants-title", "참가 헌터 " + numberFormatter.format(participantCount) + "명"));
+		if (names.length) {
+			var list = document.createElement("ul");
+			list.className = "raviente-participant-list";
+			names.forEach(function (name) { list.appendChild(text("li", "", name)); });
+			popover.appendChild(list);
+		} else {
+			popover.appendChild(text("p", "raviente-participant-empty", "기록된 참가자 이름이 없습니다."));
+		}
+		cell.appendChild(popover);
+
+		bindRankingPopover(trigger, popover);
 		return cell;
 	}
 
@@ -1597,6 +1627,7 @@ tbody tr:last-child td{border-bottom:0}
         renderQuestRanking("quest-clear-ranking", rankings.questClears || [], mostUsedWeapons.length);
         renderQuestRanking("quest-fail-ranking", rankings.questFails || [], mostUsedWeapons.length);
         renderWeaponRanking("weapon-most-ranking", mostUsedWeapons);
+        renderLegendRanking("legend-rasta-ranking", rankings.legendRastas || []);
         renderRanking("playtime-ranking", rankings.playtime || [], function (entry) {
             return playtimeLabel(entry.seconds);
         });
