@@ -47,8 +47,8 @@ SELECT
 	diva_pugi_outfit_3,
 	pugi_outfits,
 	recruiting,
-	COALESCE((SELECT team FROM festa_registrations fr WHERE fr.guild_id = g.id), 'none') AS festival_color,
-	COALESCE((SELECT SUM(fs.souls) FROM festa_submissions fs WHERE fs.guild_id=g.id), 0) AS souls,
+	COALESCE((SELECT team FROM festa_registrations fr WHERE fr.guild_id = g.id AND fr.event_id=COALESCE((SELECT event_id FROM festa_event_lifecycle WHERE singleton),0) LIMIT 1), 'none') AS festival_color,
+	COALESCE((SELECT SUM(fs.souls) FROM festa_submissions fs WHERE fs.guild_id=g.id AND fs.event_id=COALESCE((SELECT event_id FROM festa_event_lifecycle WHERE singleton),0)), 0) AS souls,
 	COALESCE((
 		SELECT id FROM guild_alliances ga WHERE
 	 	ga.parent_id = g.id OR
@@ -72,7 +72,7 @@ const guildMembersSelectSQL = `
 SELECT
 	character.guild_id AS guild_id,
 	gc.joined_at,
-	COALESCE((SELECT SUM(souls) FROM festa_submissions fs WHERE fs.character_id=c.id), 0) AS souls,
+	COALESCE((SELECT SUM(souls) FROM festa_submissions fs WHERE fs.character_id=c.id AND fs.event_id=COALESCE((SELECT event_id FROM festa_event_lifecycle WHERE singleton),0)), 0) AS souls,
 	COALESCE(gc.rp_today, 0) AS rp_today,
 	COALESCE(gc.rp_yesterday, 0) AS rp_yesterday,
 	c.name,

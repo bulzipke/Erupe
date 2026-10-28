@@ -2,6 +2,15 @@
   "Host": "127.0.0.1",
   "BinPath": "bin",
   "Language": "en",
+  "Logging": {
+    "Enabled": true,
+    "Directory": "logs",
+    "MaxSizeMB": 50,
+    "MaxBackups": 10,
+    "MaxAgeDays": 14,
+    "Compress": true,
+    "CaptureCrashes": true
+  },
   "DisableShutdownCountdown": false,
   "ShutdownCountdownSeconds": 10,
   "ShutdownDrainSeconds": 30,

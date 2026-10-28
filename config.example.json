@@ -1,5 +1,14 @@
 {
   "Host": "",
+  "Logging": {
+    "Enabled": true,
+    "Directory": "logs",
+    "MaxSizeMB": 50,
+    "MaxBackups": 10,
+    "MaxAgeDays": 14,
+    "Compress": true,
+    "CaptureCrashes": true
+  },
   "Database": {
     "Host": "localhost",
     "Port": 5432,

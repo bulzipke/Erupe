@@ -7,6 +7,7 @@ vendor/
 *.bat
 /docker/db-data
 /docker/savedata
+/docker/logs
 /docker/bin
 /docker/config.json
 screenshots/*

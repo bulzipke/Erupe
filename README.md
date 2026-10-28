@@ -314,6 +314,11 @@ go test -v -race ./...     # Check for race conditions (mandatory before merging
 
 ### Debug Logging
 
+Server logs are also saved to `logs/erupe.log`, and raw crash/error output to
+`logs/crash.log`, with size limits, backup retention and compression. For Unraid,
+map `/mnt/user/appdata/erupe/logs` to `/app/logs` with write permission.
+See [persistent logging settings and crash capture](docs/logging.md).
+
 Enable detailed logging in `config.json`:
 
 ```json

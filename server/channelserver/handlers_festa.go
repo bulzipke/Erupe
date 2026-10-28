@@ -103,7 +103,8 @@ func handleMsgMhfInfoFesta(s *Session, p mhfpacket.MHFPacket) {
 
 	const festaIDSentinel = uint32(0xDEADBEEF)
 	id, start := festaIDSentinel, uint32(0)
-	events, err := s.server.festaRepo.GetFestaEvents()
+	repo := s.server.festaRepo
+	events, err := repo.GetFestaEvents()
 	if err != nil {
 		s.logger.Error("Failed to query festa schedule", zap.Error(err))
 	} else {
@@ -121,7 +122,18 @@ func handleMsgMhfInfoFesta(s *Session, p mhfpacket.MHFPacket) {
 		}
 		timestamps = generateFestaTimestamps(s, uint32(s.server.erupeConfig.DebugOptions.FestaOverride), true)
 	} else {
-		timestamps = generateFestaTimestamps(s, start, false)
+		if _, ok := repo.(FestaEventLifecycleRepository); ok {
+			var event FestaEvent
+			event, repo, err = s.festaContext()
+			if err != nil {
+				s.logger.Error("Failed to resolve Festa schedule", zap.Error(err))
+				doAckBufFail(s, pkt.AckHandle, nil)
+				return
+			}
+			id, timestamps = event.ID, event.timestamps()
+		} else {
+			timestamps = generateFestaTimestamps(s, start, false)
+		}
 	}
 
 	if timestamps[0] > uint32(TimeAdjusted().Unix()) {
@@ -129,11 +141,11 @@ func handleMsgMhfInfoFesta(s *Session, p mhfpacket.MHFPacket) {
 		return
 	}
 
-	blueSouls, err := s.server.festaRepo.GetTeamSouls("blue")
+	blueSouls, err := repo.GetTeamSouls("blue")
 	if err != nil {
 		s.logger.Error("Failed to get blue souls", zap.Error(err))
 	}
-	redSouls, err := s.server.festaRepo.GetTeamSouls("red")
+	redSouls, err := repo.GetTeamSouls("red")
 	if err != nil {
 		s.logger.Error("Failed to get red souls", zap.Error(err))
 	}
@@ -149,7 +161,7 @@ func handleMsgMhfInfoFesta(s *Session, p mhfpacket.MHFPacket) {
 	bf.WriteUint32(blueSouls)
 	bf.WriteUint32(redSouls)
 
-	trials, err := s.server.festaRepo.GetTrialsWithMonopoly()
+	trials, err := repo.GetTrialsWithMonopoly()
 	if err != nil {
 		s.logger.Error("Failed to query festa trials", zap.Error(err))
 	}
@@ -250,7 +262,7 @@ func handleMsgMhfInfoFesta(s *Session, p mhfpacket.MHFPacket) {
 
 	bf.WriteUint16(4)
 	for i := uint16(0); i < 4; i++ {
-		ranking, err := s.server.festaRepo.GetTopGuildForTrial(i + 1)
+		ranking, err := repo.GetTopGuildForTrial(i + 1)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			s.logger.Error("Failed to get festa trial ranking", zap.Error(err))
 		}
@@ -262,7 +274,7 @@ func handleMsgMhfInfoFesta(s *Session, p mhfpacket.MHFPacket) {
 	bf.WriteUint16(7)
 	for i := uint16(0); i < 7; i++ {
 		offset := secsPerDay * uint32(i)
-		ranking, err := s.server.festaRepo.GetTopGuildInWindow(timestamps[1]+offset, timestamps[1]+offset+secsPerDay)
+		ranking, err := repo.GetTopGuildInWindow(timestamps[1]+offset, timestamps[1]+offset+secsPerDay)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			s.logger.Error("Failed to get festa daily ranking", zap.Error(err))
 		}
@@ -293,6 +305,11 @@ func handleMsgMhfInfoFesta(s *Session, p mhfpacket.MHFPacket) {
 // state festa (U)ser
 func handleMsgMhfStateFestaU(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfStateFestaU)
+	event, repo, contextErr := s.festaContext()
+	if contextErr != nil || (event.Continuous && pkt.FestaID != event.ID) {
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
 	guild, err := s.server.guildRepo.GetByCharID(s.charID)
 	applicant := false
 	if guild != nil {
@@ -306,11 +323,11 @@ func handleMsgMhfStateFestaU(s *Session, p mhfpacket.MHFPacket) {
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
-	souls, err := s.server.festaRepo.GetCharSouls(s.charID)
+	souls, err := repo.GetCharSouls(s.charID)
 	if err != nil {
 		s.logger.Error("Failed to get festa user souls", zap.Error(err))
 	}
-	claimed := s.server.festaRepo.HasClaimedMainPrize(s.charID)
+	claimed := repo.HasClaimedMainPrize(s.charID)
 	bf := byteframe.NewByteFrame()
 	bf.WriteUint32(souls)
 	if !claimed {
@@ -326,6 +343,10 @@ func handleMsgMhfStateFestaU(s *Session, p mhfpacket.MHFPacket) {
 // state festa (G)uild
 func handleMsgMhfStateFestaG(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfStateFestaG)
+	if _, _, err := s.festaContext(); err != nil {
+		doAckBufFail(s, pkt.AckHandle, nil)
+		return
+	}
 	guild, err := s.server.guildRepo.GetByCharID(s.charID)
 	applicant := false
 	if guild != nil {
@@ -355,6 +376,10 @@ func handleMsgMhfStateFestaG(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfEnumerateFestaMember(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfEnumerateFestaMember)
+	if _, _, err := s.festaContext(); err != nil {
+		doAckBufFail(s, pkt.AckHandle, nil)
+		return
+	}
 	guild, err := s.server.guildRepo.GetByCharID(s.charID)
 	if err != nil || guild == nil {
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
@@ -391,7 +416,11 @@ func handleMsgMhfEnumerateFestaMember(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfVoteFesta(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfVoteFesta)
-	if err := s.server.festaRepo.VoteTrial(s.charID, pkt.TrialID); err != nil {
+	_, repo, err := s.festaContext()
+	if err == nil {
+		err = repo.VoteTrial(s.charID, pkt.TrialID)
+	}
+	if err != nil {
 		s.logger.Error("Failed to update festa trial vote", zap.Error(err))
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
@@ -401,6 +430,11 @@ func handleMsgMhfVoteFesta(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfEntryFesta(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfEntryFesta)
+	_, repo, err := s.festaContext()
+	if err != nil {
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
 	guildID, reason, lookupErr := resolveGuildMemberAccess(s, 0)
 	if lookupErr != nil {
 		s.logger.Error("Failed to establish guild membership for festa entry", zap.Error(lookupErr))
@@ -416,7 +450,7 @@ func handleMsgMhfEntryFesta(s *Session, p mhfpacket.MHFPacket) {
 	if team == 1 {
 		teamName = "red"
 	}
-	if err := s.server.festaRepo.RegisterGuild(guildID, teamName); err != nil {
+	if err := repo.RegisterGuild(guildID, teamName); err != nil {
 		s.logger.Error("Failed to register guild for festa", zap.Error(err))
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
@@ -428,6 +462,11 @@ func handleMsgMhfEntryFesta(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfChargeFesta(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfChargeFesta)
+	_, repo, err := s.festaContext()
+	if err != nil {
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
 	guildID, reason, lookupErr := resolveGuildMemberAccess(s, pkt.GuildID)
 	if lookupErr != nil {
 		s.logger.Error("Failed to establish guild membership for festa submission", zap.Error(lookupErr))
@@ -441,7 +480,7 @@ func handleMsgMhfChargeFesta(s *Session, p mhfpacket.MHFPacket) {
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
-	if err := s.server.festaService.SubmitSouls(s.charID, guildID, pkt.Souls); err != nil {
+	if err := NewFestaService(repo, s.logger).SubmitSouls(s.charID, guildID, pkt.Souls); err != nil {
 		s.logger.Error("Failed to submit festa souls", zap.Error(err))
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
@@ -451,7 +490,14 @@ func handleMsgMhfChargeFesta(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfAcquireFesta(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfAcquireFesta)
-	if err := s.server.festaRepo.ClaimPrize(0, s.charID); err != nil {
+	event, repo, err := s.festaContext()
+	if err == nil && event.Continuous && pkt.FestaID != event.ID {
+		err = errFestaRoundChanged
+	}
+	if err == nil {
+		err = repo.ClaimPrize(0, s.charID)
+	}
+	if err != nil {
 		s.logger.Error("Failed to accept festa prize", zap.Error(err))
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
@@ -461,7 +507,11 @@ func handleMsgMhfAcquireFesta(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfAcquireFestaPersonalPrize(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfAcquireFestaPersonalPrize)
-	if err := s.server.festaRepo.ClaimPrize(pkt.PrizeID, s.charID); err != nil {
+	repo, err := s.festaPrizeRepo("personal")
+	if err == nil {
+		err = repo.ClaimPrize(pkt.PrizeID, s.charID)
+	}
+	if err != nil {
 		s.logger.Error("Failed to accept festa personal prize", zap.Error(err))
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
@@ -471,7 +521,11 @@ func handleMsgMhfAcquireFestaPersonalPrize(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfAcquireFestaIntermediatePrize(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfAcquireFestaIntermediatePrize)
-	if err := s.server.festaRepo.ClaimPrize(pkt.PrizeID, s.charID); err != nil {
+	repo, err := s.festaPrizeRepo("guild")
+	if err == nil {
+		err = repo.ClaimPrize(pkt.PrizeID, s.charID)
+	}
+	if err != nil {
 		s.logger.Error("Failed to accept festa intermediate prize", zap.Error(err))
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
@@ -490,7 +544,19 @@ type Prize struct {
 }
 
 func writePrizeList(s *Session, pkt mhfpacket.MHFPacket, ackHandle uint32, prizeType string) {
-	prizes, err := s.server.festaRepo.ListPrizes(s.charID, prizeType)
+	event, repo, err := s.festaContext()
+	if err != nil {
+		doAckBufFail(s, ackHandle, nil)
+		return
+	}
+	prizes, err := repo.ListPrizes(s.charID, prizeType)
+	if err == nil && event.Continuous {
+		if prizeType == "personal" {
+			s.festaPersonalOfferEvent.Store(event.ID)
+		} else {
+			s.festaGuildOfferEvent.Store(event.ID)
+		}
+	}
 	var count uint32
 	prizeData := byteframe.NewByteFrame()
 	if err != nil {

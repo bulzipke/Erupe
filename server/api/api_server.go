@@ -22,26 +22,28 @@ import (
 
 // Config holds the dependencies required to initialize an APIServer.
 type Config struct {
-	Logger      *zap.Logger
-	DB          *sqlx.DB
-	ErupeConfig *cfg.Config
+	Logger          *zap.Logger
+	AccessLogWriter io.Writer
+	DB              *sqlx.DB
+	ErupeConfig     *cfg.Config
 }
 
 // APIServer is Erupes Standard API interface
 type APIServer struct {
 	sync.Mutex
-	logger         *zap.Logger
-	db             *sqlx.DB
-	erupeConfig    *cfg.Config
-	userRepo       APIUserRepo
-	charRepo       APICharacterRepo
-	sessionRepo    APISessionRepo
-	eventRepo      APIEventRepo
-	securityAudit  *securityaudit.Repository
-	clientFilter   []byte
-	httpServer     *http.Server
-	startTime      time.Time
-	isShuttingDown bool
+	logger          *zap.Logger
+	accessLogWriter io.Writer
+	db              *sqlx.DB
+	erupeConfig     *cfg.Config
+	userRepo        APIUserRepo
+	charRepo        APICharacterRepo
+	sessionRepo     APISessionRepo
+	eventRepo       APIEventRepo
+	securityAudit   *securityaudit.Repository
+	clientFilter    []byte
+	httpServer      *http.Server
+	startTime       time.Time
+	isShuttingDown  bool
 
 	dashboardMu         sync.Mutex
 	dashboardRankings   DashboardRankings
@@ -66,9 +68,10 @@ const (
 // NewAPIServer creates a new Server type.
 func NewAPIServer(config *Config) *APIServer {
 	s := &APIServer{
-		logger:      config.Logger,
-		db:          config.DB,
-		erupeConfig: config.ErupeConfig,
+		logger:          config.Logger,
+		accessLogWriter: config.AccessLogWriter,
+		db:              config.DB,
+		erupeConfig:     config.ErupeConfig,
 		httpServer: &http.Server{
 			ReadHeaderTimeout: 10 * time.Second,
 			ReadTimeout:       60 * time.Second,
@@ -127,6 +130,7 @@ func (s *APIServer) Start() error {
 	r.HandleFunc("/api/dashboard/unlock", s.DashboardUnlock).Methods("POST")
 	s.registerDashboardDeliveryRoutes(r)
 	s.registerQuestScheduleRoutes(r)
+	s.registerEventScheduleRoutes(r)
 
 	// Legacy routes (unchanged, no method enforcement)
 	r.HandleFunc("/launcher", s.Launcher)
@@ -167,7 +171,11 @@ func (s *APIServer) Start() error {
 		r.Body = http.MaxBytesReader(w, r.Body, maxAPIRequestBody)
 		handler.ServeHTTP(w, r)
 	})
-	s.httpServer.Handler = apiAccessLoggingHandler(os.Stdout, boundedHandler)
+	accessLogWriter := s.accessLogWriter
+	if accessLogWriter == nil {
+		accessLogWriter = os.Stdout
+	}
+	s.httpServer.Handler = apiAccessLoggingHandler(accessLogWriter, boundedHandler)
 	s.httpServer.Addr = fmt.Sprintf(":%d", s.erupeConfig.API.Port)
 
 	serveError := make(chan error, 1)

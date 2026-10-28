@@ -44,6 +44,7 @@ services:
       - ./config.json:/app/config.json
       - ./bin:/app/bin
       - ./savedata:/app/savedata
+      - ./logs:/app/logs
     ports:
       # (Make sure these match config.json)
       - "53312:53312" #Sign V1

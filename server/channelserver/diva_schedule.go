@@ -2,6 +2,9 @@ package channelserver
 
 import "time"
 
+// ScheduleTimestamps exposes the same phase boundaries sent to the game client.
+func (e DivaEvent) ScheduleTimestamps() []uint32 { return divaEventTimestamps(e) }
+
 // Schedule policy belongs to the immutable event, not the current server
 // configuration: replaying an old receipt must use that round's old deadlines.
 func (e DivaEvent) phaseOffsets() [6]int64 {

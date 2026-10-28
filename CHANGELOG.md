@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed 
+- Preserve console output while writing rotating server logs and runtime crash reports to a configurable persistent directory, with backup count, age and compression controls.
+- Expose persisted Hunter Festival, Tower and Diva schedules through a read-only public API for Ferias event displays, using the game server's own phase boundaries.
+- Rotate Hunter Festival automatically from Monday noon on a three-week registration/soul/reward schedule without extra rest days; retain round-scoped registrations, souls and prize history across rollover.
 - Start normal Diva rounds independently of NPC requests on Monday noon (UTC+9); rotate Tower every three weeks without downtime, retaining previous-round rewards throughout the next round and preserving current progress during schedule realignment.
 - Persist native Tower daily mission awards and receive them through TINY_BIN, preserving unreceived items and committing receipts with inventory saves.
 - Read ordinary quest-list visibility from the database on each new enumeration without changing quest access, progress records or dedicated receptions.

@@ -366,6 +366,10 @@ func (s *Server) Start() error {
 		_ = l.Close()
 		return fmt.Errorf("initialize Diva rotation: %w", err)
 	}
+	if err := s.initializeFestaRotation(); err != nil {
+		_ = l.Close()
+		return fmt.Errorf("initialize Festa rotation: %w", err)
+	}
 
 	// Claim the TCP endpoint before recovering DB lifecycle state.  Otherwise a
 	// duplicate process that cannot bind this channel could abort the live
@@ -386,6 +390,7 @@ func (s *Server) Start() error {
 	go s.settleDivaMaps()
 	go s.rotateTowerEvents()
 	go s.rotateDivaEvents()
+	go s.rotateFestaEvents()
 	go s.rotateInactiveGuildLeaders()
 
 	// Start the discord bot for chat integration.

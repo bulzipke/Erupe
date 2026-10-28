@@ -165,6 +165,28 @@ The branch's `generateTournamentTimestamps` debug modes confirm the timestamp of
 These match the real-server cadence and are already reflected in `TournamentDefaults.sql`.
 
 **Festa timing correction (unrelated side effect)**
+
+Current normal Festa operation (2026-10-28) uses a separate, automatic
+three-week schedule: registration starts Monday 12:00 UTC+9, souls open one
+week later, tallying starts after two weeks, and rewards open 150 minutes
+later. Rewards end at the next Monday noon, three weeks after registration,
+when a new round begins immediately. The 150-minute tally is retained from
+this emulator; it is not a claim about the exact live maintenance duration.
+Migration 0099 preserves the active chapter while aligning the current round
+and scopes registrations, submissions and receipts to their event ID. Rollover
+retains those rows as history instead of deleting them. Forced/debug schedules
+retain their legacy behavior. Workers run at startup and every 15 seconds;
+request-time catch-up covers delayed workers or downtime.
+
+The original HD client imports one event ID and five phase timestamps
+(`1151efe0`) and derives one phase (`10490bf0`); registration is gated on phase
+1 (`1048fe30`). This change uses the existing packet and menus; it does not
+overlap an old reward chapter with a new registration/soul chapter.
+Capcom's [published normal schedule](https://www.4gamer.net/games/034/G003450/20110831029/)
+has approximately one week each of registration, souls and rewards, with
+maintenance-time tallying. The [2018 holiday announcement](https://prtimes.jp/main/html/rd/p/000000385.000013450.html)
+is an example of a special two-week reward period.
+
 The branch also modifies `generateFestaTimestamps` in two ways that are not related to the
 tournament but should be evaluated independently:
 - `RestartAfter` threshold: 2,977,200 s → 3,024,000 s (34.45 days → 35 days)

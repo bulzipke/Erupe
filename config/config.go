@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"erupe-ce/common/logging"
 	"erupe-ce/common/mhfcourse"
 	"erupe-ce/common/questdelivery"
 	"erupe-ce/common/questlicense"
@@ -72,6 +73,7 @@ type Config struct {
 	Host                      string `mapstructure:"Host"`
 	BinPath                   string `mapstructure:"BinPath"`
 	Language                  string
+	Logging                   logging.Options
 	DisableShutdownCountdown  bool     `mapstructure:"DisableShutdownCountdown"` // Skip the in-game shutdown countdown (lets scripts restart the server unattended). Previously named DisableSoftCrash — legacy key still accepted.
 	ShutdownCountdownSeconds  int      // Seconds to count down before shutting down (default 10; ignored when DisableShutdownCountdown is true)
 	ShutdownDrainSeconds      int      // Additional seconds to wait for sessions to disconnect naturally before force-closing (default 30)
@@ -546,6 +548,7 @@ func getOutboundIP4() (net.IP, error) {
 // registerDefaults sets all sane defaults via Viper so that a minimal
 // config.json (just database credentials) produces a fully working server.
 func registerDefaults() {
+	registerLoggingDefaults(viper.GetViper())
 	// Top-level settings
 	viper.SetDefault("Language", "jp")
 	viper.SetDefault("BinPath", "bin")
@@ -775,6 +778,9 @@ func LoadConfig() (*Config, error) {
 	c := &Config{}
 	err = viper.Unmarshal(c)
 	if err != nil {
+		return nil, err
+	}
+	if err := c.Logging.Validate(); err != nil {
 		return nil, err
 	}
 

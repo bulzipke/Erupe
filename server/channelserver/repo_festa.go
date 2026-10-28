@@ -1,7 +1,6 @@
 package channelserver
 
 import (
-	"context"
 	"database/sql"
 
 	"github.com/jmoiron/sqlx"
@@ -10,7 +9,8 @@ import (
 // FestaRepository centralizes all database access for festa-related tables
 // (events, festa_registrations, festa_submissions, festa_prizes, festa_prizes_accepted, festa_trials, guild_characters).
 type FestaRepository struct {
-	db *sqlx.DB
+	db      *sqlx.DB
+	eventID *uint32
 }
 
 // NewFestaRepository creates a new FestaRepository.
@@ -20,8 +20,9 @@ func NewFestaRepository(db *sqlx.DB) *FestaRepository {
 
 // FestaEvent represents a festa event row.
 type FestaEvent struct {
-	ID        uint32 `db:"id"`
-	StartTime uint32 `db:"start_time"`
+	ID         uint32 `db:"id"`
+	StartTime  uint32 `db:"start_time"`
+	Continuous bool   `db:"festa_continuous"`
 }
 
 // FestaGuildRanking holds a guild's ranking result for a trial or daily window.
@@ -60,7 +61,7 @@ func (r *FestaRepository) InsertEvent(startTime uint32) error {
 // GetFestaEvents returns all festa events (id and start_time as epoch).
 func (r *FestaRepository) GetFestaEvents() ([]FestaEvent, error) {
 	var events []FestaEvent
-	rows, err := r.db.Queryx("SELECT id, (EXTRACT(epoch FROM start_time)::int) as start_time FROM events WHERE event_type='festa'")
+	rows, err := r.db.Queryx("SELECT id, (EXTRACT(epoch FROM start_time)::bigint) as start_time,festa_continuous FROM events WHERE event_type='festa' ORDER BY start_time,id")
 	if err != nil {
 		return nil, err
 	}
@@ -79,8 +80,10 @@ func (r *FestaRepository) GetFestaEvents() ([]FestaEvent, error) {
 func (r *FestaRepository) GetTeamSouls(team string) (uint32, error) {
 	var souls uint32
 	err := r.db.QueryRow(
-		`SELECT COALESCE(SUM(fs.souls), 0) AS souls FROM festa_registrations fr LEFT JOIN festa_submissions fs ON fr.guild_id = fs.guild_id AND fr.team = $1`,
-		team,
+		`SELECT COALESCE(SUM(fs.souls), 0) FROM festa_registrations fr
+		LEFT JOIN festa_submissions fs ON fr.guild_id=fs.guild_id AND fr.event_id=fs.event_id
+		WHERE fr.team=$1 AND fr.event_id=COALESCE($2,(SELECT event_id FROM festa_event_lifecycle WHERE singleton),0)`,
+		team, r.eventID,
 	).Scan(&souls)
 	return souls, err
 }
@@ -100,7 +103,8 @@ func (r *FestaRepository) GetTrialsWithMonopoly() ([]FestaTrial, error) {
 		FROM public.festa_trials ft
 		LEFT JOIN public.guild_characters gc ON ft.id = gc.trial_vote
 		LEFT JOIN public.festa_registrations fr ON gc.guild_id = fr.guild_id
-		GROUP BY ft.id`)
+		AND fr.event_id=COALESCE($1,(SELECT event_id FROM festa_event_lifecycle WHERE singleton),0)
+		GROUP BY ft.id`, r.eventID)
 	if err != nil {
 		return nil, err
 	}
@@ -124,12 +128,12 @@ func (r *FestaRepository) GetTopGuildForTrial(trialType uint16) (FestaGuildRanki
 	err := r.db.QueryRow(`
 		SELECT fs.guild_id, g.name, fr.team, SUM(fs.souls) as _
 		FROM festa_submissions fs
-		LEFT JOIN festa_registrations fr ON fs.guild_id = fr.guild_id
+		LEFT JOIN festa_registrations fr ON fs.guild_id = fr.guild_id AND fs.event_id=fr.event_id
 		LEFT JOIN guilds g ON fs.guild_id = g.id
-		WHERE fs.trial_type = $1
+		WHERE fs.trial_type = $1 AND fs.event_id=COALESCE($2,(SELECT event_id FROM festa_event_lifecycle WHERE singleton),0)
 		GROUP BY fs.guild_id, g.name, fr.team
 		ORDER BY _ DESC LIMIT 1
-	`, trialType).Scan(&ranking.GuildID, &ranking.GuildName, &ranking.Team, &temp)
+	`, trialType, r.eventID).Scan(&ranking.GuildID, &ranking.GuildName, &ranking.Team, &temp)
 	return ranking, err
 }
 
@@ -142,12 +146,13 @@ func (r *FestaRepository) GetTopGuildInWindow(start, end uint32) (FestaGuildRank
 	err := r.db.QueryRow(`
 		SELECT fs.guild_id, g.name, fr.team, SUM(fs.souls) as _
 		FROM festa_submissions fs
-		LEFT JOIN festa_registrations fr ON fs.guild_id = fr.guild_id
+		LEFT JOIN festa_registrations fr ON fs.guild_id = fr.guild_id AND fs.event_id=fr.event_id
 		LEFT JOIN guilds g ON fs.guild_id = g.id
 		WHERE EXTRACT(EPOCH FROM fs.timestamp)::int > $1 AND EXTRACT(EPOCH FROM fs.timestamp)::int < $2
+		AND fs.event_id=COALESCE($3,(SELECT event_id FROM festa_event_lifecycle WHERE singleton),0)
 		GROUP BY fs.guild_id, g.name, fr.team
 		ORDER BY _ DESC LIMIT 1
-	`, start, end).Scan(&ranking.GuildID, &ranking.GuildName, &ranking.Team, &temp)
+	`, start, end, r.eventID).Scan(&ranking.GuildID, &ranking.GuildName, &ranking.Team, &temp)
 	return ranking, err
 }
 
@@ -155,8 +160,9 @@ func (r *FestaRepository) GetTopGuildInWindow(start, end uint32) (FestaGuildRank
 func (r *FestaRepository) GetCharSouls(charID uint32) (uint32, error) {
 	var souls uint32
 	err := r.db.QueryRow(
-		`SELECT COALESCE((SELECT SUM(souls) FROM festa_submissions WHERE character_id=$1), 0)`,
-		charID,
+		`SELECT COALESCE((SELECT SUM(souls) FROM festa_submissions WHERE character_id=$1
+		AND event_id=COALESCE($2,(SELECT event_id FROM festa_event_lifecycle WHERE singleton),0)),0)`,
+		charID, r.eventID,
 	).Scan(&souls)
 	return souls, err
 }
@@ -164,51 +170,72 @@ func (r *FestaRepository) GetCharSouls(charID uint32) (uint32, error) {
 // HasClaimedMainPrize checks if a character has claimed the main festa prize (prize_id=0).
 func (r *FestaRepository) HasClaimedMainPrize(charID uint32) bool {
 	var exists uint32
-	err := r.db.QueryRow("SELECT prize_id FROM festa_prizes_accepted WHERE prize_id=0 AND character_id=$1", charID).Scan(&exists)
+	err := r.db.QueryRow(`SELECT prize_id FROM festa_prizes_accepted WHERE prize_id=0 AND character_id=$1
+		AND event_id=COALESCE($2,(SELECT event_id FROM festa_event_lifecycle WHERE singleton),0) LIMIT 1`, charID, r.eventID).Scan(&exists)
 	return err == nil
 }
 
 // VoteTrial sets a character's trial vote.
 func (r *FestaRepository) VoteTrial(charID uint32, trialID uint32) error {
-	_, err := r.db.Exec(`UPDATE guild_characters SET trial_vote=$1 WHERE character_id=$2`, trialID, charID)
-	return err
+	return r.writeFesta(1<<1, func(tx *sqlx.Tx) error {
+		_, err := tx.Exec(`UPDATE guild_characters SET trial_vote=$1 WHERE character_id=$2`, trialID, charID)
+		return err
+	})
 }
 
 // RegisterGuild registers a guild for a festa team.
 func (r *FestaRepository) RegisterGuild(guildID uint32, team string) error {
-	_, err := r.db.Exec("INSERT INTO festa_registrations VALUES ($1, $2)", guildID, team)
-	return err
+	return r.writeFesta(1<<1, func(tx *sqlx.Tx) error {
+		if _, err := tx.Exec(`SELECT pg_advisory_xact_lock(1178940482,$1::integer)`, guildID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`INSERT INTO festa_registrations(guild_id,team,event_id)
+			SELECT $1,$2,COALESCE($3,(SELECT event_id FROM festa_event_lifecycle WHERE singleton),0)
+			WHERE NOT EXISTS(SELECT 1 FROM festa_registrations WHERE guild_id=$1
+			AND event_id=COALESCE($3,(SELECT event_id FROM festa_event_lifecycle WHERE singleton),0))`, guildID, team, r.eventID)
+		return err
+	})
 }
 
 // SubmitSouls records soul submissions for a character within a transaction.
 // All entries are inserted; callers should pre-filter zero values.
 func (r *FestaRepository) SubmitSouls(charID, guildID uint32, souls []uint16) error {
-	tx, err := r.db.BeginTxx(context.Background(), nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	for i, s := range souls {
-		if _, err := tx.Exec(`INSERT INTO festa_submissions VALUES ($1, $2, $3, $4, now())`, charID, guildID, i, s); err != nil {
-			return err
+	return r.writeFesta(1<<2, func(tx *sqlx.Tx) error {
+		for i, s := range souls {
+			if _, err := tx.Exec(`INSERT INTO festa_submissions(character_id,guild_id,trial_type,souls,timestamp,event_id)
+				VALUES($1,$2,$3,$4,now(),COALESCE($5,(SELECT event_id FROM festa_event_lifecycle WHERE singleton),0))`, charID, guildID, i, s, r.eventID); err != nil {
+				return err
+			}
 		}
-	}
-	return tx.Commit()
+		return nil
+	})
 }
 
 // ClaimPrize records that a character has claimed a festa prize.
 func (r *FestaRepository) ClaimPrize(prizeID uint32, charID uint32) error {
-	_, err := r.db.Exec("INSERT INTO public.festa_prizes_accepted VALUES ($1, $2)", prizeID, charID)
-	return err
+	phases := uint(1<<2 | 1<<4)
+	if prizeID == 0 {
+		phases = 1 << 4
+	}
+	return r.writeFesta(phases, func(tx *sqlx.Tx) error {
+		if _, err := tx.Exec(`SELECT pg_advisory_xact_lock(1178940483,$1::integer)`, charID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`INSERT INTO festa_prizes_accepted(prize_id,character_id,event_id)
+			SELECT $1,$2,COALESCE($3,(SELECT event_id FROM festa_event_lifecycle WHERE singleton),0)
+			WHERE NOT EXISTS(SELECT 1 FROM festa_prizes_accepted WHERE prize_id=$1 AND character_id=$2
+			AND event_id=COALESCE($3,(SELECT event_id FROM festa_event_lifecycle WHERE singleton),0))`, prizeID, charID, r.eventID)
+		return err
+	})
 }
 
 // ListPrizes returns festa prizes of the given type with a claimed flag for the character.
 func (r *FestaRepository) ListPrizes(charID uint32, prizeType string) ([]Prize, error) {
 	var prizes []Prize
 	rows, err := r.db.Queryx(
-		`SELECT id, tier, souls_req, item_id, num_item, (SELECT count(*) FROM festa_prizes_accepted fpa WHERE fp.id = fpa.prize_id AND fpa.character_id = $1) AS claimed FROM festa_prizes fp WHERE type=$2`,
-		charID, prizeType,
+		`SELECT id, tier, souls_req, item_id, num_item, (SELECT count(*) FROM festa_prizes_accepted fpa WHERE fp.id = fpa.prize_id AND fpa.character_id = $1
+		AND fpa.event_id=COALESCE($3,(SELECT event_id FROM festa_event_lifecycle WHERE singleton),0)) AS claimed FROM festa_prizes fp WHERE type=$2`,
+		charID, prizeType, r.eventID,
 	)
 	if err != nil {
 		return nil, err

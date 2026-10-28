@@ -13,6 +13,28 @@ type apiEventRepository struct {
 	db *sqlx.DB
 }
 
+func (r *apiEventRepository) RecurringEventSnapshot(ctx context.Context) (recurringEventSnapshot, error) {
+	var result recurringEventSnapshot
+	tx, err := r.db.BeginTxx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
+	if err != nil {
+		return result, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, query := range []struct {
+		target interface{}
+		sql    string
+	}{
+		{&result.Festa, `SELECT e.id,EXTRACT(epoch FROM e.start_time)::bigint AS start_time,e.festa_continuous FROM festa_event_lifecycle l JOIN events e ON e.id=l.event_id WHERE l.singleton`},
+		{&result.Diva, `SELECT e.id,EXTRACT(epoch FROM e.start_time)::bigint AS start_time,e.diva_continuous FROM diva_event_lifecycle l JOIN events e ON e.id=l.event_id WHERE l.mode=-1`},
+		{&result.Tower, `SELECT e.earth_id,e.starts_at,e.ends_at,e.claim_until FROM tower_event_lifecycle l JOIN tower_events e USING(earth_id) WHERE l.singleton`},
+	} {
+		if err = tx.GetContext(ctx, query.target, query.sql); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return result, err
+		}
+	}
+	return result, tx.Commit()
+}
+
 // NewAPIEventRepository creates an APIEventRepo backed by PostgreSQL.
 func NewAPIEventRepository(db *sqlx.DB) APIEventRepo {
 	return &apiEventRepository{db: db}

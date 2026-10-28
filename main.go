@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"erupe-ce/common/gametime"
+	"erupe-ce/common/logging"
 	cfg "erupe-ce/config"
 	"erupe-ce/server/api"
 	"erupe-ce/server/channelserver"
@@ -78,16 +80,31 @@ func setupDiscordBot(config *cfg.Config, logger *zap.Logger) *discordbot.Discord
 }
 
 func main() {
+	loggingOptions, optionsErr := cfg.LoadLoggingOptions()
+	if code, handled, err := logging.Supervise(loggingOptions); handled {
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "Failed to initialize crash logging: %v\n", err)
+		}
+		os.Exit(code)
+	}
+	logs, logErr := logging.New(loggingOptions)
+	if logErr != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "Failed to initialize logging: %v\n", logErr)
+		os.Exit(1)
+	}
+	defer func() { _ = logs.Close() }()
+	log.SetOutput(logs.Stdout)
+	zapLogger := logs.Logger
+	logger := zapLogger.Named("main")
+	if optionsErr != nil {
+		logger.Fatal("Failed to load logging configuration", zap.Error(optionsErr))
+	}
+
 	runSetup := flag.Bool("setup", false, "Launch the setup wizard (even if config.json exists)")
+	flag.CommandLine.SetOutput(logs.Stderr)
 	flag.Parse()
 
 	var err error
-
-	var zapLogger *zap.Logger
-	zapLogger, _ = zap.NewDevelopment()
-
-	defer func() { _ = zapLogger.Sync() }()
-	logger := zapLogger.Named("main")
 
 	if *runSetup {
 		logger.Info("Launching setup wizard (--setup)")
@@ -353,9 +370,10 @@ func main() {
 	if config.API.Enabled {
 		ApiServer = api.NewAPIServer(
 			&api.Config{
-				Logger:      logger.Named("sign"),
-				ErupeConfig: config,
-				DB:          db,
+				Logger:          logger.Named("sign"),
+				AccessLogWriter: logs.Stdout,
+				ErupeConfig:     config,
+				DB:              db,
 			})
 		err = ApiServer.Start()
 		if err != nil {
@@ -581,6 +599,7 @@ func wait() {
 }
 
 func preventClose(config *cfg.Config, text string) {
+	log.Printf("Failed to start Erupe: %s", text)
 	if config != nil && config.DisableShutdownCountdown {
 		os.Exit(0)
 	}

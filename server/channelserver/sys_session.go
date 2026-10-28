@@ -97,9 +97,11 @@ type Session struct {
 	// A value of -1 means no bead is currently assigned this session.
 	currentBeadIndex int
 	// divaRewardClaims await item/GP persistence. Guarded by Session.Mutex.
-	divaRewardClaims map[uint32]DivaRewardOffer
-	divaTacticsRun   divaInterceptionRun // Guarded by lifecycleMu; survives return to town.
-	divaBattleRun    divaBattleSongRun   // Guarded by lifecycleMu; survives return to town.
+	divaRewardClaims        map[uint32]DivaRewardOffer
+	festaPersonalOfferEvent atomic.Uint32
+	festaGuildOfferEvent    atomic.Uint32
+	divaTacticsRun          divaInterceptionRun // Guarded by lifecycleMu; survives return to town.
+	divaBattleRun           divaBattleSongRun   // Guarded by lifecycleMu; survives return to town.
 
 	Name          string
 	closed        atomic.Bool
