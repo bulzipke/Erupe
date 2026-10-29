@@ -224,7 +224,6 @@ tbody tr:last-child td{border-bottom:0}
 .monster-time-rank{color:#66716c;font-family:Georgia,"Times New Roman",serif;font-variant-numeric:tabular-nums}
 .monster-time-name,.monster-time-quest{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .monster-time-name{color:var(--text);font-weight:750}
-.hunt-hp-trigger{max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .monster-time-weapon{display:flex;align-items:center;justify-content:center;padding-top:4px !important;padding-bottom:4px !important}
 .monster-time-weapon-icon{display:block;width:26px;height:26px;object-fit:contain}
 .monster-time-weapon-empty{color:#66716c;text-align:center}
@@ -262,7 +261,6 @@ tbody tr:last-child td{border-bottom:0}
     box-shadow:0 12px 32px rgba(0,0,0,.52)
 }
 .raviente-participants-popover::backdrop{background:transparent}
-.hunt-hp-popover{width:max-content;max-width:calc(100vw - 24px);padding:10px 12px;font-size:.73rem;font-weight:750}
 .raviente-participants-title{margin:0;padding:10px 12px;border-bottom:1px solid var(--line);color:var(--accent-soft);font-size:.73rem;font-weight:800}
 .raviente-participant-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));max-height:220px;margin:0;padding:8px 12px;overflow-y:auto;list-style:none;scrollbar-color:#53605a #171e1b}
 .raviente-participant-list li{min-width:0;padding:4px 5px;overflow-wrap:anywhere;color:#d9dfda;font-size:.71rem}
@@ -616,12 +614,6 @@ tbody tr:last-child td{border-bottom:0}
         if (hours > 0) parts.push(hours + "시간");
         parts.push(minutes + "분");
         return parts.join(" ");
-    }
-
-    function huntSettingsDescription(entry) {
-        var settings = entry.clientSettings;
-        var used = settings && settings.version === 1 && (settings.hpView === true || settings.hpViewUsed === true);
-        return used ? "HP표시사용" : "HP표시미사용";
     }
 
     function huntTimeLabel(frames) {
@@ -1261,27 +1253,6 @@ tbody tr:last-child td{border-bottom:0}
         return buildWeaponIconCell(entry, "monster-time-weapon", "monster-time-weapon-icon", "monster-time-weapon-empty");
     }
 
-    function buildMonsterTimeNameControl(entry, popoverID) {
-        var cell = document.createElement("td");
-        cell.className = "monster-time-name";
-        var description = huntSettingsDescription(entry);
-        var trigger = text("button", "raviente-participant-trigger hunt-hp-trigger", entry.name);
-        trigger.type = "button";
-        trigger.setAttribute("aria-label", entry.name + ", HP 표시 정보");
-        trigger.setAttribute("aria-describedby", popoverID);
-        trigger.setAttribute("aria-controls", popoverID);
-        trigger.setAttribute("aria-expanded", "false");
-        cell.appendChild(trigger);
-
-        var popover = text("div", "raviente-participants-popover hunt-hp-popover", description);
-        popover.id = popoverID;
-        popover.setAttribute("popover", "auto");
-        popover.setAttribute("role", "tooltip");
-        cell.appendChild(popover);
-        bindRankingPopover(trigger, popover);
-        return cell;
-    }
-
     function buildMonsterTimeCard(monster, entries) {
         var card = document.createElement("article");
         card.className = "monster-time-card";
@@ -1306,7 +1277,7 @@ tbody tr:last-child td{border-bottom:0}
         entries.slice(0, 10).forEach(function (entry, index) {
             var row = document.createElement("tr");
             row.appendChild(text("td", "monster-time-rank", String(index + 1)));
-            row.appendChild(buildMonsterTimeNameControl(entry, "hunt-hp-" + encodeURIComponent(monster.key) + "-" + index));
+            row.appendChild(text("td", "monster-time-name", entry.name));
             row.appendChild(buildMonsterTimeWeaponCell(entry));
             row.appendChild(text("td", "monster-time-value", huntTimeLabel(entry.frames)));
             var questName = entry.questName || (entry.questId ? "퀘스트 #" + entry.questId : "퀘스트 번호 없음");

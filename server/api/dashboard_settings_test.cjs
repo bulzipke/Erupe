@@ -10,22 +10,10 @@ function section(start, end) {
     assert.ok(from >= 0 && to > from, start);
     return html.slice(from, to);
 }
-const settingsCode = section("    function huntSettingsDescription(", "\n\tfunction ravienteDurationLabel");
-const controlCode = section("    function buildMonsterTimeNameControl(", "    function renderMonsterTimes(");
+const timeCode = section("    function huntTimeLabel(", "\n\tfunction ravienteDurationLabel");
+const controlCode = section("    function buildMonsterTimeCard(", "    function renderMonsterTimes(");
 const bindingCode = section("\tfunction positionRavienteParticipants(", "\tfunction buildRavienteRunTable(");
-const functions = vm.runInNewContext(settingsCode + "\n({huntSettingsDescription,huntTimeLabel})");
-
-test("missing or unsupported settings display HP not used", () => {
-    for (const clientSettings of [null, undefined, {}, {version: 2}, {version: 1}, {version: 1, hpView: false, hpViewUsed: false}]) {
-        assert.equal(functions.huntSettingsDescription({clientSettings}), "HP표시미사용");
-    }
-});
-test("HP enabled at the end or earlier in the hunt displays used; other options do not", () => {
-    for (const fields of [{hpView: true}, {hpView: false, hpViewUsed: true}]) {
-        assert.equal(functions.huntSettingsDescription({clientSettings: {version: 1, ...fields}}), "HP표시사용");
-    }
-    assert.equal(functions.huntSettingsDescription({clientSettings: {version: 1, elapsedMode: 2, elapsedUsed: true, fov: 60, fovUsed: true}}), "HP표시미사용");
-});
+const functions = vm.runInNewContext(timeCode + "\n({huntTimeLabel})");
 test("hunt digits retain native centisecond truncation", () => {
     for (const [frames, want] of [[0,"00:00.00"],[1,"00:00.03"],[2,"00:00.06"],[29,"00:00.96"],[30,"00:01.00"],[1799,"00:59.96"],[1800,"01:00.00"],[8051,"04:28.36"],[108000,"60:00.00"]]) {
         assert.equal(functions.huntTimeLabel(frames), want);
@@ -65,7 +53,7 @@ function fixture(nativePopover) {
         setTimeout(callback) { const id = ++nextTimer; timers.set(id, callback); return id; },
         clearTimeout(id) { timers.delete(id); },
     });
-    vm.runInContext(settingsCode + controlCode + bindingCode, context);
+    vm.runInContext(timeCode + controlCode + bindingCode, context);
     return {
         context,
         flush() { const pending = Array.from(timers.values()); timers.clear(); pending.forEach(callback => callback()); },
@@ -74,15 +62,15 @@ function fixture(nativePopover) {
 }
 
 for (const nativePopover of [true, false]) {
-    test(`name popover supports hover, focus and tap toggle (${nativePopover ? "native" : "fallback"})`, () => {
+    test(`Raviente participants support hover, focus and tap toggle (${nativePopover ? "native" : "fallback"})`, () => {
         const h = fixture(nativePopover);
-        const cell = h.context.buildMonsterTimeNameControl({name: "카칸", clientSettings: {version: 1, hpViewUsed: true}}, "hp-test");
+        const cell = h.context.buildRavienteParticipantControl({id: 7, participantCount: 2, participants: ["나", "가"]});
         const [trigger, popover] = cell.children;
-        assert.equal(trigger.textContent, "카칸");
+        assert.equal(trigger.textContent, "2명");
         assert.equal(trigger.type, "button");
-        assert.equal(popover.textContent, "HP표시사용");
-        assert.equal(popover.getAttribute("role"), "tooltip");
-        assert.equal(trigger.getAttribute("aria-describedby"), popover.id);
+        assert.equal(popover.getAttribute("role"), "dialog");
+        assert.equal(trigger.getAttribute("aria-controls"), popover.id);
+        assert.deepEqual(popover.children[1].children.map(child => child.textContent), ["가", "나"]);
         assert.equal(h.isOpen(popover), false);
         trigger.fire("mouseenter");
         assert.equal(h.isOpen(popover), true);
@@ -105,40 +93,37 @@ for (const nativePopover of [true, false]) {
         }
     });
 }
-test("popup stays in the narrow viewport and opens above a low name", () => {
+test("Raviente participant popup stays in the narrow viewport", () => {
     const h = fixture(true);
-    const [trigger, popover] = h.context.buildMonsterTimeNameControl({name: "Lab0r"}, "hp-edge").children;
+    const [trigger, popover] = h.context.buildRavienteParticipantControl({id: 8, participants: ["Lab0r"]}).children;
     trigger.rect = {left: 380, top: 830, bottom: 850};
     popover.rect = {width: 150, height: 40};
     trigger.fire("click");
     assert.equal(popover.style.left, "228px");
     assert.equal(popover.style.top, "782px");
-    assert.equal(popover.textContent, "HP표시미사용");
+    assert.equal(popover.children[1].children[0].textContent, "Lab0r");
 });
-test("the real hunt row attaches HP only to its name and keeps text safe and IDs unique", () => {
+test("hunt names remain plain text for all client settings and keep time and quest labels", () => {
     const h = fixture(true);
     const entry = {name: "<img src=x>", frames: 8051, questName: "테스트 퀘스트"};
-    const first = h.context.buildMonsterTimeCard({key: "6:g:normal", name: "몬스터"}, [entry, entry]);
+    const settings = [undefined, null, {}, {version: 2}, {version: 1, hpView: true}, {version: 1, hpViewUsed: true},
+        {version: 1, hpView: false, hpViewUsed: false, elapsedMode: 2, elapsedUsed: true, fov: 60, fovUsed: true, supportUsed: true}];
+    const first = h.context.buildMonsterTimeCard({key: "6:g:normal", name: "몬스터"}, settings.map(clientSettings => ({...entry, clientSettings})));
     const second = h.context.buildMonsterTimeCard({key: "6:g:hardcore", name: "몬스터"}, [entry]);
     const rows = card => card.children[1].children[0].children[0].children;
     const all = [...rows(first), ...rows(second)];
-    const ids = all.map(row => row.cells[1].children[1].id);
-    assert.equal(new Set(ids).size, 3);
+    assert.equal(all.length, settings.length + 1);
     for (const row of all) {
         assert.equal(row.title, "");
-        assert.equal(row.cells[1].children[0].textContent, entry.name);
-        assert.equal(row.cells[1].children[1].textContent, "HP표시미사용");
+        const name = row.cells[1];
+        assert.equal(name.textContent, entry.name);
+        assert.equal(name.className, "monster-time-name");
+        assert.equal(name.children.length, 0);
+        assert.equal(name.title, "");
+        assert.deepEqual(name.attrs, {});
+        assert.deepEqual(name.listeners, {});
         assert.equal(row.cells[3].textContent, "04:28.36");
         assert.equal(row.cells[3].title, "");
         assert.equal(row.cells[4].title, "테스트 퀘스트");
     }
-});
-test("the shared binding retains Raviente participant names and tap behavior", () => {
-    const h = fixture(true);
-    const [trigger, popover] = h.context.buildRavienteParticipantControl({id: 7, participantCount: 2, participants: ["나", "가"]}).children;
-    assert.equal(trigger.textContent, "2명");
-    assert.equal(popover.getAttribute("role"), "dialog");
-    assert.deepEqual(popover.children[1].children.map(child => child.textContent), ["가", "나"]);
-    trigger.fire("click"); assert.equal(h.isOpen(popover), true);
-    trigger.fire("click"); assert.equal(h.isOpen(popover), false);
 });
