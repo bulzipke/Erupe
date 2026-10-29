@@ -54,6 +54,10 @@ func handleMsgMhfKickExportForce(s *Session, p mhfpacket.MHFPacket) {} // stub: 
 func handleMsgMhfGetEarthStatus(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetEarthStatus)
 	now := TimeAdjusted()
+	if s.server.independentPalloneFestival() {
+		s.handleIndependentPalloneCalendar(pkt, now)
+		return
+	}
 	pallone, err := s.server.selectedPalloneEvent()
 	if err != nil {
 		doAckBufFail(s, pkt.AckHandle, nil)

@@ -166,12 +166,12 @@ These match the real-server cadence and are already reflected in `TournamentDefa
 
 **Festa timing correction (unrelated side effect)**
 
-Current normal Festa operation (2026-10-28) uses a separate, automatic
+Current normal Festa operation (2026-10-29) uses a separate, automatic
 three-week schedule: registration starts Monday 12:00 UTC+9, souls open one
-week later, tallying starts after two weeks, and rewards open 150 minutes
+week later, tallying starts after two weeks, and rewards open one hour
 later. Rewards end at the next Monday noon, three weeks after registration,
-when a new round begins immediately. The 150-minute tally is retained from
-this emulator; it is not a claim about the exact live maintenance duration.
+when a new round begins immediately. The one-hour tally is the operator's
+chosen policy; it is not a claim about the exact live maintenance duration.
 Migration 0099 preserves the active chapter while aligning the current round
 and scopes registrations, submissions and receipts to their event ID. Rollover
 retains those rows as history instead of deleting them. Forced/debug schedules
@@ -182,6 +182,16 @@ The original HD client imports one event ID and five phase timestamps
 (`1151efe0`) and derives one phase (`10490bf0`); registration is gated on phase
 1 (`1048fe30`). This change uses the existing packet and menus; it does not
 overlap an old reward chapter with a new registration/soul chapter.
+
+During tally phase 3, the HD receptionist initializer `1048e2d0` selects its
+dedicated dialogue `0x35` and state 10; the state handler `10490460` runs that
+dialogue and exits. This is a phase-specific notice before ordinary reward
+eligibility, rather than a zero-item reward response. The exact Korean wording
+has not been checked in game. A direct or stale reward-claim packet during
+phase 3 is rejected by `writeFesta`; the handler sends a generic failure ACK,
+without a special tally message code. Item-prize enumeration still returns
+the prize catalog, so an empty list is not used to signal tallying.
+
 Capcom's [published normal schedule](https://www.4gamer.net/games/034/G003450/20110831029/)
 has approximately one week each of registration, souls and rewards, with
 maintenance-time tallying. The [2018 holiday announcement](https://prtimes.jp/main/html/rd/p/000000385.000013450.html)

@@ -87,6 +87,10 @@ func handleMsgSysStageDestruct(s *Session, p mhfpacket.MHFPacket) {} // stub: un
 
 func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	admittedAt := TimeAdjusted()
+	var pallonePlan *palloneDeparturePlan
+	if stageKind(stageID) == "Qs" {
+		pallonePlan = s.server.preparePalloneDeparture(admittedAt)
+	}
 	var towerEvent TowerEvent
 	if stageKind(stageID) == "Qs" && s.server.erupeConfig.TowerRotation.Enabled {
 		var err error
@@ -213,6 +217,8 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	if stageKind(stageID) == "Qs" {
 		if !alreadyClient {
 			s.towerGuardianRunID = ""
+			s.palloneDeparture = pallonePlan
+			s.palloneDepartureStarted = admittedAt
 			s.towerGuardianQuestID = 0
 			// A fresh quest entry must not inherit the result snapshot of an
 			// abandoned earlier attempt. A validated setup below repopulates it.
@@ -225,6 +231,9 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 		questSetup := append([]byte(nil), stage.rawBinaryData[stageBinaryKey{1, 3}]...)
 		stage.RUnlock()
 		questID, runMode, conquestLevel, decoded := decodeQuestRunSetupFromStageBinary(stageID, 1, 3, questSetup)
+		if decoded && !alreadyClient {
+			s.capturePalloneStageLocked(questID, stageID, admittedAt, pallonePlan, true)
+		}
 		if decoded {
 			// Weapon usage is independent of client mode. Keeping the decoded ID
 			// lets a later ZZ result attach the departure weapon to its exact run.
@@ -824,6 +833,12 @@ func handleMsgSysSetStageBinary(s *Session, p mhfpacket.MHFPacket) {
 		// to a concurrent town transfer or result packet.
 		for _, session := range questClients {
 			session.lifecycleMu.Lock()
+			session.Lock()
+			palloneStillHere := session.stage == stage
+			session.Unlock()
+			if palloneStillHere {
+				session.capturePalloneStageLocked(questID, pkt.StageID, TimeAdjusted(), session.palloneDeparture, false)
+			}
 			if session.questWeaponPendingStage == pkt.StageID &&
 				towerSetupIsTower(questID, pkt.RawDataPayload) {
 				session.pinTowerDeparture(session.towerDepartureEvent, session.towerDepartureStarted)

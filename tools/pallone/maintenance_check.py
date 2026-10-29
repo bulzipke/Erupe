@@ -87,11 +87,15 @@ def inspect(bundle, client_dat, server_bin, config_path=None):
         config_path = Path(config_path).resolve()
         c = json_file(config_path)
         tower, debug = pick(c, "TowerRotation") or {}, pick(c, "DebugOptions") or {}
+        festival = pick(c, "PalloneFestival") or {}
         config = {"path": str(config_path), "sha256": sha_file(config_path),
                   "restore_exact_original_file": True, "selected_fields": {
                       "ClientMode": pick(c, "ClientMode"), "BinPath": pick(c, "BinPath"),
                       "EarthID": pick(c, "EarthID"), "EarthStatus": pick(c, "EarthStatus"),
-                      "TowerRotation.Enabled": pick(tower, "Enabled"), "DebugOptions.QuestTools": pick(debug, "QuestTools")}}
+                      "TowerRotation.Enabled": pick(tower, "Enabled"), "DebugOptions.QuestTools": pick(debug, "QuestTools"),
+                      "PalloneFestival.Enabled": pick(festival, "Enabled"), "PalloneFestival.EventID": pick(festival, "EventID"),
+                      "PalloneFestival.StartAt": pick(festival, "StartAt"), "PalloneFestival.ActiveDays": pick(festival, "ActiveDays"),
+                      "PalloneFestival.ClaimDays": pick(festival, "ClaimDays")}}
     return {
         "kind": "pallone_maintenance_preflight", "scope": "only the explicitly supplied local paths",
         "schedule": "not_scheduled", "files_ready_for_manual_install": not problems,
@@ -101,11 +105,12 @@ def inspect(bundle, client_dat, server_bin, config_path=None):
         "event_plan_template": {"kind": "pallone_maintenance_event_plan", "event_id": None,
                                 "starts_at": None, "ends_at": None, "claim_until": None,
                                 "profile_sha256": sha_file(profile)},
-        "configuration_patch_template": {"EarthStatus": 11, "EarthID": None,
-                                         "TowerRotation": {"Enabled": False}, "DebugOptions": {"QuestTools": True}},
+        "configuration_patch_template": {"PalloneFestival": {"Enabled": True, "StartAt": "", "ActiveDays": 21, "ClaimDays": 21},
+                                         "DebugOptions": {"QuestTools": True}},
+        "activation_mode": "automatic; omit legacy EventID; the explicit event plan is only for manual maintenance mode",
         "partial_config_is_not_a_replacement_config": True,
-        "rollback_database_action": "none; retain event/result history and restore original Earth/Tower configuration",
-        "completion_receipts_and_rewards": "unarmed; observations never authorize points",
+        "rollback_database_action": "none; retain event/result history and restore the original full configuration backup",
+        "completion_receipts_and_rewards": "native run and reward paths implemented; live route-001 validation required; observations alone never authorize points",
     }
 
 

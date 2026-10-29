@@ -389,6 +389,7 @@ func (s *Server) Start() error {
 	go s.raviAutoSupport() // no-op unless a Raviente auto-support interval is enabled
 	go s.settleDivaMaps()
 	go s.rotateTowerEvents()
+	go s.rotatePalloneEvents()
 	go s.rotateDivaEvents()
 	go s.rotateFestaEvents()
 	go s.rotateInactiveGuildLeaders()

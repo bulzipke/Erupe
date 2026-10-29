@@ -726,6 +726,11 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 		return
 	}
 	s.observePalloneRecord(pkt.Data)
+	if err := s.recordPalloneRunResult(pkt.Data, TimeAdjusted()); err != nil {
+		s.logger.Warn("Pallone completion report failed", zap.Error(err))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
 	if s.server.erupeConfig.DebugOptions.QuestTools {
 		fields := []zap.Field{
 			zap.Uint32("charID", uint32(s.charID)),

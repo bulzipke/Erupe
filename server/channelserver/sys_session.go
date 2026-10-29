@@ -141,8 +141,13 @@ type Session struct {
 	questWeaponPendingGeneration uint64
 	questWeaponPendingStage      string
 	// Server-qualified final-route receipt, protected by lifecycleMu. Receiving
-	// CARAVAN_MY_SCORE cannot create it. Native route capture is not armed yet.
-	palloneReceipt *PalloneRunReceipt
+	// CARAVAN_MY_SCORE cannot create it. Native runs use the durable report join.
+	palloneReceipt          *PalloneRunReceipt
+	palloneRun              *palloneRunState
+	palloneDeparture        *palloneDeparturePlan
+	palloneDepartureStarted time.Time
+	palloneRewardClaims     map[uint32]PalloneRewardOffer // Guarded by Session.Mutex.
+	palloneRewardPages      map[string][]PalloneRewardOffer
 	// Live quest run, published to the dashboard. Set on entering a quest stage
 	// and cleared on leaving one; the title is resolved once here rather than on
 	// every dashboard poll, which would re-read the quest file each time.

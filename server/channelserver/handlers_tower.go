@@ -954,6 +954,9 @@ func handleMsgMhfPostTenrouirai(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfPresentBox(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfPresentBox)
+	if s.handlePallonePresentBox(pkt) {
+		return
+	}
 	handleTowerPresentBox(s, pkt)
 }
 

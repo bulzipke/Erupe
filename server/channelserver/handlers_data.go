@@ -323,6 +323,10 @@ func dumpSaveData(s *Session, data []byte, suffix string) {
 
 func handleMsgMhfLoaddata(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfLoaddata)
+	if len(s.pendingPalloneRewardClaims(palloneItem)) != 0 || len(s.pendingPalloneRewardClaims(palloneGP)) != 0 {
+		doAckBufFail(s, pkt.AckHandle, nil)
+		return
+	}
 	if len(s.pendingTowerDailyClaims()) != 0 {
 		doAckBufFail(s, pkt.AckHandle, nil)
 		return
@@ -447,6 +451,13 @@ func handleMsgMhfLoaddata(s *Session, p mhfpacket.MHFPacket) {
 		}
 	}
 
+	if !usingOverride {
+		if err := s.applyPalloneRPOnLoad(characterSaveData); err != nil {
+			s.logger.Error("Pallone RP catch-up failed", zap.Error(err))
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
+	}
 	if s.usesQuestLicenseStarterEpoch() {
 		if characterSaveData.starterEpoch == nil || characterSaveData.starterEpoch.UserID != s.userID {
 			s.markClosed()

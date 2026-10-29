@@ -123,8 +123,8 @@ func handleMsgMhfPostTinyBin(s *Session, p mhfpacket.MHFPacket) {
 
 // Festival data comes only from an explicitly registered and selected event.
 // Unconfigured servers retain their native empty replies. A submit additionally
-// needs a server-qualified final-route receipt; its native departure/stage/result
-// capture remains unarmed pending live verification. See docs/pallone-festival.md.
+// needs a server-qualified final-route receipt. Native departure, ordered setup
+// changes, score and final clear reports are joined before crediting points.
 
 func handleMsgMhfCaravanMyScore(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfCaravanMyScore)
@@ -142,6 +142,15 @@ func handleMsgMhfCaravanMyScore(s *Session, p mhfpacket.MHFPacket) {
 			receipt = *s.palloneReceipt
 		}
 		s.lifecycleMu.Unlock()
+		if receipt.RunID == "" {
+			if err := s.submitPalloneRunScore(pkt, TimeAdjusted()); err != nil {
+				s.observePallone("score_submit_rejected", zap.Uint32("ackHandle", pkt.AckHandle), zap.String("reason", "qualified_route_run_required"))
+				doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			} else {
+				doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+			}
+			return
+		}
 		if pkt.Unk1 != 3 || s.server.palloneService == nil || receipt.RunID == "" || receipt.RouteKey != pkt.Unk2 {
 			s.observePallone("score_submit_rejected", zap.Uint32("ackHandle", pkt.AckHandle), zap.String("reason", "qualified_receipt_required"))
 			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
@@ -184,8 +193,7 @@ func handleMsgMhfCaravanMyScore(s *Session, p mhfpacket.MHFPacket) {
 		doAckBufSucceed(s, pkt.AckHandle, data)
 		return
 	}
-	var data []*byteframe.ByteFrame
-	doAckEarthSucceed(s, pkt.AckHandle, data)
+	doAckPalloneEmpty(s, pkt.AckHandle)
 }
 
 func handleMsgMhfCaravanRanking(s *Session, p mhfpacket.MHFPacket) {
@@ -240,8 +248,7 @@ func handleMsgMhfCaravanRanking(s *Session, p mhfpacket.MHFPacket) {
 		doAckBufSucceed(s, pkt.AckHandle, data)
 		return
 	}
-	var data []*byteframe.ByteFrame
-	doAckEarthSucceed(s, pkt.AckHandle, data)
+	doAckPalloneEmpty(s, pkt.AckHandle)
 }
 
 func handleMsgMhfCaravanMyRank(s *Session, p mhfpacket.MHFPacket) {
@@ -270,6 +277,5 @@ func handleMsgMhfCaravanMyRank(s *Session, p mhfpacket.MHFPacket) {
 		doAckBufSucceed(s, pkt.AckHandle, data)
 		return
 	}
-	var data []*byteframe.ByteFrame
-	doAckEarthSucceed(s, pkt.AckHandle, data)
+	doAckPalloneEmpty(s, pkt.AckHandle)
 }

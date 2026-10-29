@@ -43,7 +43,7 @@ func TestFestaContinuousScheduleBoundaries(t *testing.T) {
 	start := time.Date(2026, 10, 19, 12, 0, 0, 0, divaLocation)
 	e := FestaEvent{ID: 12, StartTime: uint32(start.Unix()), Continuous: true}
 	ts := e.timestamps()
-	if ts[4]-ts[0] != festaCycleSeconds || ts[4]-ts[3] != secsPerWeek-festaVotingDuration {
+	if ts[4]-ts[0] != festaCycleSeconds || ts[3]-ts[2] != 3600 || ts[4]-ts[3] != secsPerWeek-3600 {
 		t.Fatalf("rest days or incorrect reward week: %v", ts)
 	}
 	for _, tc := range []struct {
@@ -52,8 +52,8 @@ func TestFestaContinuousScheduleBoundaries(t *testing.T) {
 	}{
 		{start.Add(-time.Second), 0}, {start, 1}, {start.AddDate(0, 0, 7).Add(-time.Second), 1},
 		{start.AddDate(0, 0, 7), 2}, {start.AddDate(0, 0, 14).Add(-time.Second), 2},
-		{start.AddDate(0, 0, 14), 3}, {time.Unix(int64(ts[3])-1, 0), 3},
-		{time.Unix(int64(ts[3]), 0), 4}, {start.AddDate(0, 0, 21).Add(-time.Second), 4},
+		{start.AddDate(0, 0, 14), 3}, {start.AddDate(0, 0, 14).Add(time.Hour - time.Second), 3},
+		{start.AddDate(0, 0, 14).Add(time.Hour), 4}, {start.AddDate(0, 0, 21).Add(-time.Second), 4},
 		{start.AddDate(0, 0, 21), 0},
 	} {
 		if got := e.phase(tc.at); got != tc.phase {

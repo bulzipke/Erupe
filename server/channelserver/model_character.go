@@ -41,13 +41,14 @@ const (
 
 // CharacterSaveData holds a character's save data and its parsed fields.
 type CharacterSaveData struct {
-	CharID         uint32
-	Name           string
-	StoredName     string
-	IsNewCharacter bool
-	Mode           cfg.Mode
-	Pointers       map[SavePointer]int
-	starterEpoch   *QuestLicenseStarterEpochBaseline
+	CharID          uint32
+	Name            string
+	StoredName      string
+	IsNewCharacter  bool
+	Mode            cfg.Mode
+	Pointers        map[SavePointer]int
+	starterEpoch    *QuestLicenseStarterEpochBaseline
+	palloneRPEvents []int32
 
 	Gender        bool
 	RP            uint16

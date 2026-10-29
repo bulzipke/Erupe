@@ -84,6 +84,25 @@ type PalloneRepo interface {
 	GetPalloneRanks(int32, uint32, uint32) ([]mhfpallone.RankScore, error)
 }
 
+// Native authorization and payout are optional capabilities of the festival
+// store; a read-only integration must not manufacture either kind of receipt.
+type PalloneRunRepository interface {
+	SavePalloneRunReport(PalloneRunReceipt, *PalloneSubmission, bool, time.Time) (*PalloneReadyRun, error)
+	ReadyPalloneRuns(time.Time) ([]PalloneReadyRun, error)
+	RejectPalloneRunReport(uint32, string, string, time.Time) error
+}
+type PalloneRewardRepository interface {
+	OfferPalloneRewards(int32, uint32, bool, []uint32, time.Time) ([]PalloneRewardOffer, error)
+	PreparePalloneRewardClaims(uint32, []uint32, time.Time) ([]PalloneRewardOffer, error)
+	FinalizePalloneEvent(int32, time.Time) (bool, error)
+	PalloneRewardCatalog(int32) (PalloneRewardCatalog, error)
+	PendingPalloneRP(uint32) ([]PalloneRPAward, error)
+	FinalizeEndedPalloneEvents(time.Time) error
+}
+type PalloneGPRewardSaver interface {
+	UpdateGCPAndPactWithClientRewards(uint32, uint32, uint32, []uint32, []uint32) error
+}
+
 // Repository interfaces decouple handlers from concrete PostgreSQL implementations,
 // enabling mock/stub injection for unit tests and alternative storage backends.
 

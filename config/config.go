@@ -101,6 +101,7 @@ type Config struct {
 	EarthStatus               int32
 	EarthID                   int32
 	TowerRotation             TowerRotationOptions
+	PalloneFestival           PalloneFestivalOptions
 	EarthMonsters             []int32
 	TowerZone1UnlockTRP       int32 // Tower: zone-1 list gate; default 1 cumulative TRP (0 disables)
 	TowerZone1UnlockFloor     int32 // Tower: optional custom zone-1 floor gate; default 0 (G10 prologue adds no floors)
@@ -579,6 +580,11 @@ func registerDefaults() {
 	viper.SetDefault("TowerRotation.ActiveDays", 21)
 	viper.SetDefault("TowerRotation.Enabled", true)
 	viper.SetDefault("TowerRotation.CycleDays", 21)
+	viper.SetDefault("PalloneFestival.Enabled", false)
+	viper.SetDefault("PalloneFestival.StartAt", "")
+	viper.SetDefault("PalloneFestival.ActiveDays", 21)
+	viper.SetDefault("PalloneFestival.ClaimDays", 21)
+	viper.SetDefault("PalloneFestival.EventID", 0)
 	viper.SetDefault("TowerHintSec", 1)
 	viper.SetDefault("TowerRankTRPPerRank", 600)
 	viper.SetDefault("TowerTSPPerRank", 1)
@@ -806,6 +812,9 @@ func LoadConfig() (*Config, error) {
 		c.RealClientMode = ZZ
 	}
 	if err := ValidateHunterGemPointMultiplier(c.GameplayOptions.HunterGemPointMultiplier, c.RealClientMode); err != nil {
+		return nil, err
+	}
+	if err := c.PalloneFestival.Validate(c.RealClientMode); err != nil {
 		return nil, err
 	}
 

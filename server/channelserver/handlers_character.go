@@ -290,7 +290,9 @@ func (save *CharacterSaveData) saveWithRewards(s *Session, divaRewardIDs, starte
 			return errors.New("client reward savedata character mismatch")
 		}
 		params.TowerDailyRewardIDs = s.pendingTowerDailyClaims()
+		params.PalloneRewardIDs = s.pendingPalloneRewardClaims(palloneItem)
 	}
+	params.PalloneRPEvents = append([]int32(nil), save.palloneRPEvents...)
 
 	// Time-gated rotating backup: include the previous compressed savedata
 	// in the transaction if enough time has elapsed since the last backup.
@@ -339,6 +341,8 @@ func (save *CharacterSaveData) saveWithRewards(s *Session, divaRewardIDs, starte
 	}
 	s.completeTowerDailyClaims(params.TowerDailyRewardIDs)
 	s.completeDivaRewardClaims(7, params.DivaRewardIDs)
+	s.completePalloneRewardClaims(palloneItem, params.PalloneRewardIDs)
+	save.palloneRPEvents = nil
 	s.questLicenseStarterPending.Complete(s.userID, s.charID, params.StarterRewardIDs)
 
 	return nil

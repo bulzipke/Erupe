@@ -47,7 +47,8 @@ class MaintenanceChecks(unittest.TestCase):
     def test_read_only_backup_plan_and_secret_redaction(self):
         config = self.root / "config.json"
         config.write_text(json.dumps({"EarthID": 12, "EarthStatus": 2, "Database": {"Password": "do-not-export"},
-                                      "TowerRotation": {"Enabled": True}, "DebugOptions": {"QuestTools": False}}))
+                                      "TowerRotation": {"Enabled": True}, "PalloneFestival": {"Enabled": False, "EventID": 17},
+                                      "DebugOptions": {"QuestTools": False}}))
         before = {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
         result = self.inspect(config)
         self.assertTrue(result["files_ready_for_manual_install"])
@@ -56,6 +57,12 @@ class MaintenanceChecks(unittest.TestCase):
         self.assertIsNone(result["event_plan_template"]["starts_at"])
         self.assertNotIn("do-not-export", json.dumps(result))
         self.assertTrue(result["configuration_backup"]["selected_fields"]["TowerRotation.Enabled"])
+        self.assertEqual(result["configuration_backup"]["selected_fields"]["PalloneFestival.Enabled"], False)
+        self.assertEqual(result["configuration_backup"]["selected_fields"]["PalloneFestival.EventID"], 17)
+        patch = result["configuration_patch_template"]
+        self.assertEqual(patch["PalloneFestival"], {"Enabled": True, "StartAt": "", "ActiveDays": 21, "ClaimDays": 21})
+        self.assertNotIn("EventID", patch["PalloneFestival"])
+        self.assertTrue(set(patch).isdisjoint({"EarthID", "EarthStatus", "TowerRotation"}))
         self.assertEqual(before, {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
 
     def test_rejects_stale_client_and_corrupt_candidate(self):

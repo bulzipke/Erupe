@@ -25,6 +25,8 @@ type SaveAtomicParams struct {
 	// Item receipts consumed with this savedata, not separate inventory grants.
 	DivaRewardIDs       []uint32
 	TowerDailyRewardIDs []int64
+	PalloneRewardIDs    []uint32
+	PalloneRPEvents     []int32
 	// Only authenticated client saves may consume these staged starter receipts.
 	StarterUserID    uint32
 	StarterRewardIDs []uint32
@@ -430,6 +432,12 @@ func (r *CharacterRepository) saveCharacterDataAtomic(params SaveAtomicParams, b
 	}
 	if err := commitDivaRewardReceipts(tx, params.CharID, params.DivaRewardIDs, 7); err != nil {
 		return 0, fmt.Errorf("save diva item receipts: %w", err)
+	}
+	if err := commitPalloneRewardReceipts(tx, params.CharID, params.PalloneRewardIDs, palloneItem); err != nil {
+		return 0, err
+	}
+	if err := commitPalloneRP(tx, params.CharID, params.PalloneRPEvents); err != nil {
+		return 0, err
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err

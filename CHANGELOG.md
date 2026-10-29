@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed 
+- Keep automatic Hunter Festival tallying to one hour and publish the same reward-opening time to the native client and public event schedule.
+- Connect verified Pallone completions to durable scores and current challenge/previous ranking and guild rewards, with immediate rollover settlement, atomic inventory/GP receipts and RP catch-up; late clears retain ordinary quest success without festival credit.
+- Run opt-in Pallone rounds automatically alongside Tower, preserving previous claim windows and event records without requiring an operator-supplied ID.
 - Preserve console output while writing rotating server logs and runtime crash reports to a configurable persistent directory, with backup count, age and compression controls.
 - Expose persisted Hunter Festival, Tower and Diva schedules through a read-only public API for Ferias event displays, using the game server's own phase boundaries.
 - Rotate Hunter Festival automatically from Monday noon on a three-week registration/soul/reward schedule without extra rest days; retain round-scoped registrations, souls and prize history across rollover.

@@ -75,6 +75,13 @@ func pallonePostgres(t *testing.T) *sqlx.DB {
 	if _, err = db.Exec(string(ddl)); err != nil {
 		t.Fatal(err)
 	}
+	ddl, err = os.ReadFile(filepath.Join("..", "migrations", "sql", "0101_pallone_rewards.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(string(ddl)); err != nil {
+		t.Fatal(err)
+	}
 	return db
 }
 
@@ -220,8 +227,11 @@ func TestPallonePostgresRefusalsAndRollback(t *testing.T) {
 	}
 	late := palloneReceipt(e, 100, 1, 2, e.End.Add(10*time.Minute))
 	late.StartedAt = e.End.Add(-time.Minute)
-	if _, err := r.SettlePalloneResult(late, PalloneSubmission{BaseScore: 1}, e.End.Add(10*time.Minute)); err != nil {
-		t.Fatalf("eligible departure was lost at event boundary: %v", err)
+	if _, err := r.SettlePalloneResult(late, PalloneSubmission{BaseScore: 1}, e.End.Add(10*time.Minute)); !errors.Is(err, ErrPalloneIneligible) {
+		t.Fatalf("post-deadline clear changed the closed round: %v", err)
+	}
+	if err := db.Get(&n, `SELECT count(*) FROM pallone_results`); err != nil || n != 1 {
+		t.Fatalf("late clear wrote festival credit: %d %v", n, err)
 	}
 }
 

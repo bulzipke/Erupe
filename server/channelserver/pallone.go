@@ -40,8 +40,8 @@ type PalloneRoute struct {
 
 // PalloneRunReceipt is SERVER state, never a client-provided authorization.
 // A native departure/result adapter must issue it only after validating the
-// selected route and final stage. That adapter remains unarmed pending a real
-// native departure/stage/result capture; a score packet alone issues nothing.
+// selected route, ordered stages and successful final record. A score packet
+// alone cannot create a receipt; both native reports are persisted separately.
 type PalloneRunReceipt struct {
 	EventID      int32
 	CharID       uint32
@@ -90,7 +90,7 @@ func normalizePalloneReceipt(v PalloneRunReceipt) (PalloneRunReceipt, error) {
 	v.RunID = strings.ToLower(v.RunID)
 	v.StartedAt = v.StartedAt.UTC().Truncate(time.Microsecond)
 	v.CompletedAt = v.CompletedAt.UTC().Truncate(time.Microsecond)
-	if v.StartedAt.IsZero() || v.CompletedAt.IsZero() || v.CompletedAt.Before(v.StartedAt) {
+	if v.StartedAt.IsZero() || v.CompletedAt.IsZero() || v.CompletedAt.Before(v.StartedAt) || v.CompletedAt.Sub(v.StartedAt) > palloneMaxRunDuration {
 		return PalloneRunReceipt{}, ErrPalloneInvalid
 	}
 	return v, nil
@@ -104,8 +104,12 @@ func (s *PalloneService) Submit(charID uint32, receipt PalloneRunReceipt, submis
 	return s.repo.SettlePalloneResult(r, submission, now)
 }
 
+func validPalloneWindow(e PalloneEvent) bool {
+	return e.ID > 0 && e.Start.Before(e.End) && e.End.Before(e.ClaimUntil) && e.Start.Unix() >= 0 && e.ClaimUntil.Unix() <= math.MaxUint32
+}
+
 func validatePalloneEvent(e PalloneEvent, routes []PalloneRoute) error {
-	if e.ID <= 0 || !e.Start.Before(e.End) || !e.End.Before(e.ClaimUntil) || e.Start.Unix() < 0 || e.ClaimUntil.Unix() > math.MaxUint32 || len(routes) == 0 || len(routes) > mhfpallone.MaxRoutes {
+	if !validPalloneWindow(e) || len(routes) == 0 || len(routes) > mhfpallone.MaxRoutes {
 		return ErrPalloneInvalid
 	}
 	seen := make(map[int32]bool)
@@ -128,11 +132,11 @@ func validatePalloneEvent(e PalloneEvent, routes []PalloneRoute) error {
 	return nil
 }
 
-// Runtime activation uses the EXISTING explicit manual Earth selection. Empty
-// event tables, other client versions, and Tower rotation retain their current
-// behavior. Creating an event does not change EarthStatus or activate it.
+// Runtime activation supports an explicit independent festival selection, or
+// the existing manual Earth slot for legacy configurations. Registration alone
+// does not select an event or change either schedule.
 func (s *Server) palloneEvent(now time.Time) (*PalloneEvent, error) {
-	e, err := s.selectedPalloneEvent()
+	e, err := s.selectedPalloneEventAt(now)
 	if err != nil || e == nil {
 		return e, err
 	}
@@ -143,9 +147,48 @@ func (s *Server) palloneEvent(now time.Time) (*PalloneEvent, error) {
 }
 
 func (s *Server) selectedPalloneEvent() (*PalloneEvent, error) {
+	return s.selectedPalloneEventAt(TimeAdjusted())
+}
+
+func (s *Server) selectedPalloneEventAt(now time.Time) (*PalloneEvent, error) {
 	c := s.erupeConfig
-	if s.palloneRepo == nil || c.RealClientMode != cfg.ZZ || c.TowerRotation.Enabled || (c.EarthStatus != 11 && c.EarthStatus != 12) {
+	if s.palloneRepo == nil || c.RealClientMode != cfg.ZZ {
+		return nil, nil
+	}
+	if s.independentPalloneFestival() {
+		if s.automaticPalloneFestival() {
+			schedule, err := s.palloneSchedule(now)
+			if err != nil || schedule.Current.ID == 0 {
+				return nil, err
+			}
+			return &schedule.Current, nil
+		}
+		if c.PalloneFestival.EventID < 0 {
+			return nil, ErrPalloneInvalid
+		}
+		return s.palloneRepo.GetPalloneEvent(c.PalloneFestival.EventID)
+	}
+	if c.TowerRotation.Enabled || (c.EarthStatus != 11 && c.EarthStatus != 12) {
 		return nil, nil
 	}
 	return s.palloneRepo.GetPalloneEvent(c.EarthID)
+}
+
+func (s *Server) independentPalloneFestival() bool {
+	return s.erupeConfig.RealClientMode == cfg.ZZ && s.erupeConfig.PalloneFestival.Enabled
+}
+
+// Empty festival reads also belong to their independently selected event,
+// including prefetches outside the festival window. Never borrow the Tower ID.
+func doAckPalloneEmpty(s *Session, ackHandle uint32) {
+	id := s.server.erupeConfig.EarthID
+	if s.server.independentPalloneFestival() {
+		id = s.server.erupeConfig.PalloneFestival.EventID
+	}
+	data, err := mhfpallone.EncodeScores(id, nil)
+	if err != nil {
+		doAckBufFail(s, ackHandle, nil)
+		return
+	}
+	doAckBufSucceed(s, ackHandle, data)
 }

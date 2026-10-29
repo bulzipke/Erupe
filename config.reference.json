@@ -56,6 +56,12 @@
     "CycleDays": 21
   },
   "EarthMonsters": [0, 0, 0, 0],
+  "PalloneFestival": {
+    "Enabled": false,
+    "StartAt": "",
+    "ActiveDays": 21,
+    "ClaimDays": 21
+  },
   "TowerZone1UnlockTRP": 1,
   "TowerZone1UnlockFloor": 0,
   "TowerZone2UnlockTRP": 1,

@@ -180,6 +180,9 @@ type WeeklySeibatuRankingReward struct {
 
 func handleMsgMhfGetWeeklySeibatuRankingReward(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetWeeklySeibatuRankingReward)
+	if s.handlePalloneRewardTable(pkt) {
+		return
+	}
 	if pkt.Unk1 == 3 && s.server.erupeConfig.RealClientMode == cfg.ZZ {
 		s.handlePalloneRouteDelivery(pkt)
 		return

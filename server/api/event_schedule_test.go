@@ -51,7 +51,7 @@ func TestEventScheduleUsesPersistedIDsAndGameBoundaries(t *testing.T) {
 	if d.Events[0].Round != 12 || d.Events[1].Round != 1 || d.Events[2].Round != 13 {
 		t.Fatal("rounds were inferred instead of using lifecycle IDs")
 	}
-	if got := d.Events[0].Phases[3].Start.Format(time.RFC3339); got != "2026-11-02T14:30:00+09:00" {
+	if got := d.Events[0].Phases[3].Start.Format(time.RFC3339); got != "2026-11-02T13:00:00+09:00" {
 		t.Fatal(got)
 	}
 	if got := d.Events[0].Phases[3].End.Format(time.RFC3339); got != "2026-11-09T12:00:00+09:00" {

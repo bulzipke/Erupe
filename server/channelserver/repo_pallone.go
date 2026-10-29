@@ -17,6 +17,8 @@ import (
 
 type PalloneRepository struct{ db *sqlx.DB }
 
+const palloneLifecycleLock int64 = 0x50414c4c4f4e45
+
 func NewPalloneRepository(db *sqlx.DB) *PalloneRepository { return &PalloneRepository{db: db} }
 
 var _ PalloneRepo = (*PalloneRepository)(nil)
@@ -80,11 +82,20 @@ func (r *PalloneRepository) RegisterPalloneEvent(e PalloneEvent, routes []Pallon
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = tx.Exec(`SELECT pg_advisory_xact_lock($1)`, int64(0x50414c4c4f4e45)); err != nil {
+	if _, err = tx.Exec(`SELECT pg_advisory_xact_lock($1)`, palloneLifecycleLock); err != nil {
 		return err
 	}
+	if err = registerPalloneEvent(tx, e, routes); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// Caller holds palloneLifecycleLock. Existing rounds are immutable, including
+// the upcoming round prepublished for the native login calendar.
+func registerPalloneEvent(tx *sqlx.Tx, e PalloneEvent, routes []PalloneRoute) error {
 	var old PalloneEvent
-	err = tx.Get(&old, `SELECT id,starts_at,ends_at,claim_until FROM pallone_events WHERE id=$1`, e.ID)
+	err := tx.Get(&old, `SELECT id,starts_at,ends_at,claim_until FROM pallone_events WHERE id=$1`, e.ID)
 	if err == nil {
 		oldRoutes, err := readPalloneRoutes(tx, e.ID)
 		if err != nil {
@@ -93,7 +104,7 @@ func (r *PalloneRepository) RegisterPalloneEvent(e PalloneEvent, routes []Pallon
 		if !old.Start.Equal(e.Start) || !old.End.Equal(e.End) || !old.ClaimUntil.Equal(e.ClaimUntil) || !reflect.DeepEqual(routes, oldRoutes) {
 			return ErrPalloneConflict
 		}
-		return tx.Commit()
+		return nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
@@ -110,7 +121,8 @@ func (r *PalloneRepository) RegisterPalloneEvent(e PalloneEvent, routes []Pallon
 			return err
 		}
 	}
-	return tx.Commit()
+	_, err = palloneRewardProfileTx(tx, e.ID)
+	return err
 }
 
 type palloneStoredResult struct {
@@ -178,7 +190,23 @@ func (r *PalloneRepository) SettlePalloneResult(receipt PalloneRunReceipt, v Pal
 	if err != nil {
 		return PalloneSettlement{}, err
 	}
-	if !e.Active(receipt.StartedAt) || !receipt.CompletedAt.Before(e.ClaimUntil) || !now.Before(e.ClaimUntil) {
+	if !e.Active(receipt.StartedAt) || !e.Active(receipt.CompletedAt) {
+		return PalloneSettlement{}, ErrPalloneIneligible
+	}
+	if !now.Before(e.End) {
+		durable, matchErr := palloneDurableReportTx(tx, receipt, v)
+		if matchErr != nil {
+			return PalloneSettlement{}, matchErr
+		}
+		if !durable {
+			return PalloneSettlement{}, ErrPalloneIneligible
+		}
+	}
+	var finalized bool
+	if err = tx.Get(&finalized, `SELECT EXISTS(SELECT 1 FROM pallone_event_finalizations WHERE event_id=$1)`, e.ID); err != nil {
+		return PalloneSettlement{}, err
+	}
+	if finalized {
 		return PalloneSettlement{}, ErrPalloneIneligible
 	}
 	var finalID int32
@@ -215,7 +243,20 @@ func (r *PalloneRepository) SettlePalloneResult(receipt PalloneRunReceipt, v Pal
 		var memberGuild uint32
 		err = tx.Get(&memberGuild, `SELECT guild_id FROM guild_characters WHERE character_id=$1 AND guild_id=$2 FOR SHARE`, receipt.CharID, v.GuildID)
 		if errors.Is(err, sql.ErrNoRows) {
-			return PalloneSettlement{}, ErrPalloneGuild
+			accepted, matchErr := palloneDurableReportTx(tx, receipt, v)
+			if matchErr != nil {
+				return PalloneSettlement{}, matchErr
+			}
+			if !accepted {
+				return PalloneSettlement{}, ErrPalloneGuild
+			}
+			// Membership was validated when the durable score report arrived.
+			// A later transfer cannot rewrite its historical attribution.
+			err = tx.Get(&memberGuild, `SELECT id FROM guilds WHERE id=$1 FOR SHARE`, v.GuildID)
+			if errors.Is(err, sql.ErrNoRows) {
+				err = nil
+				memberGuild = 0
+			}
 		}
 		if err != nil {
 			return PalloneSettlement{}, err
@@ -226,7 +267,9 @@ func (r *PalloneRepository) SettlePalloneResult(receipt PalloneRunReceipt, v Pal
 		if credited+total > math.MaxInt32 {
 			return PalloneSettlement{}, ErrPalloneScoreLimit
 		}
-		guildID = memberGuild
+		if memberGuild != 0 {
+			guildID = memberGuild
+		}
 	}
 	result, err := tx.Exec(`INSERT INTO pallone_results(character_id,run_id,event_id,route_key,started_at,completed_at,final_quest_id,
 		base_score,premium_bonus,item_bonus,total_score,submitted_guild_id,guild_id,multiplier,recorded_at)
@@ -249,6 +292,27 @@ func (r *PalloneRepository) SettlePalloneResult(receipt PalloneRunReceipt, v Pal
 			return PalloneSettlement{}, ErrPalloneConflict
 		}
 		return palloneRepeat(tx, old, receipt, v)
+	}
+	if guildID != nil {
+		catalog, err := palloneRewardProfileTx(tx, e.ID)
+		if err != nil {
+			return PalloneSettlement{}, err
+		}
+		var ids pq.Int32Array
+		if err := tx.Get(&ids, `SELECT stage_quest_ids FROM pallone_event_routes WHERE event_id=$1 AND route_key=$2`, e.ID, receipt.RouteKey); err != nil {
+			return PalloneSettlement{}, err
+		}
+		stages := int32(0)
+		for _, id := range ids {
+			if id != 27348 {
+				stages++
+			}
+		}
+		if stages > 0 {
+			if _, err := tx.Exec(`INSERT INTO pallone_guild_contributions(event_id,character_id,run_id,guild_id,points) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, e.ID, receipt.CharID, receipt.RunID, v.GuildID, stages*catalog.OrbPointsPerStage); err != nil {
+				return PalloneSettlement{}, err
+			}
+		}
 	}
 	return PalloneSettlement{}, tx.Commit()
 }

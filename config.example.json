@@ -23,6 +23,12 @@
     "ActiveDays": 21,
     "CycleDays": 21
   },
+  "PalloneFestival": {
+    "Enabled": false,
+    "StartAt": "",
+    "ActiveDays": 21,
+    "ClaimDays": 21
+  },
   "GameplayOptions": {
     "HunterGemPointMultiplier": 1.00,
     "DivaBonusRandom": false,

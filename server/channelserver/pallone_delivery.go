@@ -40,7 +40,7 @@ func (s *Session) handlePalloneRouteDelivery(pkt *mhfpacket.MsgMhfGetWeeklySeiba
 	}
 	if e == nil {
 		s.observePallone("delivery_empty", zap.String("reason", "no_visible_selected_event"))
-		doAckEarthSucceed(s, pkt.AckHandle, nil)
+		doAckPalloneEmpty(s, pkt.AckHandle)
 		return
 	}
 	rows, err := s.server.palloneDeliveryRows(e.ID)
@@ -60,7 +60,23 @@ func (s *Session) handlePalloneRouteDelivery(pkt *mhfpacket.MsgMhfGetWeeklySeiba
 }
 
 func (s *Server) palloneDeliveryRows(eventID int32) ([]mhfpallone.RouteDelivery, error) {
-	root := s.erupeConfig.BinPath
+	profile, err := loadPallonePublication(s.erupeConfig.BinPath)
+	if err != nil || profile == nil {
+		return nil, err
+	}
+	routes, err := s.palloneRepo.GetPalloneRoutes(eventID)
+	if err != nil {
+		return nil, err
+	}
+	if len(routes) != 1 || routes[0].Key != profile.Key || routes[0].Star != 0 || !reflect.DeepEqual(routes[0].QuestIDs, profile.Route.StageQuestIDs) {
+		return nil, fmt.Errorf("Pallone registered routes do not match the installed client profile")
+	}
+	return profile.Rows, nil
+}
+
+// Rotation and delivery share the same publication checks. Merely enabling
+// rotation without an installed, verified route must not create an event.
+func loadPallonePublication(root string) (*palloneDeliveryProfile, error) {
 	data, err := os.ReadFile(filepath.Join(root, "pallone-client-profile.json"))
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -84,13 +100,6 @@ func (s *Server) palloneDeliveryRows(eventID int32) ([]mhfpallone.RouteDelivery,
 			return nil, fmt.Errorf("Pallone profile has no client data fingerprint")
 		}
 	}
-	routes, err := s.palloneRepo.GetPalloneRoutes(eventID)
-	if err != nil {
-		return nil, err
-	}
-	if len(routes) != 1 || routes[0].Key != profile.Key || routes[0].Star != 0 || !reflect.DeepEqual(routes[0].QuestIDs, ids) {
-		return nil, fmt.Errorf("Pallone registered routes do not match the installed client profile")
-	}
 	for _, id := range ids {
 		for _, suffix := range []string{"d0", "d1", "d2", "n0", "n1", "n2"} {
 			name := fmt.Sprintf("%05d%s.bin", id, suffix)
@@ -108,5 +117,5 @@ func (s *Server) palloneDeliveryRows(eventID int32) ([]mhfpallone.RouteDelivery,
 			}
 		}
 	}
-	return profile.Rows, nil
+	return &profile, nil
 }
