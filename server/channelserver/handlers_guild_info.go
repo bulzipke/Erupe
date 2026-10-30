@@ -289,7 +289,7 @@ func handleMsgMhfInfoGuild(s *Session, p mhfpacket.MHFPacket) {
 
 		doAckBufSucceed(s, pkt.AckHandle, bf.Data())
 	} else {
-		doAckBufSucceed(s, pkt.AckHandle, make([]byte, 4))
+		doAckBufSucceed(s, pkt.AckHandle, make([]byte, 5))
 	}
 }
 

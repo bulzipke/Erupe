@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
@@ -142,6 +143,37 @@ func TestInfoGuild_ByCharID(t *testing.T) {
 		}
 	default:
 		t.Error("No response packet queued")
+	}
+}
+
+func TestInfoGuild_EmptyResponseIncludesNativeTrailingByte(t *testing.T) {
+	now := time.Now()
+	for _, tc := range []struct {
+		name      string
+		repo      *mockGuildRepo
+		requested uint32
+	}{
+		{name: "not joined", repo: &mockGuildRepo{}},
+		{name: "requested guild not found", repo: &mockGuildRepo{getErr: errNotFound}, requested: 999},
+		{
+			name: "membership lookup error",
+			repo: &mockGuildRepo{
+				guild:        &Guild{ID: 10, Name: "Guild", CreatedAt: now, RoomExpiry: now},
+				getMemberErr: errNotFound,
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := guildInfoServer()
+			server.guildRepo = tc.repo
+			session := createMockSession(1, server)
+			handleMsgMhfInfoGuild(session, &mhfpacket.MsgMhfInfoGuild{AckHandle: 105, GuildID: tc.requested})
+			ack := readAck(t, session)
+			// Both native decoders read a zero u32 guild ID and a trailing byte.
+			if ack.AckHandle != 105 || ack.ErrorCode != 0 || !ack.IsBufferResponse || !bytes.Equal(ack.Payload, []byte{0, 0, 0, 0, 0}) {
+				t.Fatalf("empty InfoGuild must contain zero guild ID and a trailing zero byte: %+v", ack)
+			}
+		})
 	}
 }
 
