@@ -13,13 +13,14 @@ import (
 func supportRecordFixture(used bool, monster int) []byte {
 	data := settingsRecordFixture()
 	tail := data[nativeQuestRecordBytes:]
-	copy(tail, "VUI3")
+	copy(tail, "VUI4")
 	if used {
 		tail[4] |= 16
 	}
 	data[32+6] = 0
 	data[32+monster] = 1
 	if monster == mhfmon.Raviente || monster == mhfmon.BerserkRaviente {
+		copy(tail, "VUI3")
 		tail[7], tail[15] = 0, 0
 	}
 	return data
@@ -52,12 +53,12 @@ func TestSupportRankEvidence(t *testing.T) {
 	for flags := 0; flags < 256; flags++ {
 		data := supportRecordFixture(false, 6)
 		data[nativeQuestRecordBytes+4] = byte(flags)
-		want := flags < 16
+		want := flags < 64 && flags&16 == 0
 		if huntRecordSupportAllowed(data) != want {
 			t.Fatalf("flags %02x: expected rank eligibility %v", flags, want)
 		}
 	}
-	for _, version := range []string{"VUI1", "VUI2", "VUI4"} {
+	for _, version := range []string{"VUI1", "VUI2", "VUI5"} {
 		data := settingsRecordFixture()
 		copy(data[nativeQuestRecordBytes:], version)
 		if version == "VUI1" {
@@ -104,7 +105,10 @@ func TestSupportExcludesTimeButKeepsKills(t *testing.T) {
 
 func TestSupportRepositoryRejectsBeforeDatabase(t *testing.T) {
 	repo := &HuntRecordRepository{} // Invalid records must never access its nil DB.
-	for _, settings := range []*HuntClientSettings{nil, {Version: 1}, {Version: 1, SupportKnown: true, SupportUsed: true}} {
+	for _, settings := range []*HuntClientSettings{
+		nil, {Version: 1}, {Version: 1, SupportKnown: true, SupportUsed: true},
+		{SupportKnown: true, NPCKnown: true},
+	} {
 		if err := repo.UpsertPersonalBest(HuntRecordUpsert{ClientSettings: settings, BestTimeFrames: 1}); err != nil {
 			t.Fatal(err)
 		}

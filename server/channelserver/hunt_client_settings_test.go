@@ -34,7 +34,7 @@ func mainTargetRecordFixture(native []byte, mode, state byte) []byte {
 	copy(data, native)
 	data[questResultCodeOffset] = questResultCodeCleared
 	tail := data[nativeQuestRecordBytes:]
-	copy(tail, "VUI3")
+	copy(tail, "VUI4")
 	tail[6], tail[7], tail[15] = 45, mode, state
 	copy(tail[8:12], data[12:16])
 	copy(tail[12:14], data[:2])
@@ -104,12 +104,13 @@ func TestHuntRecordSettingsStayWithFasterTime(t *testing.T) {
 	char := CreateTestCharacter(t, db, user, "HuntUIHunter")
 	repo := NewHuntRecordRepository(db)
 	best := HuntRecordUpsert{CharacterID: char, MonsterID: 6, QuestID: 50001, RankKind: "g", VariantKind: "normal", BestTimeFrames: 8051, RecordedAt: time.Now(), ClientSettings: decodeHuntClientSettings(supportRecordFixture(false, 6))}
+	best.ClientSettings.Solo = true
 	if err := repo.UpsertPersonalBest(best); err != nil {
 		t.Fatal(err)
 	}
 	slower := best
 	slower.BestTimeFrames = 9000
-	slower.ClientSettings = &HuntClientSettings{Version: 1, FOV: 45, SupportKnown: true}
+	slower.ClientSettings = &HuntClientSettings{Version: 1, FOV: 45, SupportKnown: true, NPCKnown: true, Solo: true}
 	if err := repo.UpsertPersonalBest(slower); err != nil {
 		t.Fatal(err)
 	}

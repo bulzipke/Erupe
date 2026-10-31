@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed 
+- Exclude automatic guilds from dashboard RP rankings; prioritize confirmed NPC-free solo hunt times before NPC-assisted and historical times, comparing times within each priority (Halk allowed, Raviente unchanged).
 - Use a 32-player damage-scaling reference only for Extreme Raviente sieges, including the limited variant.
 - Limit dashboard quest clear/failure rankings to ten entries each and kit, gacha and legend rasta rankings to fourteen entries each.
 - Keep automatic Hunter Festival tallying to one hour and publish the same reward-opening time to the native client and public event schedule.

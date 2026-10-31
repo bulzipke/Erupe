@@ -775,6 +775,9 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 		supportAllowed := huntRecordSupportAllowed(pkt.Data)
 		validRecordTime := elapsedFrames > 0 && elapsedFrames <= maxRankedQuestDurationFrames
 		hadParty := s.questHadParty.Load()
+		if clientSettings != nil {
+			clientSettings.Solo = !hadParty
+		}
 		var questWeaponType *uint8
 		if weaponType, ok := s.questWeaponForResult(questID); ok {
 			questWeaponType = &weaponType
@@ -803,9 +806,11 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 				// Berserk Raviente is ranked as one whole communal siege by the
 				// dedicated run tracker.  Its individual phase quest times must never
 				// leak into the personal hunt leaderboard.
-				// All personal times require explicit Support OFF evidence. Normal/
+				// Personal times require explicit Support OFF evidence. Normal/
 				// violent Raviente retains its native outcome rule; other hunts also
-				// require client-confirmed main-target completion. Kill logs above and
+				// require main-target completion. NPC-assisted solo times are saved
+				// too, with lower leaderboard priority than NPC-free times.
+				// Halk is outside the client's companion roster. Kill logs above and
 				// quest progression below are saved regardless of Support use.
 				recordMonsterTime := validRecordTime && supportAllowed && !hadParty && i != mhfmon.BerserkRaviente &&
 					(i == mhfmon.Raviente || mainTargetCleared)

@@ -350,7 +350,7 @@ func (s *APIServer) deliverDashboardItem(ctx context.Context, request dashboardD
 	}
 	needed := (request.Quantity + dashboardDeliveryStackSize - 1) / dashboardDeliveryStackSize
 	if mailCount+needed > dashboardDeliveryMailLimit {
-		return receipt, &dashboardDeliveryError{http.StatusConflict, fmt.Sprintf("메일함 공간이 부족합니다. %d통이 필요하고 현재 %d통이 있습니다. 기존 메일을 정리한 뒤 다시 지급해 주세요.", needed, mailCount)}
+		return receipt, &dashboardDeliveryError{http.StatusConflict, fmt.Sprintf("쪽지함 공간이 부족합니다. %d통이 필요하고 현재 %d통이 있습니다. 기존 쪽지를 정리한 뒤 다시 지급해 주세요.", needed, mailCount)}
 	}
 	receipt = dashboardDeliveryReceipt{RequestID: request.RequestID, Kind: dashboardDeliveryKindItem, CharacterID: request.CharacterID,
 		CharacterName: name, CharacterCode: request.CharacterCode, ItemID: request.ItemID,

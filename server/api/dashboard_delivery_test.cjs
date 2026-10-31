@@ -216,7 +216,7 @@ test("currency selection disables item autocomplete and grants without an item o
     await flush();
     assert.match(h.byId("delivery-feedback").textContent, /금화 지급을 완료/);
     assert.match(h.byId("delivery-feedback").textContent, /지급 후 계정 보유: 299개/);
-    assert.doesNotMatch(h.byId("delivery-feedback").textContent, /메일/);
+    assert.doesNotMatch(h.byId("delivery-feedback").textContent, /메일|쪽지/);
     assert.equal(h.byId("delivery-item-query").disabled, true);
     assert.equal(h.byId("delivery-kind").disabled, false);
 });
@@ -267,7 +267,7 @@ test("currency pending request survives reload and shows a durable waiting grant
     assert.equal(reloaded.byId("delivery-item-query").disabled, true);
     assert.match(reloaded.byId("delivery-feedback").textContent, /로그아웃/);
     assert.match(reloaded.byId("delivery-feedback").textContent, /지급 대기/);
-    assert.doesNotMatch(reloaded.byId("delivery-feedback").textContent, /지급 후 계정 보유|NaN|메일/);
+    assert.doesNotMatch(reloaded.byId("delivery-feedback").textContent, /지급 후 계정 보유|NaN|메일|쪽지/);
 });
 
 test("currency queued grant shows waiting instead of falsely reporting paid", async () => {

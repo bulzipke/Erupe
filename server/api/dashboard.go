@@ -358,6 +358,7 @@ type MonsterTimeRankEntry struct {
 	QuestID        int            `db:"quest_id" json:"questId"`
 	QuestName      string         `db:"quest_name" json:"questName"`
 	Frames         int64          `db:"best_time_frames" json:"frames"`
+	NPCAssisted    bool           `db:"npc_assisted" json:"npcAssisted"`
 	ClientSettings types.JSONText `db:"client_settings" json:"clientSettings,omitempty"`
 }
 
@@ -431,6 +432,14 @@ type DashboardRankings struct {
 
 const dashboardRankingTTL = time.Minute
 
+const dashboardGuildRankingsQuery = `
+	SELECT name AS guild_name, rank_rp::bigint AS rp
+	FROM guilds
+	WHERE name IS NOT NULL AND name <> '' AND return_type = 0
+	ORDER BY rank_rp DESC, id ASC
+	LIMIT 5
+`
+
 // dashboardQuestResultQuery ranks quests by one of the two counter columns. The
 // column is chosen from a fixed pair rather than interpolated from a request,
 // so this cannot become an injection point.
@@ -464,6 +473,9 @@ const dashboardLeastUsedWeaponsQuery = `
 
 const dashboardMonsterTimesQuery = `
 	WITH eligible_records AS (
+		-- Legacy rows predate NPC/solo telemetry. Keep them in the assisted
+		-- group without changing their original metadata. Explicit parties
+		-- and known Support boosts remain ineligible.
 		SELECT
 			r.character_id,
 			r.monster_id,
@@ -480,15 +492,7 @@ const dashboardMonsterTimesQuery = `
 			END AS quest_name,
 			r.best_time_frames,
 			r.client_settings,
-			ROW_NUMBER() OVER (
-				PARTITION BY
-					r.character_id,
-					r.monster_id,
-					COALESCE(r.rank_kind, 'unknown'),
-					COALESCE(r.variant_kind, 'unknown'),
-					r.conquest_level
-				ORDER BY r.best_time_frames ASC, r.quest_id ASC
-			) AS personal_position
+			NOT COALESCE(r.client_settings @> '` + mhfquest.NPCFreeSoloHuntSettingsJSON + `'::jsonb, false) AS npc_assisted
 		FROM monster_hunt_records r
 		INNER JOIN characters c ON c.id = r.character_id
 		WHERE c.deleted = false
@@ -496,6 +500,8 @@ const dashboardMonsterTimesQuery = `
 		  AND c.name IS NOT NULL
 		  AND c.name <> ''
 		  AND r.monster_id NOT IN (93, 149)
+		  AND (r.client_settings->'solo' IS NULL OR r.client_settings @> '{"solo":true}'::jsonb)
+		  AND NOT COALESCE(r.client_settings @> '{"supportUsed":true}'::jsonb, false)
 		  AND (
 			COALESCE(r.variant_kind, '') <> 'conquest'
 			OR r.conquest_level = 9999
@@ -508,9 +514,17 @@ const dashboardMonsterTimesQuery = `
 			OR COALESCE(r.rank_kind, '') = 'g'
 			OR r.monster_id IN (7, 50, 55, 58, 60, 119, 120)
 		  )
+	), personal_records AS (
+		SELECT *,
+			ROW_NUMBER() OVER (
+				PARTITION BY
+					character_id, monster_id, rank_kind, variant_kind, conquest_level
+				ORDER BY npc_assisted ASC, best_time_frames ASC, quest_id ASC
+			) AS personal_position
+		FROM eligible_records
 	), personal_bests AS (
 		SELECT *
-		FROM eligible_records
+		FROM personal_records
 		WHERE personal_position = 1
 	), ranked AS (
 		SELECT
@@ -524,13 +538,14 @@ const dashboardMonsterTimesQuery = `
 			quest_name,
 			best_time_frames,
 			client_settings,
+			npc_assisted,
 			ROW_NUMBER() OVER (
 				PARTITION BY monster_id, rank_kind, variant_kind, conquest_level
-				ORDER BY best_time_frames ASC, character_id ASC
+				ORDER BY npc_assisted ASC, best_time_frames ASC, character_id ASC
 			) AS position
 		FROM personal_bests
 	)
-	SELECT monster_id, rank_kind, variant_kind, conquest_level, character_name, weapon_type, quest_id, quest_name, best_time_frames, client_settings
+	SELECT monster_id, rank_kind, variant_kind, conquest_level, character_name, weapon_type, quest_id, quest_name, best_time_frames, client_settings, npc_assisted
 	FROM ranked
 	WHERE position <= 10
 	ORDER BY
@@ -861,16 +876,7 @@ func (s *APIServer) getDashboardRankings(ctx context.Context) DashboardRankings 
 		return dashboardRankingsAfterQueryError(s.dashboardRankings, s.dashboardRankingsAt, rankings)
 	}
 
-	if err := s.db.SelectContext(ctx, &rankings.Guilds, `
-		SELECT
-			name AS guild_name,
-			rank_rp::bigint AS rp
-		FROM guilds
-		WHERE name IS NOT NULL
-		  AND name <> ''
-		ORDER BY rank_rp DESC, id ASC
-		LIMIT 5
-	`); err != nil {
+	if err := s.db.SelectContext(ctx, &rankings.Guilds, dashboardGuildRankingsQuery); err != nil {
 		s.logger.Warn("Dashboard: failed to query guild rankings", zap.Error(err))
 		return dashboardRankingsAfterQueryError(s.dashboardRankings, s.dashboardRankingsAt, rankings)
 	}

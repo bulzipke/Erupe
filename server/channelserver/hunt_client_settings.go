@@ -10,8 +10,8 @@ const nativeQuestRecordBytes = 0x4ac
 // HuntClientSettings describes the settings frozen at the end of this hunt.
 // Used flags also retain options used earlier, even if disabled before clearing.
 // Absence is unknown, never inferred as OFF. UI fields are display metadata;
-// VUI3 Support usage governs rank eligibility, while timings still use the
-// native final RecordLog frame field. Assisted/unknown personal times are excluded.
+// VUI4 NPC usage governs ranking priority, while VUI3 Support usage governs
+// eligibility. Timings use the native final RecordLog frame field.
 type HuntClientSettings struct {
 	Version      uint8 `json:"version"`
 	HPView       bool  `json:"hpView"`
@@ -21,7 +21,10 @@ type HuntClientSettings struct {
 	FOV          uint8 `json:"fov"`
 	FOVUsed      bool  `json:"fovUsed"`
 	SupportKnown bool  `json:"supportKnown,omitempty"`
-	SupportUsed  bool  `json:"supportUsed,omitempty"`
+	SupportUsed  bool  `json:"supportUsed"`
+	NPCKnown     bool  `json:"npcKnown,omitempty"`
+	NPCUsed      bool  `json:"npcUsed"`
+	Solo         bool  `json:"solo"` // Filled by the server's quest-party tracking.
 }
 
 // decodeHuntClientTrailer validates the complete optional extension, including
@@ -36,6 +39,9 @@ func decodeHuntClientTrailer(data []byte) []byte {
 	if string(tail[:4]) == "VUI3" {
 		allowedFlags = 31
 	}
+	if string(tail[:4]) == "VUI4" {
+		allowedFlags = 63
+	}
 	if tail[4]&^allowedFlags != 0 || tail[5] > 2 || tail[6] < 30 || tail[6] > 90 {
 		return nil
 	}
@@ -44,7 +50,7 @@ func decodeHuntClientTrailer(data []byte) []byte {
 		if tail[7] != 0 || tail[15] != 0 {
 			return nil
 		}
-	case "VUI3":
+	case "VUI3", "VUI4":
 		if data[killLogHeaderSize+93] != 0 || data[killLogHeaderSize+149] != 0 {
 			if tail[7] != 0 || tail[15] != 0 {
 				return nil
@@ -64,7 +70,7 @@ func decodeHuntClientTrailer(data []byte) []byte {
 		return nil
 	}
 	// All normal/violent and Berserk Raviente aggregation remains unchanged.
-	if string(tail[:4]) != "VUI3" && (data[killLogHeaderSize+93] != 0 || data[killLogHeaderSize+149] != 0) {
+	if string(tail[:4]) != "VUI3" && string(tail[:4]) != "VUI4" && (data[killLogHeaderSize+93] != 0 || data[killLogHeaderSize+149] != 0) {
 		return nil
 	}
 	return tail
@@ -96,7 +102,7 @@ func huntMainObjectiveComplete(mode, state byte) bool {
 
 func huntRecordMainTargetCleared(data []byte) bool {
 	tail := decodeHuntClientTrailer(data)
-	return tail != nil && (bytes.Equal(tail[:4], []byte("VUI2")) || bytes.Equal(tail[:4], []byte("VUI3"))) &&
+	return tail != nil && (bytes.Equal(tail[:4], []byte("VUI2")) || bytes.Equal(tail[:4], []byte("VUI3")) || bytes.Equal(tail[:4], []byte("VUI4"))) &&
 		huntMainObjectiveComplete(tail[7], tail[15])
 }
 
@@ -116,6 +122,7 @@ func decodeHuntClientSettings(data []byte) *HuntClientSettings {
 		Version: 1, HPView: tail[4]&1 != 0, HPViewUsed: tail[4]&2 != 0,
 		ElapsedMode: tail[5], ElapsedUsed: tail[4]&4 != 0,
 		FOV: tail[6], FOVUsed: tail[4]&8 != 0,
-		SupportKnown: string(tail[:4]) == "VUI3", SupportUsed: tail[4]&16 != 0,
+		SupportKnown: string(tail[:4]) == "VUI3" || string(tail[:4]) == "VUI4", SupportUsed: tail[4]&16 != 0,
+		NPCKnown: string(tail[:4]) == "VUI4", NPCUsed: tail[4]&32 != 0,
 	}
 }

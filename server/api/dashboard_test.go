@@ -230,6 +230,7 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 		"월드 채팅",
 		"대형 몬스터 토벌",
 		"대형 몬스터별 최단 토벌",
+		"1인 참가 기록만 등록되며, 호르크를 제외한 NPC를 활성화한 경우에는 후순위로 표시됩니다. (라비엔테 제외)",
 		`id="raviente-run-heading"`,
 		`.monster-time-table tbody{display:block;max-height:102px;overflow-x:hidden;overflow-y:auto;`,
 		"id=\"monster-time-zenith\"",
@@ -640,7 +641,9 @@ func TestDashboardQuestResultQueriesLimitToTen(t *testing.T) {
 func TestDashboardMonsterTimeRankingQuerySelectsPersonalBestBeforeTopTen(t *testing.T) {
 	query := strings.Join(strings.Fields(dashboardMonsterTimesQuery), " ")
 	for _, marker := range []string{
-		"PARTITION BY r.character_id, r.monster_id, COALESCE(r.rank_kind, 'unknown'), COALESCE(r.variant_kind, 'unknown'), r.conquest_level",
+		"PARTITION BY character_id, monster_id, rank_kind, variant_kind, conquest_level",
+		"ORDER BY npc_assisted ASC, best_time_frames ASC, quest_id ASC",
+		"ORDER BY npc_assisted ASC, best_time_frames ASC, character_id ASC",
 		"WHERE personal_position = 1",
 		"PARTITION BY monster_id, rank_kind, variant_kind, conquest_level",
 		"WHERE position <= 10",
@@ -656,6 +659,9 @@ func TestDashboardMonsterTimeRankingQuerySelectsPersonalBestBeforeTopTen(t *test
 		"WHEN variant_kind = 'upper_shiten' THEN 1",
 		"WHEN variant_kind = 'zenith' THEN 2",
 		"r.monster_id NOT IN (93, 149)",
+		`r.client_settings @> '{"supportKnown":true,"supportUsed":false,"npcKnown":true,"npcUsed":false,"solo":true}'::jsonb`,
+		`r.client_settings->'solo' IS NULL OR r.client_settings @> '{"solo":true}'::jsonb`,
+		`NOT COALESCE(r.client_settings @> '{"supportUsed":true}'::jsonb, false)`,
 		"COALESCE(r.variant_kind, '') <> 'conquest' OR r.conquest_level = 9999",
 		"r.monster_id IN (7, 50, 55, 58, 60, 119, 120)",
 	} {

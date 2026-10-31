@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"time"
 
+	"erupe-ce/common/mhfmon"
+	"erupe-ce/common/mhfquest"
+
 	"github.com/jmoiron/sqlx"
 )
 
@@ -42,12 +45,16 @@ func NewHuntRecordRepository(db *sqlx.DB) *HuntRecordRepository {
 	return &HuntRecordRepository{db: db}
 }
 
-// UpsertPersonalBest keeps only the fastest observed time for a hunter,
-// monster, quest, rank, and form. Equal or slower hunts leave the existing
-// record and its metadata untouched.
+// UpsertPersonalBest prefers NPC-free solo times, then the fastest time within
+// that priority, for each hunter, monster, quest, rank, and form. Legacy times
+// have the same priority as NPC-assisted times. Raviente compares only times.
 func (r *HuntRecordRepository) UpsertPersonalBest(record HuntRecordUpsert) error {
 	if record.ClientSettings == nil || !record.ClientSettings.SupportKnown || record.ClientSettings.SupportUsed {
-		return nil // Do not replace a legitimate best with assisted/unknown time.
+		return nil // New times still require explicit Support OFF evidence.
+	}
+	if record.MonsterID != mhfmon.Raviente && record.MonsterID != mhfmon.BerserkRaviente &&
+		!record.ClientSettings.Solo {
+		return nil
 	}
 	var settings []byte
 	if record.ClientSettings != nil {
@@ -76,7 +83,16 @@ func (r *HuntRecordRepository) UpsertPersonalBest(record HuntRecordUpsert) error
 			client_settings = EXCLUDED.client_settings,
 			best_time_frames = EXCLUDED.best_time_frames,
 			recorded_at = EXCLUDED.recorded_at
-		WHERE EXCLUDED.best_time_frames < monster_hunt_records.best_time_frames
+		WHERE CASE WHEN EXCLUDED.monster_id IN (93, 149)
+			THEN EXCLUDED.best_time_frames < monster_hunt_records.best_time_frames
+			ELSE (
+				NOT COALESCE(EXCLUDED.client_settings @> '`+mhfquest.NPCFreeSoloHuntSettingsJSON+`'::jsonb, false),
+				EXCLUDED.best_time_frames
+			) < (
+				NOT COALESCE(monster_hunt_records.client_settings @> '`+mhfquest.NPCFreeSoloHuntSettingsJSON+`'::jsonb, false),
+				monster_hunt_records.best_time_frames
+			)
+		END
 	`,
 		record.CharacterID,
 		record.MonsterID,
