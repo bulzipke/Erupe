@@ -21,7 +21,7 @@ var divaCustomBranches = [...]struct {
 	{16, 106, [3]uint16{58081, 58082, 58083}, 2},
 }
 
-// Explicit quest_type=46/48 rows in the supplied EventQuests.sql. Branch
+// Original quest_type=46/48 rows plus five verified late main quests. Branch
 // quest_type=47 is 58079..58083, corroborated by the original quest titles.
 // Do not turn arbitrary IDs in the broad interception packet range into main
 // contributions. Quest loading/departure validation is still required.
@@ -30,7 +30,7 @@ func divaCustomMainQuest(id uint16) bool {
 		(id >= 58074 && id <= 58078) || (id >= 58088 && id <= 58091) ||
 		(id >= 58096 && id <= 58099) || (id >= 58101 && id <= 58109) ||
 		(id >= 58112 && id <= 58115) || (id >= 58118 && id <= 58123) ||
-		(id >= 58125 && id <= 58128)
+		(id >= 58125 && id <= 58132) || id == 58139
 }
 
 func divaCustomMapInitial() (DivaInterceptionMap, error) { return divaCustomMapAt(1) }

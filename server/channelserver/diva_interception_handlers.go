@@ -14,7 +14,7 @@ import (
 func divaTacticsQuestIDs(points map[uint16]int64) []uint16 {
 	ids := make([]uint16, 0, len(points))
 	for id, n := range points {
-		if n > 0 && id >= udTacticsQuestMin && id <= udTacticsQuestMax {
+		if n > 0 && isDivaInterceptionQuestID(id) {
 			ids = append(ids, id)
 		}
 	}
@@ -52,7 +52,7 @@ func currentDivaTacticsPoints(s *Session) (map[uint16]int64, error) {
 	points := make(map[uint16]int64)
 	for key, value := range legacy {
 		id, err := strconv.ParseUint(key, 10, 16)
-		if err == nil && id >= udTacticsQuestMin && id <= udTacticsQuestMax && value > 0 {
+		if err == nil && isDivaInterceptionQuestID(uint16(id)) && value > 0 {
 			points[uint16(id)] = int64(value)
 		}
 	}
@@ -81,7 +81,7 @@ func handleDivaTacticsAdd(s *Session, pkt *mhfpacket.MsgMhfAddUdTacticsPoint) {
 		run.Key == "" || run.QuestID != pkt.QuestID {
 		// Before the cutover, preserve the existing accumulation without making
 		// it reward-eligible. New rounds require a bound real departure.
-		if ok && pkt.TacticsPoints > 0 && pkt.QuestID >= udTacticsQuestMin && pkt.QuestID <= udTacticsQuestMax {
+		if ok && pkt.TacticsPoints > 0 && isDivaInterceptionQuestID(pkt.QuestID) {
 			event, err := s.divaEvent()
 			if err != nil {
 				doAckBufFail(s, pkt.AckHandle, nil)

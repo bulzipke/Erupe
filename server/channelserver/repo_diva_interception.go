@@ -74,7 +74,7 @@ func validDivaInterceptionRunKey(key string) bool {
 // The session supplies a validated quest and server-created departure snapshot;
 // this layer independently enforces event, membership and replay limits.
 func (r *DivaRepository) AddDivaInterceptionPoints(charID, eventID uint32, questID uint16, points, guildID uint32, runKey string, startedAt, now time.Time) error {
-	if charID == 0 || eventID == 0 || questID < udTacticsQuestMin || questID > udTacticsQuestMax || points == 0 || guildID == 0 || !validDivaInterceptionRunKey(runKey) || startedAt.IsZero() || now.Before(startedAt) {
+	if charID == 0 || eventID == 0 || !isDivaInterceptionQuestID(questID) || points == 0 || guildID == 0 || !validDivaInterceptionRunKey(runKey) || startedAt.IsZero() || now.Before(startedAt) {
 		return ErrDivaInterceptionInvalid
 	}
 	tx, err := r.db.Beginx()

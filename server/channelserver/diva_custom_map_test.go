@@ -100,12 +100,12 @@ func TestDivaCustomMapBranchesAreSeparateAndOptional(t *testing.T) {
 
 func TestDivaCustomMapQuestAllowlist(t *testing.T) {
 	m := mustCustomDivaMap(t)
-	for _, id := range []uint16{58043, 58050, 58078, 58088, 58109, 58128} {
+	for _, id := range []uint16{58043, 58050, 58078, 58088, 58109, 58128, 58129, 58130, 58131, 58132, 58139} {
 		if route, ok := divaCustomMapQuestRoute(m, id); !ok || route != 0 {
 			t.Fatalf("main %d rejected", id)
 		}
 	}
-	for _, id := range []uint16{0, 40217, 58044, 58073, 58079, 58084, 58095, 58110, 58129, math.MaxUint16} {
+	for _, id := range []uint16{0, 40217, 58044, 58073, 58079, 58084, 58095, 58110, 58133, 58134, 58135, 58136, 58137, 58138, math.MaxUint16} {
 		if _, ok := divaCustomMapQuestRoute(m, id); ok {
 			t.Fatalf("non-main or locked %d accepted", id)
 		}

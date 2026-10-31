@@ -32,7 +32,7 @@ func (s *Session) captureDivaInterceptionDeparture(questID uint16, generation ui
 		s.server.erupeConfig.DebugOptions.DivaOverride == 0 ||
 		s.server.erupeConfig.DebugOptions.DivaOverride == 1 ||
 		s.server.erupeConfig.DebugOptions.DivaOverride == 3 ||
-		questID < udTacticsQuestMin || questID > udTacticsQuestMax || s.server.guildRepo == nil {
+		!isDivaInterceptionQuestID(questID) || s.server.guildRepo == nil {
 		return
 	}
 	repo, ok := s.server.divaRepo.(DivaInterceptionRepository)
