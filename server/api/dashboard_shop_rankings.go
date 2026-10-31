@@ -17,7 +17,7 @@ const dashboardPopularGachasQuery = `
         COALESCE(NULLIF(BTRIM(g.name),''),'뽑기 #'||t.gacha_id::text) AS name,
         t.draw_count AS count
     FROM gacha_play_totals t LEFT JOIN gacha_shop g ON g.id=t.gacha_id
-    ORDER BY t.draw_count DESC,t.gacha_id ASC LIMIT 5`
+    ORDER BY t.draw_count DESC,t.gacha_id ASC LIMIT 14`
 
 // One committed receipt is one purchase, regardless of reward item count or
 // later claims. The purchase flow already admits only paid kit categories 6/7.
@@ -28,7 +28,7 @@ const dashboardPopularKitsQuery = `
         COUNT(*)::bigint AS count
     FROM campaign_coin_purchases p LEFT JOIN campaigns c ON c.id=p.campaign_id
     GROUP BY p.campaign_id,c.title
-    ORDER BY count DESC,p.campaign_id ASC LIMIT 5`
+    ORDER BY count DESC,p.campaign_id ASC LIMIT 14`
 
 func (s *APIServer) loadDashboardShopRankings(ctx context.Context, rankings *DashboardRankings) error {
 	if err := s.db.SelectContext(ctx, &rankings.PopularGachas, dashboardPopularGachasQuery); err != nil {

@@ -63,24 +63,26 @@ func (s *Server) GetRaviMultiplier() float64 {
 
 func (s *Server) getRaviMultiplierLocked(players int, active bool) float64 {
 	if active {
-		var minPlayers int
+		referencePlayers := 4
 		if s.raviente.register[9] > 8 {
-			minPlayers = 24
-		} else {
-			minPlayers = 4
+			referencePlayers = 24
+		}
+		switch s.raviente.register[raviGeneralSiegeType] {
+		case raviSiegeTypeExtreme, raviSiegeTypeExtremeLimited:
+			referencePlayers = 32
 		}
 		// Guard against a division by zero in the window between the last
 		// player leaving and the semaphore being torn down.
 		if players <= 0 {
 			return 1
 		}
-		if players > minPlayers {
+		if players > referencePlayers {
 			return 1
 		}
 		// Both operands must be converted before dividing: an integer division
 		// here truncates the ratio (e.g. 13 of 24 players yielded 1 instead of
 		// 1.85), which silently disabled scaling for most under-populated runs.
-		return float64(minPlayers) / float64(players)
+		return float64(referencePlayers) / float64(players)
 	}
 	return 0
 }
@@ -135,9 +137,9 @@ func (s *Server) BroadcastRaviente(ip uint32, port uint16, stage []byte, _type u
 	switch _type {
 	case 2:
 		text = s.i18n.raviente.berserk
-	case 3:
+	case raviSiegeTypeExtreme:
 		text = s.i18n.raviente.extreme
-	case 4:
+	case raviSiegeTypeExtremeLimited:
 		text = s.i18n.raviente.extremeLimited
 	case 5:
 		text = s.i18n.raviente.berserkSmall

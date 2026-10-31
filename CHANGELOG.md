@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed 
+- Use a 32-player damage-scaling reference only for Extreme Raviente sieges, including the limited variant.
+- Limit dashboard quest clear/failure rankings to ten entries each and kit, gacha and legend rasta rankings to fourteen entries each.
 - Keep automatic Hunter Festival tallying to one hour and publish the same reward-opening time to the native client and public event schedule.
 - Connect verified Pallone completions to durable scores and current challenge/previous ranking and guild rewards, with immediate rollover settlement, atomic inventory/GP receipts and RP catch-up; late clears retain ordinary quest success without festival credit.
 - Run opt-in Pallone rounds automatically alongside Tower, preserving previous claim windows and event records without requiring an operator-supplied ID.

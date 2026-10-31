@@ -230,8 +230,8 @@ func TestDashboardRendersWorldStatusPage(t *testing.T) {
 		"월드 채팅",
 		"대형 몬스터 토벌",
 		"대형 몬스터별 최단 토벌",
-		"라비엔테 맹광기는 완료된 대토벌 전체 소요 시간과 참가 인원을 별도로 표시합니다.",
-		"각 랭킹의 상위 10개 중 3위 이후는 내부에서 세로로 스크롤할 수 있습니다.",
+		`id="raviente-run-heading"`,
+		`.monster-time-table tbody{display:block;max-height:102px;overflow-x:hidden;overflow-y:auto;`,
 		"id=\"monster-time-zenith\"",
 		"id=\"monster-time-challenge\"",
 		"id=\"monster-time-upper-shiten\"",
@@ -628,11 +628,11 @@ func TestDashboardWeaponUsageQueriesReturnEveryWeaponClass(t *testing.T) {
 	}
 }
 
-func TestDashboardQuestResultQueriesLimitToWeaponClassCount(t *testing.T) {
+func TestDashboardQuestResultQueriesLimitToTen(t *testing.T) {
 	for _, column := range []string{"cleared", "failed"} {
 		query := strings.Join(strings.Fields(dashboardQuestResultQuery(column)), " ")
-		if !strings.Contains(query, "ORDER BY "+column+" DESC, quest_id ASC LIMIT 14") {
-			t.Errorf("%s ranking query does not limit the ordered result to the 14 weapon classes: %s", column, query)
+		if !strings.Contains(query, "ORDER BY "+column+" DESC, quest_id ASC LIMIT 10") {
+			t.Errorf("%s ranking query does not limit the ordered result to ten quests: %s", column, query)
 		}
 	}
 }

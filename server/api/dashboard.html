@@ -1588,17 +1588,17 @@ tbody tr:last-child td{border-bottom:0}
             return numberFormatter.format(entry.rp) + " RP";
         });
         var mostUsedWeapons = rankings.mostUsedWeapons || [];
-        renderQuestRanking("quest-clear-ranking", rankings.questClears || [], mostUsedWeapons.length);
-        renderQuestRanking("quest-fail-ranking", rankings.questFails || [], mostUsedWeapons.length);
+        renderQuestRanking("quest-clear-ranking", rankings.questClears || [], 10);
+        renderQuestRanking("quest-fail-ranking", rankings.questFails || [], 10);
         renderWeaponRanking("weapon-most-ranking", mostUsedWeapons);
-        renderLegendRanking("legend-rasta-ranking", rankings.legendRastas || []);
+        renderLegendRanking("legend-rasta-ranking", (rankings.legendRastas || []).slice(0, 14));
         renderRanking("playtime-ranking", rankings.playtime || [], function (entry) {
             return playtimeLabel(entry.seconds);
         });
-        renderRanking("gacha-popularity-ranking", rankings.popularGachas || [], function (entry) {
+        renderRanking("gacha-popularity-ranking", (rankings.popularGachas || []).slice(0, 14), function (entry) {
             return numberFormatter.format(entry.count) + "회";
         });
-        renderRanking("kit-popularity-ranking", rankings.popularKits || [], function (entry) {
+        renderRanking("kit-popularity-ranking", (rankings.popularKits || []).slice(0, 14), function (entry) {
             return numberFormatter.format(entry.count) + "회";
         });
         renderMonsterTimes(rankings.monsterTimes || []);

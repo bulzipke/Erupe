@@ -65,7 +65,7 @@ func TestDashboardShopPopularityPostgres(t *testing.T) {
 	if err := server.loadDashboardShopRankings(context.Background(), &rankings); err != nil {
 		t.Fatal(err)
 	}
-	if len(rankings.PopularGachas) != 5 || rankings.PopularGachas[0].ID != 1 || rankings.PopularGachas[1].ID != 2 || rankings.PopularGachas[0].Count != 80 {
+	if len(rankings.PopularGachas) != 7 || rankings.PopularGachas[0].ID != 1 || rankings.PopularGachas[1].ID != 2 || rankings.PopularGachas[0].Count != 80 {
 		t.Fatalf("gachas=%+v", rankings.PopularGachas)
 	}
 	if rankings.PopularGachas[0].Name != "뽑기 #1" || rankings.PopularGachas[2].Name != "뽑기 #3" {

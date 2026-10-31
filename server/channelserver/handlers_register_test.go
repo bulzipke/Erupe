@@ -78,6 +78,36 @@ func TestRavienteMutex(t *testing.T) {
 	}
 }
 
+func TestExtremeRavienteDamageAndSupportScaling(t *testing.T) {
+	server := createMockServerWithRaviente()
+	server.raviente.register[9] = 32
+	server.raviente.register[raviGeneralSiegeType] = raviSiegeTypeExtreme
+	semaphore := &Semaphore{name: "hs_l0u3", clients: make(map[*Session]uint32)}
+	server.semaphore[semaphore.name] = semaphore
+	for charID := uint32(1); charID <= 4; charID++ {
+		semaphore.clients[&Session{charID: charID}] = charID
+	}
+
+	for _, test := range []struct {
+		name     string
+		register uint32
+		index    uint8
+		want     uint32
+	}{
+		{name: "shared_damage", register: raviRegisterState, index: 0, want: 960},
+		{name: "poison", register: raviRegisterState, index: 17, want: 120},
+		{name: "resurrection", register: raviRegisterState, index: 28, want: 120},
+		{name: "support", register: raviRegisterSupport, index: 1, want: 120},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, got := server.UpdateRavi(test.register, test.index, 120, true)
+			if got != test.want {
+				t.Fatalf("register update = %d, want %d", got, test.want)
+			}
+		})
+	}
+}
+
 func TestOperateRegisterInvalidIndexDoesNotPoisonMutex(t *testing.T) {
 	server := createMockServerWithRaviente()
 	session := createMockSession(1, server)

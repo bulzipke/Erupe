@@ -458,6 +458,7 @@ func TestRaviMultiplier(t *testing.T) {
 		name         string
 		clientCount  int
 		register9    uint32
+		siegeType    uint32
 		wantMultiple float64
 	}{
 		{
@@ -478,12 +479,29 @@ func TestRaviMultiplier(t *testing.T) {
 			register9:    10,
 			wantMultiple: 1.0,
 		},
+		{name: "berserk_solo", clientCount: 1, register9: 32, siegeType: 2, wantMultiple: 24},
+		{name: "berserk_four_players", clientCount: 4, register9: 32, siegeType: 2, wantMultiple: 6},
+		{name: "berserk_fractional", clientCount: 13, register9: 32, siegeType: 2, wantMultiple: 24.0 / 13},
+		{name: "berserk_above_reference", clientCount: 32, register9: 32, siegeType: 2, wantMultiple: 1},
+		{name: "small_berserk_solo", clientCount: 1, register9: 8, siegeType: 5, wantMultiple: 4},
+		{name: "small_berserk_eight_players", clientCount: 8, register9: 8, siegeType: 5, wantMultiple: 1},
+		{name: "extreme_solo", clientCount: 1, register9: 32, siegeType: raviSiegeTypeExtreme, wantMultiple: 32},
+		{name: "extreme_two_players", clientCount: 2, register9: 32, siegeType: raviSiegeTypeExtreme, wantMultiple: 16},
+		{name: "extreme_four_players", clientCount: 4, register9: 32, siegeType: raviSiegeTypeExtreme, wantMultiple: 8},
+		{name: "extreme_fractional", clientCount: 13, register9: 32, siegeType: raviSiegeTypeExtreme, wantMultiple: 32.0 / 13},
+		{name: "extreme_twenty_four_players", clientCount: 24, register9: 32, siegeType: raviSiegeTypeExtreme, wantMultiple: 32.0 / 24},
+		{name: "extreme_enough_players", clientCount: 32, register9: 32, siegeType: raviSiegeTypeExtreme, wantMultiple: 1},
+		{name: "extreme_above_reference", clientCount: 40, register9: 32, siegeType: raviSiegeTypeExtreme, wantMultiple: 1},
+		{name: "extreme_limited", clientCount: 4, register9: 32, siegeType: raviSiegeTypeExtremeLimited, wantMultiple: 8},
+		{name: "extreme_custom_capacity", clientCount: 4, register9: 8, siegeType: raviSiegeTypeExtreme, wantMultiple: 8},
+		{name: "extreme_empty_room", clientCount: 0, register9: 32, siegeType: raviSiegeTypeExtreme, wantMultiple: 1},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Set up register
 			server.raviente.register[9] = tt.register9
+			server.raviente.register[raviGeneralSiegeType] = tt.siegeType
 
 			// Add clients to semaphore
 			sem.clients = make(map[*Session]uint32)

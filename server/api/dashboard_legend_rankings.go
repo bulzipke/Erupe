@@ -11,7 +11,7 @@ type LegendUsageRankEntry struct {
 	Uses int64  `json:"uses" db:"usage_count"`
 }
 
-const dashboardLegendUsageQuery = `SELECT legend_id,usage_count FROM legend_rasta_usage_stats ORDER BY usage_count DESC,legend_id ASC`
+const dashboardLegendUsageQuery = `SELECT legend_id,usage_count FROM legend_rasta_usage_stats ORDER BY usage_count DESC,legend_id ASC LIMIT 14`
 
 func (s *APIServer) loadDashboardLegendUsage(ctx context.Context, rankings *DashboardRankings) error {
 	if err := s.db.SelectContext(ctx, &rankings.LegendRastas, dashboardLegendUsageQuery); err != nil {

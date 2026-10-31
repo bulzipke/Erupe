@@ -352,6 +352,8 @@ func TestOperateRegisterIgnoresKilledTimeBeforeStart(t *testing.T) {
 	if len(repo.completions) != 0 {
 		t.Fatalf("pre-start killed time created completions %+v", repo.completions)
 	}
+	// Teardown only resets the siege after its last semaphore is removed.
+	delete(server.semaphore, "hs_l0u3")
 	server.resetRaviente()
 	if len(repo.completions) != 0 {
 		t.Fatalf("teardown after stale killed time created completions %+v", repo.completions)

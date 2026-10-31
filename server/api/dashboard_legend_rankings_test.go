@@ -26,7 +26,7 @@ func TestDashboardLegendUsageJSONAndPlacement(t *testing.T) {
 	if strings.Index(s, `id="legend-rasta-ranking"`) < strings.Index(s, `id="weapon-most-ranking"`) {
 		t.Fatal("legend ranking must follow weapons")
 	}
-	for _, text := range []string{"가장 많이 사용한 레전드 라스터", `renderLegendRanking("legend-rasta-ranking", rankings.legendRastas || [])`} {
+	for _, text := range []string{"가장 많이 사용한 레전드 라스터", `renderLegendRanking("legend-rasta-ranking", (rankings.legendRastas || []).slice(0, 14))`} {
 		if !strings.Contains(s, text) {
 			t.Error(text)
 		}

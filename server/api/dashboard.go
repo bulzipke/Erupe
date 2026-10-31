@@ -446,7 +446,7 @@ func dashboardQuestResultQuery(column string) string {
 		FROM quest_result_stats
 		WHERE ` + column + ` > 0
 		ORDER BY ` + column + ` DESC, quest_id ASC
-		LIMIT 14
+		LIMIT 10
 	`
 }
 
