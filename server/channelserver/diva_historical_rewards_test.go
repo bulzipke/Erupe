@@ -41,7 +41,7 @@ func TestDivaHistoricalNormaCatalogAndWire(t *testing.T) {
 		ack := readAck(t, s)
 		count := 0
 		if mode == cfg.ZZ {
-			count = 29 // Eleven historical GR, twelve approved HR, six real rotation rows.
+			count = 33 // Eleven historical GR, four custom GR, twelve approved HR, six real rotation rows.
 		}
 		if ack.ErrorCode != 0 || ack.AckHandle != 71 || len(ack.Payload) != 2+count*19 || int(binary.BigEndian.Uint16(ack.Payload[:2])) != count {
 			t.Fatalf("wrong version-gated norma list: %+v", ack)
@@ -57,8 +57,9 @@ func TestDivaHistoricalNormaEligibilityAndClaim(t *testing.T) {
 		want   int
 	}{
 		{"zero", 1, 0, 0}, {"negative", 1, -1, 0},
-		{"below milestone", 1, 19999, 0}, {"exact milestone", 1, 20000, 6},
-		{"above milestone", 999, 20001, 6}, {"all historical milestones", 999, 999999, 11}, {"HR excluded", 0, 20000, 0},
+		{"below custom milestone", 1, 9999, 0}, {"exact custom milestone", 1, 10000, 4},
+		{"below historical milestone", 1, 19999, 4}, {"exact historical milestone", 1, 20000, 10},
+		{"above historical milestone", 999, 20001, 10}, {"all milestones", 999, 999999, 15}, {"HR excluded", 0, 20000, 0},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			event := DivaEvent{ID: 42, StartTime: uint32(TimeAdjusted().Add(-time.Hour).Unix())}
@@ -93,7 +94,7 @@ func TestDivaHistoricalNormaReceiptSaveIntegration(t *testing.T) {
 	repo := NewDivaRepository(db)
 	rewards := eligibleDivaSongRewards(1, DivaRewardProgress{GR: 1, Points: 20000})
 	offers, err := repo.OfferDivaRewards(charID, eventID, 1, rewards)
-	if err != nil || len(offers) != 6 {
+	if err != nil || len(offers) != 10 {
 		t.Fatalf("norma offers: %+v %v", offers, err)
 	}
 	var itemIDs, gpIDs, ids []uint32
@@ -108,7 +109,7 @@ func TestDivaHistoricalNormaReceiptSaveIntegration(t *testing.T) {
 	if _, err := repo.PrepareDivaRewardClaims(charID, 2, ids); err == nil {
 		t.Fatal("norma receipts accepted in the ranking category")
 	}
-	if pending, err := repo.PrepareDivaRewardClaims(charID, 1, ids); err != nil || len(pending) != 6 {
+	if pending, err := repo.PrepareDivaRewardClaims(charID, 1, ids); err != nil || len(pending) != 10 {
 		t.Fatalf("norma receipt preparation: %+v %v", pending, err)
 	}
 	if err := characters.SaveCharacterDataAtomic(SaveAtomicParams{CharID: charID, Name: "RewardHunter", CompSave: []byte{1, 2}, HouseData: []byte{3}, DivaRewardIDs: itemIDs}); err != nil {

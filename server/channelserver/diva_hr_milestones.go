@@ -45,6 +45,7 @@ func buildDivaHRMilestoneRewards() []DivaRewardCatalogEntry {
 func divaPrayerRewardCatalog() []DivaRewardCatalogEntry {
 	rows := append([]DivaRewardCatalogEntry(nil), divaHistoricalPrayerRewards...)
 	rows = append(rows, divaHistoricalSingleThresholdPrayerRewards...)
+	rows = append(rows, divaCustomPrayerRewards...)
 	for _, r := range divaHRMilestoneRewards {
 		if r.RewardType == 1 {
 			rows = append(rows, r)

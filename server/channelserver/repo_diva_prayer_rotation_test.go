@@ -119,8 +119,8 @@ func TestRepoDivaPrayerRotationBoundedOffersAndPartialSave(t *testing.T) {
 		t.Fatalf("first batch: %d, %v", len(first), err)
 	}
 	rotation := divaPrayerRotationTestOffers(first)
-	if len(rotation) != 21 {
-		t.Fatalf("finite 11 + repeat 21 expected, got %d repeats", len(rotation))
+	if len(rotation) != 17 {
+		t.Fatalf("finite 15 + repeat 17 expected, got %d repeats", len(rotation))
 	}
 	assertDivaPrayerRotationTestSequence(t, rotation, 0)
 	for attempt := 0; attempt < 3; attempt++ {
@@ -130,7 +130,7 @@ func TestRepoDivaPrayerRotationBoundedOffersAndPartialSave(t *testing.T) {
 			t.Fatalf("unclaimed reconnect changed batch: %+v, %v", again, err)
 		}
 	}
-	if next := divaPrayerRotationTestCursor(t, db, charID, eventID); next != 21 {
+	if next := divaPrayerRotationTestCursor(t, db, charID, eventID); next != 17 {
 		t.Fatalf("unclaimed queries advanced cursor: %d", next)
 	}
 	saveDivaPrayerRotationTestItems(t, repo, db, charID, rotation[:5])
@@ -138,11 +138,11 @@ func TestRepoDivaPrayerRotationBoundedOffersAndPartialSave(t *testing.T) {
 	if err != nil || len(next) != 32 {
 		t.Fatalf("partial refill: %d, %v", len(next), err)
 	}
-	if got := divaPrayerRotationTestCursor(t, db, charID, eventID); got != 26 {
-		t.Fatalf("refill cursor = %d, want 26", got)
+	if got := divaPrayerRotationTestCursor(t, db, charID, eventID); got != 22 {
+		t.Fatalf("refill cursor = %d, want 22", got)
 	}
 	nextRotation := divaPrayerRotationTestOffers(next)
-	if len(nextRotation) != 21 {
+	if len(nextRotation) != 17 {
 		t.Fatalf("refill repeat count = %d", len(nextRotation))
 	}
 	assertDivaPrayerRotationTestSequence(t, nextRotation, 5)
@@ -166,7 +166,7 @@ func TestRepoDivaPrayerRotationFullBatchSaveAndExtremePoints(t *testing.T) {
 				t.Fatalf("first batch: %d, %v", len(first), err)
 			}
 			rotation := divaPrayerRotationTestOffers(first)
-			if len(rotation) != 21 || divaPrayerRotationTestCursor(t, db, charID, eventID) != 21 {
+			if len(rotation) != 17 || divaPrayerRotationTestCursor(t, db, charID, eventID) != 17 {
 				t.Fatalf("extreme score allocated unbounded rotation: %d", len(rotation))
 			}
 			assertDivaPrayerRotationTestSequence(t, rotation, 0)
@@ -203,14 +203,14 @@ func TestRepoDivaPrayerRotationFullBatchSaveAndExtremePoints(t *testing.T) {
 			if err != nil || len(next) != 32 || len(divaPrayerRotationTestOffers(next)) != 32 {
 				t.Fatalf("second batch should contain 32 repeats only: %d, %v", len(next), err)
 			}
-			assertDivaPrayerRotationTestSequence(t, next, 21)
+			assertDivaPrayerRotationTestSequence(t, next, 17)
 			for _, offer := range next {
 				if offer.ID <= first[len(first)-1].ID {
 					t.Fatal("second batch reoffered an old receipt")
 				}
 			}
-			if nextIndex := divaPrayerRotationTestCursor(t, db, charID, eventID); nextIndex != 53 {
-				t.Fatalf("second-batch cursor = %d, want 53", nextIndex)
+			if nextIndex := divaPrayerRotationTestCursor(t, db, charID, eventID); nextIndex != 49 {
+				t.Fatalf("second-batch cursor = %d, want 49", nextIndex)
 			}
 			if total, claimed := divaPrayerRotationTestReceiptCounts(t, db, charID, eventID); total != 64 || claimed != 32 {
 				t.Fatalf("score created more than two bounded batches: %d/%d", total, claimed)
@@ -251,7 +251,7 @@ func TestRepoDivaPrayerRotationConcurrentOffers(t *testing.T) {
 	if total, claimed := divaPrayerRotationTestReceiptCounts(t, db, charID, eventID); total != 32 || claimed != 0 {
 		t.Fatalf("concurrent receipts = %d/%d", total, claimed)
 	}
-	if next := divaPrayerRotationTestCursor(t, db, charID, eventID); next != 21 {
+	if next := divaPrayerRotationTestCursor(t, db, charID, eventID); next != 17 {
 		t.Fatalf("concurrent cursor = %d", next)
 	}
 }
@@ -287,7 +287,7 @@ func TestRepoDivaPrayerRotationCursorFailureRollsBackWholeOffer(t *testing.T) {
 		t.Fatal(err)
 	}
 	offers, err := repo.OfferDivaPrayerRewards(charID, eventID, progress)
-	if err != nil || len(offers) != 14 || divaPrayerRotationTestCursor(t, db, charID, eventID) != 3 {
+	if err != nil || len(offers) != 18 || divaPrayerRotationTestCursor(t, db, charID, eventID) != 3 {
 		t.Fatalf("retry after rollback: %d, %v", len(offers), err)
 	}
 	assertDivaPrayerRotationTestSequence(t, divaPrayerRotationTestOffers(offers), 0)
@@ -374,7 +374,7 @@ func TestRepoDivaPrayerRotationCharacterAndEventIsolation(t *testing.T) {
 	seen := make(map[uint32]bool)
 	for _, pair := range [][2]uint32{{charID, eventID}, {otherChar, eventID}, {charID, otherEvent}} {
 		offers, err := repo.OfferDivaPrayerRewards(pair[0], pair[1], DivaRewardProgress{GR: 1, Points: 104000})
-		if err != nil || len(offers) != 13 {
+		if err != nil || len(offers) != 17 {
 			t.Fatalf("isolated offer %v: %d, %v", pair, len(offers), err)
 		}
 		assertDivaPrayerRotationTestSequence(t, divaPrayerRotationTestOffers(offers), 0)
@@ -398,7 +398,7 @@ func TestRepoDivaPrayerRotationDowngradePreservesPendingAndQueuesHR(t *testing.T
 		t.Fatal(err)
 	}
 	rotation := divaPrayerRotationTestOffers(first)
-	if len(rotation) != 21 {
+	if len(rotation) != 17 {
 		t.Fatalf("first repeat count = %d", len(rotation))
 	}
 	saveDivaPrayerRotationTestItems(t, repo, db, charID, rotation[:3])
@@ -407,11 +407,11 @@ func TestRepoDivaPrayerRotationDowngradePreservesPendingAndQueuesHR(t *testing.T
 	}
 	// Deliberately stale progress: the locked database rank must win for minting.
 	after, err := repo.OfferDivaPrayerRewards(charID, eventID, progress)
-	if err != nil || len(after) != 32 || len(divaPrayerRotationTestOffers(after)) != 18 {
+	if err != nil || len(after) != 32 || len(divaPrayerRotationTestOffers(after)) != 14 {
 		t.Fatalf("downgrade changed preserved batch: %d, %v", len(after), err)
 	}
 	assertDivaPrayerRotationTestSequence(t, divaPrayerRotationTestOffers(after), 3)
-	if next := divaPrayerRotationTestCursor(t, db, charID, eventID); next != 21 {
+	if next := divaPrayerRotationTestCursor(t, db, charID, eventID); next != 17 {
 		t.Fatalf("stale GR minted after downgrade: %d", next)
 	}
 	if _, err := db.Exec(`UPDATE characters SET gr=1 WHERE id=$1`, charID); err != nil {
@@ -419,7 +419,7 @@ func TestRepoDivaPrayerRotationDowngradePreservesPendingAndQueuesHR(t *testing.T
 	}
 	after, err = repo.OfferDivaPrayerRewards(charID, eventID, progress)
 	// HR finite snapshots also occupy the pending queue after downgrade.
-	if err != nil || len(after) != 32 || divaPrayerRotationTestCursor(t, db, charID, eventID) != 21 {
+	if err != nil || len(after) != 32 || divaPrayerRotationTestCursor(t, db, charID, eventID) != 17 {
 		t.Fatalf("promotion reset cursor or exceeded pending capacity: %d, %v", len(after), err)
 	}
 	assertDivaPrayerRotationTestSequence(t, divaPrayerRotationTestOffers(after), 3)
@@ -441,7 +441,7 @@ func TestRepoDivaPrayerRotationRejectsScheduleMismatch(t *testing.T) {
 			if next := divaPrayerRotationTestCursor(t, db, charID, eventID); next != 1 {
 				t.Fatalf("policy mismatch changed cursor: %d", next)
 			}
-			if total, claimed := divaPrayerRotationTestReceiptCounts(t, db, charID, eventID); total != 12 || claimed != 0 {
+			if total, claimed := divaPrayerRotationTestReceiptCounts(t, db, charID, eventID); total != 16 || claimed != 0 {
 				t.Fatalf("policy mismatch changed receipts: %d/%d", total, claimed)
 			}
 		})

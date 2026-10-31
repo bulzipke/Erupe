@@ -77,7 +77,7 @@ func TestDivaPrayerRotationDisplayPreservesMilestones(t *testing.T) {
 	before := append([]DivaRewardCatalogEntry(nil), catalog...)
 	finite := divaNormaRewardPayload(catalog)
 	wire := divaPrayerNormaRewardPayload()
-	if len(catalog) != 23 || len(wire) != 2+29*19 || binary.BigEndian.Uint16(wire) != 29 {
+	if len(catalog) != 27 || len(wire) != 2+33*19 || binary.BigEndian.Uint16(wire) != 33 {
 		t.Fatalf("unexpected mixed HR/GR catalog shape: fixed=%d wire=%d", len(catalog), len(wire))
 	}
 	if !reflect.DeepEqual(catalog, before) || !reflect.DeepEqual(divaPrayerRewardCatalog(), before) {
@@ -129,7 +129,7 @@ func TestDivaPrayerRotationDisplayPreservesMilestones(t *testing.T) {
 	if !bytes.Equal(finite[2:], fixedRows) {
 		t.Fatal("display changed existing HR/GR item quantities, points or bounds")
 	}
-	if !reflect.DeepEqual(counts, map[uint32]int{0: 13, 2: 8, 100: 8}) ||
+	if !reflect.DeepEqual(counts, map[uint32]int{0: 17, 2: 8, 100: 8}) ||
 		!reflect.DeepEqual(tailCounts, map[uint32]int{0: 2, 2: 2, 100: 2}) {
 		t.Fatalf("rank tabs changed: %v", counts)
 	}

@@ -90,7 +90,7 @@ func TestDivaHRNormaWireBounds(t *testing.T) {
 	wire := divaNormaRewardPayload(divaPrayerRewardCatalog())
 	counts := map[uint32]int{}
 	var previous uint32
-	if len(wire) != 2+23*19 || binary.BigEndian.Uint16(wire) != 23 {
+	if len(wire) != 2+27*19 || binary.BigEndian.Uint16(wire) != 27 {
 		t.Fatal("wrong norma count")
 	}
 	for at := 2; at < len(wire); at += 19 {
@@ -113,7 +113,7 @@ func TestDivaHRNormaWireBounds(t *testing.T) {
 			counts[lo]++
 		}
 	}
-	if !reflect.DeepEqual(counts, map[uint32]int{0: 11, 2: 6, 100: 6}) {
+	if !reflect.DeepEqual(counts, map[uint32]int{0: 15, 2: 6, 100: 6}) {
 		t.Fatal(counts)
 	}
 }

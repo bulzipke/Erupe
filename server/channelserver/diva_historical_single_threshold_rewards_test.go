@@ -30,8 +30,8 @@ func TestDivaHistoricalSingleThresholdCatalog(t *testing.T) {
 		}
 	}
 	catalog := divaPrayerRewardCatalog()
-	if len(catalog) != 23 {
-		t.Fatalf("combined prayer catalog = %d, want 23", len(catalog))
+	if len(catalog) != 27 {
+		t.Fatalf("combined prayer catalog = %d, want 27", len(catalog))
 	}
 	if err := validateDivaRewardCatalog(1, catalog); err != nil {
 		t.Fatalf("combined catalog contains invalid or duplicate receipt keys: %v", err)
@@ -75,7 +75,7 @@ func TestDivaHistoricalSingleThresholdEligibility(t *testing.T) {
 		}
 	}
 	for _, points := range []int64{102000, 102001, 1 << 40} {
-		if rows := eligibleDivaSongRewards(1, DivaRewardProgress{GR: 1, Points: points}); len(rows) != 11 {
+		if rows := eligibleDivaSongRewards(1, DivaRewardProgress{GR: 1, Points: points}); len(rows) != 15 {
 			t.Fatalf("high score expanded finite milestones into repeats: %+v", rows)
 		}
 	}
@@ -85,12 +85,12 @@ func TestDivaHistoricalSingleThresholdReceiptPreservation(t *testing.T) {
 	characters, db, charID, eventID := setupDivaSaveTest(t)
 	repo := NewDivaRepository(db)
 	old, err := repo.OfferDivaRewards(charID, eventID, 1, eligibleDivaSongRewards(1, DivaRewardProgress{GR: 1, Points: 20000}))
-	if err != nil || len(old) != 6 {
+	if err != nil || len(old) != 10 {
 		t.Fatalf("original 20k receipts: %+v %v", old, err)
 	}
 	all := eligibleDivaSongRewards(1, DivaRewardProgress{GR: 1, Points: 102000})
 	offers, err := repo.OfferDivaRewards(charID, eventID, 1, all)
-	if err != nil || len(offers) != 11 || !reflect.DeepEqual(offers[:6], old) {
+	if err != nil || len(offers) != 15 || !reflect.DeepEqual(offers[:10], old) {
 		t.Fatalf("historical additions replaced original receipts: %+v %v", offers, err)
 	}
 	changed := append([]DivaRewardCatalogEntry(nil), all...)
@@ -102,10 +102,10 @@ func TestDivaHistoricalSingleThresholdReceiptPreservation(t *testing.T) {
 		t.Fatalf("requery or catalog edit replaced issued snapshots: %+v %v", again, err)
 	}
 	var addedIDs []uint32
-	for _, offer := range offers[6:] {
+	for _, offer := range offers[10:] {
 		addedIDs = append(addedIDs, offer.ID)
 	}
-	if prepared, err := repo.PrepareDivaRewardClaims(charID, 1, addedIDs); err != nil || !reflect.DeepEqual(prepared, offers[6:]) {
+	if prepared, err := repo.PrepareDivaRewardClaims(charID, 1, addedIDs); err != nil || !reflect.DeepEqual(prepared, offers[10:]) {
 		t.Fatalf("new historical claims: %+v %v", prepared, err)
 	}
 	// Claim preparation must not consume a receipt before the matching save.
@@ -132,7 +132,7 @@ func TestDivaHistoricalSingleThresholdReceiptPreservation(t *testing.T) {
 	if err := db.Get(&groupCount, `SELECT COUNT(*) FROM diva_reward_groups WHERE char_id=$1 AND event_id=$2 AND reward_type=1`, charID, eventID); err != nil {
 		t.Fatal(err)
 	}
-	if receiptCount != 11 || claimedCount != 5 || groupCount != 6 {
+	if receiptCount != 15 || claimedCount != 5 || groupCount != 7 {
 		t.Fatalf("historical receipt/group counts = %d/%d/%d", receiptCount, claimedCount, groupCount)
 	}
 }

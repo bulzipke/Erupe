@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Add four operator-approved GR1+ Diva personal rewards at 10,000 song points (items 14410, 14411, 14412 and 15163, one each), with matching Ferias acquisition notes.
+
 ### Fixed 
 - Exclude automatic guilds from dashboard RP rankings; prioritize confirmed NPC-free solo hunt times before NPC-assisted and historical times, comparing times within each priority (Halk allowed, Raviente unchanged).
 - Use a 32-player damage-scaling reference only for Extreme Raviente sieges, including the limited variant.
