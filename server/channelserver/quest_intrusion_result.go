@@ -34,6 +34,21 @@ func nativeIntrusionResultForParent(questID uint16) uint16 {
 	return 0
 }
 
+// These two key quests were excluded by the original producer, but the
+// original map/rank selector resolves them to existing intrusion bodies.
+// The client opts in only for the special first-encounter run. This does not
+// change the closed original48 roster or make a key quest itself complete.
+func firstIntrusionResultForKeyQuest(questID uint16) uint16 {
+	switch questID {
+	case 22037:
+		return 26611
+	case 22040:
+		return 26623
+	default:
+		return 0
+	}
+}
+
 // Called only when the first validated setup is pinned. No file/repository
 // reads or mutable shared maps are used under the stage/lifecycle locks.
 func (s *Session) nativeIntrusionResultFromSetup(stageID string, setup []byte) uint16 {
@@ -44,5 +59,8 @@ func (s *Session) nativeIntrusionResultFromSetup(stageID string, setup []byte) u
 	if !valid || mode != questRunModeNormal || setup[questRunStageHardcoreFlagsOffset]&0x20 == 0 {
 		return 0
 	}
-	return nativeIntrusionResultForParent(questID)
+	if child := nativeIntrusionResultForParent(questID); child != 0 {
+		return child
+	}
+	return firstIntrusionResultForKeyQuest(questID)
 }

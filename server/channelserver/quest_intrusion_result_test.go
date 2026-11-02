@@ -259,8 +259,18 @@ func TestNativeIntrusionOriginalOracle(t *testing.T) {
 	positive := 0
 	for _, r := range in.Parents {
 		p := questRunStagePayload(r.ID, 0x20)
-		if got := s.nativeIntrusionResultFromSetup(deliveryDepartureTestStage, p); got != r.Child {
+		if got := nativeIntrusionResultForParent(r.ID); got != r.Child {
 			t.Fatalf("original oracle %d got%d want%d", r.ID, got, r.Child)
+		}
+		want := r.Child
+		switch r.ID {
+		case 22037:
+			want = 26611
+		case 22040:
+			want = 26623
+		}
+		if got := s.nativeIntrusionResultFromSetup(deliveryDepartureTestStage, p); got != want {
+			t.Fatalf("original or approved key %d got%d want%d", r.ID, got, want)
 		}
 		if r.Child != 0 {
 			positive++

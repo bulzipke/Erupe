@@ -123,6 +123,8 @@ func handleMsgMhfSavedata(s *Session, p mhfpacket.MHFPacket) {
 	// restore it if the incoming data is corrupted (issue #92).
 	prevHouseTier := make([]byte, len(characterSaveData.HouseTier))
 	copy(prevHouseTier, characterSaveData.HouseTier)
+	prevKeyQuestFlags := append([]byte(nil), characterSaveData.KQF...)
+	prevFirstIntrusionSeen := characterSaveData.firstIntrusionSeen()
 
 	// Var to hold the decompressed savedata for updating the launcher response fields.
 	if pkt.SaveType == 1 {
@@ -167,6 +169,8 @@ func handleMsgMhfSavedata(s *Session, p mhfpacket.MHFPacket) {
 		return
 	}
 	characterSaveData.updateStructWithSaveData()
+	s.preserveIntrusionKeyProgress(characterSaveData, prevKeyQuestFlags)
+	characterSaveData.preserveFirstIntrusionSeen(prevFirstIntrusionSeen)
 
 	// A name containing control characters or U+FFFD is not an encoding
 	// difference — the blob itself is damaged (observed after abandoning an
