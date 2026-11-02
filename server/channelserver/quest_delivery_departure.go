@@ -23,10 +23,11 @@ type questDeliveryDeparture struct {
 // result across town must not keep an empty stage and its binary/object maps
 // alive for the rest of a long login session.
 type questDeliveryReceipt struct {
-	returnEligibility *returnQuestEligibilitySnapshot
-	admittedAt        time.Time
-	questID           uint16
-	accessSnapshot    *QuestAccessSnapshot
+	nativeIntrusionResultID uint16
+	returnEligibility       *returnQuestEligibilitySnapshot
+	admittedAt              time.Time
+	questID                 uint16
+	accessSnapshot          *QuestAccessSnapshot
 }
 
 type questDeliveryDepartureRejection struct {
@@ -62,9 +63,11 @@ func (s *Session) admitQuestDeliveryWithReturnLocked(stage *Stage, alreadyClient
 		}
 	}
 	var questID uint16
+	var nativeIntrusionResultID uint16
 	if setup, exists := stage.rawBinaryData[stageBinaryKey{1, 3}]; exists {
 		var decoded bool
 		questID, _, _, decoded = decodeQuestRunSetupFromStageBinary(stage.id, 1, 3, setup)
+		nativeIntrusionResultID = s.nativeIntrusionResultFromSetup(stage.id, setup)
 		if policies && (!decoded || !s.allowsQuestDelivery(int(questID), now) || !s.allowsQuestAccessSnapshot(access, int(questID), now)) || decoded && !s.allowsReturnQuestSnapshot(preparedReturn, int(questID), now) {
 			return false
 		}
@@ -76,7 +79,7 @@ func (s *Session) admitQuestDeliveryWithReturnLocked(stage *Stage, alreadyClient
 		s.questDeliveryDeparture.Store(nil)
 		return true
 	}
-	receipt := &questDeliveryReceipt{admittedAt: now, questID: questID, accessSnapshot: access, returnEligibility: preparedReturn}
+	receipt := &questDeliveryReceipt{admittedAt: now, questID: questID, accessSnapshot: access, returnEligibility: preparedReturn, nativeIntrusionResultID: nativeIntrusionResultID}
 	departure := &questDeliveryDeparture{stage: stage, admittedAt: now, questID: questID, receipt: receipt, accessSnapshot: access, returnEligibility: preparedReturn}
 	s.questDeliveryDeparture.Store(departure)
 	s.questDeliveryReceipt.Store(receipt)
@@ -132,7 +135,7 @@ func (s *Session) validateQuestDeliverySetupLocked(stage *Stage, pkt *mhfpacket.
 			continue
 		}
 		if old.questID == 0 {
-			receipt := &questDeliveryReceipt{admittedAt: old.admittedAt, questID: questID, accessSnapshot: old.accessSnapshot, returnEligibility: old.returnEligibility}
+			receipt := &questDeliveryReceipt{admittedAt: old.admittedAt, questID: questID, accessSnapshot: old.accessSnapshot, returnEligibility: old.returnEligibility, nativeIntrusionResultID: participant.nativeIntrusionResultFromSetup(stage.id, pkt.RawDataPayload)}
 			validated := &questDeliveryDeparture{
 				stage: stage, admittedAt: old.admittedAt, questID: questID,
 				receipt: receipt, accessSnapshot: old.accessSnapshot, returnEligibility: old.returnEligibility,
@@ -190,7 +193,7 @@ func (s *Session) allowsQuestDeliveryRecord(data []byte) bool {
 	if !managed {
 		return true
 	}
-	return receipt != nil && sameQuestDeliveryResultID(receipt.questID, questID) && s.allowsQuestDelivery(int(questID), receipt.admittedAt)
+	return receipt != nil && (sameQuestDeliveryResultID(receipt.questID, questID) || receipt.nativeIntrusionResultID != 0 && receipt.nativeIntrusionResultID == questID) && s.allowsQuestDelivery(int(questID), receipt.admittedAt)
 }
 
 func sameQuestDeliveryResultID(receiptID, resultID uint16) bool {
