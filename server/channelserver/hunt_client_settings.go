@@ -9,9 +9,9 @@ const nativeQuestRecordBytes = 0x4ac
 
 // HuntClientSettings describes the settings frozen at the end of this hunt.
 // Used flags also retain options used earlier, even if disabled before clearing.
-// Absence is unknown, never inferred as OFF. UI fields are display metadata;
-// VUI4 NPC usage governs ranking priority, while VUI3 Support usage governs
-// eligibility. Timings use the native final RecordLog frame field.
+// Absence is unknown, never inferred as OFF. FOV and elapsed mode are metadata;
+// HP display, VUI4 NPC usage and VUI3 Support usage govern ranking priority.
+// Timings use the native final RecordLog frame field.
 type HuntClientSettings struct {
 	Version      uint8 `json:"version"`
 	HPView       bool  `json:"hpView"`
@@ -106,11 +106,12 @@ func huntRecordMainTargetCleared(data []byte) bool {
 		huntMainObjectiveComplete(tail[7], tail[15])
 }
 
-// huntRecordSupportAllowed requires explicit OFF evidence from the matching
-// quest result. Old clients lack this field; never interpret unknown as OFF.
-func huntRecordSupportAllowed(data []byte) bool {
+// huntRecordSupportKnown requires bound Support evidence from the matching
+// quest result. Both ON and OFF are accepted; usage affects ranking priority.
+// Old clients lack this field; never interpret unknown as OFF.
+func huntRecordSupportKnown(data []byte) bool {
 	settings := decodeHuntClientSettings(data)
-	return settings != nil && settings.SupportKnown && !settings.SupportUsed
+	return settings != nil && settings.SupportKnown
 }
 
 func decodeHuntClientSettings(data []byte) *HuntClientSettings {

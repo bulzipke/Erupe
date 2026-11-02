@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add four operator-approved GR1+ Diva personal rewards at 10,000 song points (items 14410, 14411, 14412 and 15163, one each), with matching Ferias acquisition notes.
 
 ### Fixed 
+- Set HR Raviente success NPC totals to 10,000 secret orbs for normal and 20,000 for ferocious in client R383, and prepare material-only HR carving quests with a persistent post-translation overlay.
+- Correct the client-side Raviente victory receipt omitted in R380; R381 applies the fixed NPC totals only to native victories, retaining ordinary failure awards.
+- Store public Raviente quest ZIP entries with explicit Unix 0644 permissions so root extraction cannot block the unprivileged server from reading them.
+- Move the G Raviente candidate's heaven orbs out of final quest rewards and specify fixed NPC totals of 50,000/65,000/100,000 for small/normal/extreme, alongside the required client reward patch.
 - Exclude automatic guilds from dashboard RP rankings; prioritize confirmed NPC-free solo hunt times before NPC-assisted and historical times, comparing times within each priority (Halk allowed, Raviente unchanged).
 - Use a 32-player damage-scaling reference only for Extreme Raviente sieges, including the limited variant.
 - Limit dashboard quest clear/failure rankings to ten entries each and kit, gacha and legend rasta rankings to fourteen entries each.

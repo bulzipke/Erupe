@@ -105,6 +105,7 @@ func TestHuntRecordSettingsStayWithFasterTime(t *testing.T) {
 	repo := NewHuntRecordRepository(db)
 	best := HuntRecordUpsert{CharacterID: char, MonsterID: 6, QuestID: 50001, RankKind: "g", VariantKind: "normal", BestTimeFrames: 8051, RecordedAt: time.Now(), ClientSettings: decodeHuntClientSettings(supportRecordFixture(false, 6))}
 	best.ClientSettings.Solo = true
+	best.ClientSettings.HPView, best.ClientSettings.HPViewUsed = false, false
 	if err := repo.UpsertPersonalBest(best); err != nil {
 		t.Fatal(err)
 	}

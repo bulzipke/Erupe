@@ -35,7 +35,7 @@ func TestSupportRankEvidence(t *testing.T) {
 			if settings == nil || !settings.SupportKnown || settings.SupportUsed != used {
 				t.Fatalf("monster %d used %v: settings %#v", monster, used, settings)
 			}
-			if huntRecordSupportAllowed(data) == used {
+			if !huntRecordSupportKnown(data) {
 				t.Fatalf("monster %d used %v accepted incorrectly", monster, used)
 			}
 			if !bytes.Equal(data, original) {
@@ -44,7 +44,7 @@ func TestSupportRankEvidence(t *testing.T) {
 			for _, offset := range []int{8, 12, 0, nativeQuestRecordBytes + 6} {
 				bad := append([]byte(nil), data...)
 				bad[offset] ^= 0x80
-				if huntRecordSupportAllowed(bad) {
+				if huntRecordSupportKnown(bad) {
 					t.Fatalf("unbound/invalid result accepted at %d", offset)
 				}
 			}
@@ -53,8 +53,8 @@ func TestSupportRankEvidence(t *testing.T) {
 	for flags := 0; flags < 256; flags++ {
 		data := supportRecordFixture(false, 6)
 		data[nativeQuestRecordBytes+4] = byte(flags)
-		want := flags < 64 && flags&16 == 0
-		if huntRecordSupportAllowed(data) != want {
+		want := flags < 64
+		if huntRecordSupportKnown(data) != want {
 			t.Fatalf("flags %02x: expected rank eligibility %v", flags, want)
 		}
 	}
@@ -64,8 +64,8 @@ func TestSupportRankEvidence(t *testing.T) {
 		if version == "VUI1" {
 			data[nativeQuestRecordBytes+7], data[nativeQuestRecordBytes+15] = 0, 0
 		}
-		if huntRecordSupportAllowed(data) || huntRecordSupportAllowed(data[:nativeQuestRecordBytes]) {
-			t.Fatalf("unknown Support status treated as OFF: %s", version)
+		if huntRecordSupportKnown(data) || huntRecordSupportKnown(data[:nativeQuestRecordBytes]) {
+			t.Fatalf("unknown Support status accepted: %s", version)
 		}
 	}
 }
@@ -80,7 +80,7 @@ func (m *supportKillLogRepo) InsertKillLog(_ uint32, _ int, count uint8, _ time.
 	return nil
 }
 
-func TestSupportExcludesTimeButKeepsKills(t *testing.T) {
+func TestSupportRetainsTimeAndKills(t *testing.T) {
 	for _, monster := range []int{6, mhfmon.Raviente, mhfmon.BerserkRaviente} {
 		for _, used := range []bool{false, true} {
 			server := createMockServer()
@@ -93,11 +93,14 @@ func TestSupportExcludesTimeButKeepsKills(t *testing.T) {
 			session.stage = NewStage("sl1Ns200p0a0u1")
 			handleMsgSysRecordLog(session, &mhfpacket.MsgSysRecordLog{AckHandle: 100, Data: supportRecordFixture(used, monster)})
 			want := 1
-			if used || monster == mhfmon.BerserkRaviente {
+			if monster == mhfmon.BerserkRaviente {
 				want = 0
 			}
 			if len(records.records) != want || kills.kills != 1 {
 				t.Fatalf("monster %d used %v: ranked %d want %d, kills %d want 1", monster, used, len(records.records), want, kills.kills)
+			}
+			if want == 1 && records.records[0].ClientSettings.SupportUsed != used {
+				t.Fatal("saved time lost Support usage evidence")
 			}
 		}
 	}
@@ -106,7 +109,7 @@ func TestSupportExcludesTimeButKeepsKills(t *testing.T) {
 func TestSupportRepositoryRejectsBeforeDatabase(t *testing.T) {
 	repo := &HuntRecordRepository{} // Invalid records must never access its nil DB.
 	for _, settings := range []*HuntClientSettings{
-		nil, {Version: 1}, {Version: 1, SupportKnown: true, SupportUsed: true},
+		nil, {Version: 1}, {Version: 1, SupportKnown: true, SupportUsed: true, Solo: false},
 		{SupportKnown: true, NPCKnown: true},
 	} {
 		if err := repo.UpsertPersonalBest(HuntRecordUpsert{ClientSettings: settings, BestTimeFrames: 1}); err != nil {

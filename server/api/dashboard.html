@@ -204,6 +204,8 @@ tbody tr:last-child td{border-bottom:0}
 .rankings-header{padding:17px 18px;border-bottom:1px solid var(--line)}
 .rankings-header h2{margin:0 0 3px;font-size:.94rem}
 .rankings-header p{margin:0;color:var(--muted);font-size:.72rem}
+.rankings-header #hunt-ranking-requirements{margin-top:10px;padding:10px 12px;border-left:3px solid #ffb86b;background:#241d14;color:#ffb86b;font-size:.78rem;line-height:1.8;overflow-wrap:anywhere}
+#hunt-ranking-requirements strong{color:#ffe58a;font-weight:750}
 .monster-time-scroll{padding:14px 18px 18px}
 .monster-time-group+.monster-time-group{margin-top:18px}
 .monster-time-group-heading{display:flex;align-items:baseline;gap:9px;margin:0 0 9px;color:var(--text);font-size:.82rem;font-weight:850}
@@ -494,7 +496,7 @@ tbody tr:last-child td{border-bottom:0}
     <section class="rankings">
         <div class="rankings-header">
             <h2>대형 몬스터별 최단 토벌</h2>
-            <p id="hunt-ranking-requirements">1인 참가 기록만 등록되며, 호르크를 제외한 NPC를 활성화한 경우에는 후순위로 표시됩니다. (라비엔테 제외)</p>
+            <p id="hunt-ranking-requirements">1인 참가 기록만 등록되며, <strong>HP 표시 사용·호르크를 제외한 NPC 동행·응원 코스 활성화</strong> 시에는 <strong>후순위</strong>로 표시됩니다. (라비엔테 제외)</p>
         </div>
         <div class="monster-time-scroll" id="monster-time-ranking" aria-label="대형 몬스터별 최단 토벌 기록">
             <section class="monster-time-group" aria-labelledby="monster-time-challenge-heading">

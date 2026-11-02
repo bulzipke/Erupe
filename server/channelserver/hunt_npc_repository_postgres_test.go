@@ -66,6 +66,51 @@ func TestNPCPriorityPersonalBestPostgres(t *testing.T) {
 	if err := db.Get(&untouched, `SELECT client_settings IS NULL AND best_time_frames=2 FROM monster_hunt_records WHERE quest_id=50002`); err != nil || !untouched {
 		t.Fatalf("unrelated legacy record was changed: %v", err)
 	}
+	// Support ON, HP display and NPC use share a priority, and are all saved.
+	// An unassisted clear must supersede them even when it is slower.
+	record.QuestID = 50004
+	for _, tc := range []struct {
+		frames  uint32
+		support bool
+		hp      bool
+		hpUsed  bool
+		npc     bool
+		want    uint32
+	}{
+		{1000, true, false, false, false, 1000},
+		{900, false, false, true, false, 900},
+		{850, false, true, false, false, 850},
+		{800, false, false, false, true, 800},
+		{750, true, false, false, false, 750},
+		{2000, false, false, false, false, 2000},
+		{1, true, false, false, false, 2000},
+		{1, false, false, true, false, 2000},
+		{1, false, true, false, false, 2000},
+		{1, false, false, false, true, 2000},
+		{1900, false, false, false, false, 1900},
+	} {
+		record.BestTimeFrames = tc.frames
+		record.ClientSettings.SupportUsed = tc.support
+		record.ClientSettings.HPView, record.ClientSettings.HPViewUsed = tc.hp, tc.hpUsed
+		record.ClientSettings.NPCUsed = tc.npc
+		if err := repo.UpsertPersonalBest(record); err != nil {
+			t.Fatal(err)
+		}
+		var frames uint32
+		var support, hp, hpUsed, npc bool
+		if err := db.QueryRow(`SELECT best_time_frames,
+			(client_settings->>'supportUsed')::bool, (client_settings->>'hpView')::bool,
+			(client_settings->>'hpViewUsed')::bool, (client_settings->>'npcUsed')::bool
+			FROM monster_hunt_records WHERE quest_id=50004`).Scan(&frames, &support, &hp, &hpUsed, &npc); err != nil {
+			t.Fatal(err)
+		}
+		if frames != tc.want {
+			t.Fatalf("assisted priority frames=%d want=%d for %+v", frames, tc.want, tc)
+		}
+		if tc.frames == tc.want && (support != tc.support || hp != tc.hp || hpUsed != tc.hpUsed || npc != tc.npc) {
+			t.Fatalf("winning time lost usage evidence for %+v", tc)
+		}
+	}
 	// Starting without a legacy row must still retain NPC-assisted/unknown
 	// solo records, and an NPC-free clear must supersede them even if slower.
 	record.QuestID = 50003

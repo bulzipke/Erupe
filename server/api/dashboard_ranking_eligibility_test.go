@@ -30,27 +30,32 @@ func TestDashboardRankingEligibilityPostgres(t *testing.T) {
 		CREATE TEMP TABLE monster_hunt_records(character_id int,monster_id int,rank_kind text,variant_kind text,conquest_level int,weapon_type int,quest_id int,quest_name text,best_time_frames int,client_settings jsonb);
 		INSERT INTO monster_hunt_records VALUES
 		(1,6,'g','normal',0,0,1,'legacy-fast',1,NULL),
-		(1,6,'g','normal',0,0,2,'npc-free-slower',400,'{"supportKnown":true,"supportUsed":false,"npcKnown":true,"npcUsed":false,"solo":true}'),
-		(2,6,'g','normal',0,0,3,'npc-free-fast',300,'{"supportKnown":true,"supportUsed":false,"npcKnown":true,"npcUsed":false,"solo":true}'),
+		(1,6,'g','normal',0,0,2,'npc-free-slower',400,'{"hpView":false,"hpViewUsed":false,"supportKnown":true,"supportUsed":false,"npcKnown":true,"npcUsed":false,"solo":true}'),
+		(2,6,'g','normal',0,0,3,'npc-free-fast',300,'{"hpView":false,"hpViewUsed":false,"supportKnown":true,"supportUsed":false,"npcKnown":true,"npcUsed":false,"solo":true}'),
 		(3,6,'g','normal',0,0,4,'legacy-null',10,NULL),
-		(4,6,'g','normal',0,0,5,'npc-used',20,'{"supportKnown":true,"supportUsed":false,"npcKnown":true,"npcUsed":true,"solo":true}'),
+		(4,6,'g','normal',0,0,5,'npc-used',20,'{"hpView":false,"hpViewUsed":false,"supportKnown":true,"supportUsed":false,"npcKnown":true,"npcUsed":true,"solo":true}'),
 		(5,6,'g','normal',0,0,6,'legacy-missing-fields',30,'{"version":1,"supportKnown":true}'),
-		(6,6,'g','normal',0,0,7,'npc-unknown',40,'{"supportKnown":true,"supportUsed":false,"npcKnown":false,"npcUsed":false,"solo":true}'),
-		(7,6,'g','normal',0,0,8,'party',1,'{"supportKnown":true,"supportUsed":false,"npcKnown":true,"npcUsed":false,"solo":false}'),
-		(8,6,'g','normal',0,0,9,'support-boost',1,'{"supportKnown":true,"supportUsed":true,"npcKnown":true,"npcUsed":false,"solo":true}'),
+		(6,6,'g','normal',0,0,7,'npc-unknown',40,'{"hpView":false,"hpViewUsed":false,"supportKnown":true,"supportUsed":false,"npcKnown":false,"npcUsed":false,"solo":true}'),
+		(7,6,'g','normal',0,0,8,'party',1,'{"hpView":false,"hpViewUsed":false,"supportKnown":true,"supportUsed":false,"npcKnown":true,"npcUsed":false,"solo":false}'),
+		(8,6,'g','normal',0,0,9,'support-boost',1,'{"hpView":false,"hpViewUsed":false,"supportKnown":true,"supportUsed":true,"npcKnown":true,"npcUsed":false,"solo":true}'),
 		(9,6,'g','normal',0,0,10,'malformed-solo',1,'{"solo":"true"}'),
 		(10,93,'g','normal',0,0,11,'raviente',1,NULL),
-		(10,149,'g','normal',0,0,12,'berserk-raviente',1,NULL);
+		(10,149,'g','normal',0,0,12,'berserk-raviente',1,NULL),
+        (13,6,'g','normal',0,0,20,'hp-used',5,'{"hpView":false,"hpViewUsed":true,"supportKnown":true,"supportUsed":false,"npcKnown":true,"npcUsed":false,"solo":true}'),
+        (14,6,'g','normal',0,0,21,'hp-current',3,'{"hpView":true,"hpViewUsed":false,"supportKnown":true,"supportUsed":false,"npcKnown":true,"npcUsed":false,"solo":true}');
 		INSERT INTO monster_hunt_records
 		SELECT 1,6,'g','normal',0,0,10+n,'ineligible',n,
-		'{"supportKnown":true,"supportUsed":false,"npcKnown":true,"npcUsed":false,"solo":true}'::jsonb || change
+		'{"hpView":false,"hpViewUsed":false,"supportKnown":true,"supportUsed":false,"npcKnown":true,"npcUsed":false,"solo":true}'::jsonb || change
 		FROM (VALUES(1,'{"npcUsed":true}'::jsonb),(2,'{"solo":false}'::jsonb),(3,'{"supportUsed":true}'::jsonb),(4,'{"npcKnown":false}'::jsonb),(5,'{"npcUsed":"false"}'::jsonb)) AS cases(n,change);
-		-- Top ten must be chosen after NPC priority, not just sorted afterwards.
+		-- Top ten must be chosen after assistance priority, not just sorted afterwards.
 		INSERT INTO monster_hunt_records
 		SELECT n,15,'g','normal',0,0,100+n,'npc-free-slow',10000+n,
-		'{"supportKnown":true,"supportUsed":false,"npcKnown":true,"npcUsed":false,"solo":true}'::jsonb
+		'{"hpView":false,"hpViewUsed":false,"supportKnown":true,"supportUsed":false,"npcKnown":true,"npcUsed":false,"solo":true}'::jsonb
 		FROM generate_series(1,11) AS n;
-		INSERT INTO monster_hunt_records VALUES(12,15,'g','normal',0,0,200,'npc-fast',1,'{"solo":true,"npcUsed":true}');`)
+		INSERT INTO monster_hunt_records VALUES
+        (12,15,'g','normal',0,0,200,'npc-fast',1,'{"solo":true,"npcUsed":true}'),
+        (13,15,'g','normal',0,0,201,'support-fast',1,'{"solo":true,"supportUsed":true}'),
+        (14,15,'g','normal',0,0,202,'hp-fast',1,'{"solo":true,"hpViewUsed":true}');`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,22 +70,22 @@ func TestDashboardRankingEligibilityPostgres(t *testing.T) {
 	if err := db.SelectContext(context.Background(), &times, dashboardMonsterTimesQuery); err != nil {
 		t.Fatal(err)
 	}
-	if len(times) != 16 {
-		t.Fatalf("expected six prioritized records and ten top records, got %+v", times)
+	if len(times) != 19 {
+		t.Fatalf("expected nine prioritized records and ten top records, got %+v", times)
 	}
 	for i, want := range []struct {
 		quest    int
 		frames   int64
 		assisted bool
-	}{{3, 300, false}, {2, 400, false}, {4, 10, true}, {5, 20, true}, {6, 30, true}, {7, 40, true}} {
+	}{{3, 300, false}, {2, 400, false}, {9, 1, true}, {21, 3, true}, {20, 5, true}, {4, 10, true}, {5, 20, true}, {6, 30, true}, {7, 40, true}} {
 		got := times[i]
 		if got.MonsterID != 6 || got.QuestID != want.quest || got.Frames != want.frames || got.NPCAssisted != want.assisted {
 			t.Errorf("rank %d = %+v, want %+v", i+1, got, want)
 		}
 	}
-	for i, got := range times[6:] {
+	for i, got := range times[9:] {
 		if got.MonsterID != 15 || got.QuestID != 101+i || got.NPCAssisted {
-			t.Errorf("top ten did not prefer NPC-free records: %+v", got)
+			t.Errorf("top ten did not prefer unassisted records: %+v", got)
 		}
 	}
 }

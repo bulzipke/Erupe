@@ -358,7 +358,7 @@ type MonsterTimeRankEntry struct {
 	QuestID        int            `db:"quest_id" json:"questId"`
 	QuestName      string         `db:"quest_name" json:"questName"`
 	Frames         int64          `db:"best_time_frames" json:"frames"`
-	NPCAssisted    bool           `db:"npc_assisted" json:"npcAssisted"`
+	NPCAssisted    bool           `db:"npc_assisted" json:"npcAssisted"` // Legacy API name; also covers HP display and Support use.
 	ClientSettings types.JSONText `db:"client_settings" json:"clientSettings,omitempty"`
 }
 
@@ -473,9 +473,9 @@ const dashboardLeastUsedWeaponsQuery = `
 
 const dashboardMonsterTimesQuery = `
 	WITH eligible_records AS (
-		-- Legacy rows predate NPC/solo telemetry. Keep them in the assisted
-		-- group without changing their original metadata. Explicit parties
-		-- and known Support boosts remain ineligible.
+		-- HP display, Support, NPC-assisted and legacy rows share the second
+		-- priority without changing their original metadata. Explicit parties
+		-- remain ineligible.
 		SELECT
 			r.character_id,
 			r.monster_id,
@@ -492,7 +492,7 @@ const dashboardMonsterTimesQuery = `
 			END AS quest_name,
 			r.best_time_frames,
 			r.client_settings,
-			NOT COALESCE(r.client_settings @> '` + mhfquest.NPCFreeSoloHuntSettingsJSON + `'::jsonb, false) AS npc_assisted
+			NOT COALESCE(r.client_settings @> '` + mhfquest.UnassistedSoloHuntSettingsJSON + `'::jsonb, false) AS npc_assisted
 		FROM monster_hunt_records r
 		INNER JOIN characters c ON c.id = r.character_id
 		WHERE c.deleted = false
@@ -501,7 +501,6 @@ const dashboardMonsterTimesQuery = `
 		  AND c.name <> ''
 		  AND r.monster_id NOT IN (93, 149)
 		  AND (r.client_settings->'solo' IS NULL OR r.client_settings @> '{"solo":true}'::jsonb)
-		  AND NOT COALESCE(r.client_settings @> '{"supportUsed":true}'::jsonb, false)
 		  AND (
 			COALESCE(r.variant_kind, '') <> 'conquest'
 			OR r.conquest_level = 9999
