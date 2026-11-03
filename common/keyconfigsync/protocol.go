@@ -21,6 +21,7 @@ const (
 	MaxRevision        = 0x7ffffffe
 	Load               = 0
 	Save               = 1
+	Identify           = 2 // Authenticated account ID for local sync ancestry; no profile write.
 	OK                 = 0
 	Absent             = 1
 	Conflict           = 2
@@ -45,8 +46,9 @@ func ParseHeader(b []byte) (Request, error) {
 	r.Revision = binary.BigEndian.Uint32(b[24:])
 	r.Size = binary.BigEndian.Uint32(b[28:])
 	copy(r.Nonce[:], b[32:])
-	if r.TokenID == 0 || r.CharacterID == 0 || r.Operation > Save || r.Slot >= SlotCount || r.Size > Limit(r.Slot) || r.Revision > MaxRevision ||
-		(r.Operation == Load && (r.Size != 0 || r.Revision != 0)) || (r.Operation == Save && r.Size == 0) {
+	if r.TokenID == 0 || r.CharacterID == 0 || r.Operation > Identify || r.Slot >= SlotCount || r.Size > Limit(r.Slot) || r.Revision > MaxRevision ||
+		(r.Operation == Load && (r.Size != 0 || r.Revision != 0)) || (r.Operation == Save && r.Size == 0) ||
+		(r.Operation == Identify && (r.Slot != 0 || r.Revision != 0 || r.Size != 0)) {
 		return r, errors.New("invalid keyconfig request")
 	}
 	return r, nil

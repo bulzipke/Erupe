@@ -3,6 +3,7 @@ package entranceserver
 import (
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"erupe-ce/common/keyconfigsync"
 	"io"
 	"net"
@@ -52,6 +53,8 @@ func (s *Server) handleKeyconfig(conn net.Conn, prefix []byte) {
 	cost := r.Size
 	if r.Operation == keyconfigsync.Load {
 		cost = keyconfigsync.Limit(r.Slot)
+	} else if r.Operation == keyconfigsync.Identify {
+		cost = 4
 	}
 	if !s.profileLimits.allow(ip, session.UserID, int(cost), time.Now()) {
 		writeProfileResponse(conn, keyconfigsync.Response(r, keyconfigsync.Throttled, 0, nil, session.Token))
@@ -64,7 +67,10 @@ func (s *Server) handleKeyconfig(conn net.Conn, prefix []byte) {
 	}
 	status, revision := uint32(keyconfigsync.OK), uint32(0)
 	var data []byte
-	if r.Operation == keyconfigsync.Load {
+	if r.Operation == keyconfigsync.Identify {
+		data = make([]byte, 4)
+		binary.BigEndian.PutUint32(data, session.UserID)
+	} else if r.Operation == keyconfigsync.Load {
 		revision, data, err = repo.LoadKeyconfig(ctx, session.UserID, r.Slot)
 		if err == sql.ErrNoRows {
 			status = keyconfigsync.Absent

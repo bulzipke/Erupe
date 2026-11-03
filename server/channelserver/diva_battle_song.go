@@ -45,8 +45,9 @@ func divaBattleSongActive(state DivaBattleSongState, now time.Time) bool {
 		now.Unix() < int64(state.StartedAt)+int64(divaBattleSongDuration/time.Second)
 }
 
-// Keep exactly the table advertised by GET_UD_TOTAL_POINT_INFO. Do not turn the
-// schedule's 0x19 field into free activations or lower the thresholds.
+// Count the type-0 targets advertised by GET_UD_TOTAL_POINT_INFO only.
+// Shop unlock targets (types 1..3) and the schedule's 0x19 field must not
+// grant song activations or lower their thresholds.
 func divaBattleSongEarned(total int64) uint8 {
 	var count uint8
 	for i, threshold := range udMilestones {
@@ -138,7 +139,6 @@ func consumeDivaBattleSongEffects(s *Session, p *mhfpacket.MsgMhfAddRewardSongCo
 
 func getDivaBattleSong(s *Session, ack uint32) {
 	state := DivaBattleSongState{}
-	effects := defaultBeadTypes
 	if s.server.erupeConfig.DebugOptions.InGameTimeOverrideHour != nil {
 		doAckBufFail(s, ack, nil)
 		return
@@ -167,8 +167,11 @@ func getDivaBattleSong(s *Session, ack uint32) {
 			return
 		}
 	}
-	if beads, err := s.server.divaRepo.GetBeads(); err == nil && len(beads) != 0 {
-		effects = beads
+	effects, err := s.divaBeadsForEvent(event)
+	if err != nil {
+		s.logger.Warn("Failed to read Diva battle song beads", zap.Error(err))
+		doAckBufFail(s, ack, nil)
+		return
 	}
 	doAckBufSucceed(s, ack, divaBattleSongPayload(state, effects))
 }

@@ -102,14 +102,17 @@ func handleMsgMhfGetUdBonusQuestInfo(s *Session, p mhfpacket.MHFPacket) {
 		doAckBufFail(s, pkt.AckHandle, nil)
 		return
 	}
-	beads, err := s.server.divaRepo.GetBeads()
+	event, err := s.divaEvent()
+	if err != nil {
+		s.logger.Warn("Failed to read Diva bonus event", zap.Error(err))
+		doAckBufFail(s, pkt.AckHandle, nil)
+		return
+	}
+	beads, err := s.divaBeadsForEvent(event)
 	if err != nil {
 		s.logger.Warn("Failed to read Diva bonus bead colors", zap.Error(err))
 		doAckBufFail(s, pkt.AckHandle, nil)
 		return
-	}
-	if len(beads) == 0 {
-		beads = defaultBeadTypes
 	}
 	if random && len(beads) < 4 {
 		s.logger.Warn("DivaBonusRandom requires four bead colors", zap.Int("colors", len(beads)))
@@ -124,12 +127,6 @@ func handleMsgMhfGetUdBonusQuestInfo(s *Session, p mhfpacket.MHFPacket) {
 			doAckBufFail(s, pkt.AckHandle, nil)
 			return
 		}
-	}
-	event, err := s.divaEvent()
-	if err != nil {
-		s.logger.Warn("Failed to read Diva bonus event", zap.Error(err))
-		doAckBufFail(s, pkt.AckHandle, nil)
-		return
 	}
 	now := TimeAdjusted().Unix()
 	if event.ID == 0 || now < int64(event.StartTime) || now >= int64(event.StartTime)+event.prayerDuration() {

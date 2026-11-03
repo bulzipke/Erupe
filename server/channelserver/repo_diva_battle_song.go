@@ -107,14 +107,13 @@ func (r *DivaRepository) useDivaBattleSongAt(charID, eventID uint32, now time.Ti
 	if state.Used >= divaBattleSongEarned(total) {
 		return DivaBattleSongState{}, errDivaBattleSongUnavailable
 	}
-	var effects []uint16
-	if err = tx.Select(&effects, `SELECT type FROM diva_beads ORDER BY id LIMIT 4`); err != nil {
+	round, err := divaEventBeadsTx(tx, eventID)
+	if err != nil {
 		return DivaBattleSongState{}, err
 	}
-	if len(effects) == 0 {
-		for _, id := range defaultBeadTypes {
-			effects = append(effects, uint16(id))
-		}
+	var effects []uint16
+	for _, id := range round.Effects {
+		effects = append(effects, uint16(id))
 	}
 	effects, valid := divaBattleSongEffectIDs(effects)
 	if !valid {

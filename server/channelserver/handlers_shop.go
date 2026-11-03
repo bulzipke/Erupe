@@ -245,7 +245,18 @@ func handleMsgMhfEnumerateShop(s *Session, p mhfpacket.MHFPacket) {
 		fallthrough
 	case 8: // Diva
 		bf := byteframe.NewByteFrame()
-		items := getShopItems(s, pkt.ShopType, pkt.ShopID)
+		var items []ShopItem
+		if repo, ok := s.server.shopRepo.(divaShopContextRepository); ok && pkt.ShopType == 8 {
+			var err error
+			items, err = repo.GetDivaShopItems(pkt.ShopID, s.charID, s.server.erupeConfig.DebugOptions.DivaOverride)
+			if err != nil {
+				s.logger.Warn("Failed to load diva shop", zap.Error(err))
+				doAckBufFail(s, pkt.AckHandle, nil)
+				return
+			}
+		} else {
+			items = getShopItems(s, pkt.ShopType, pkt.ShopID)
+		}
 		if len(items) > int(pkt.Limit) {
 			items = items[:pkt.Limit]
 		}
@@ -289,14 +300,27 @@ func handleMsgMhfAcquireExchangeShop(s *Session, p mhfpacket.MHFPacket) {
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
+	purchases := make([]exchangeShopPurchase, 0, exchanges)
 	for i := 0; i < exchanges; i++ {
 		itemHash := bf.ReadUint32()
 		buyCount := bf.ReadUint32()
-		if itemHash == 0 {
-			continue
+		if itemHash != 0 && buyCount != 0 {
+			purchases = append(purchases, exchangeShopPurchase{itemHash, buyCount})
 		}
-		if err := s.server.shopRepo.RecordPurchase(s.charID, itemHash, buyCount); err != nil {
-			s.logger.Error("Failed to update shop item purchase count", zap.Error(err))
+	}
+	if repo, ok := s.server.shopRepo.(divaShopContextRepository); ok {
+		if err := repo.RecordExchangeShopPurchases(s.charID, purchases, s.server.erupeConfig.DebugOptions.DivaOverride); err != nil {
+			s.logger.Warn("Rejected exchange-shop purchase batch", zap.Error(err))
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+	} else {
+		for _, purchase := range purchases {
+			if err := s.server.shopRepo.RecordPurchase(s.charID, purchase.ItemHash, purchase.Quantity); err != nil {
+				s.logger.Error("Failed to update shop item purchase count", zap.Error(err))
+				doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+				return
+			}
 		}
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, []byte{0x00, 0x00, 0x00, 0x00})

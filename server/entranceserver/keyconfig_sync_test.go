@@ -113,6 +113,9 @@ func TestKeyconfigAccountExchange(t *testing.T) {
 		}
 	}
 	check(keyconfigRequest(123, 456, 0, 0, 0, nil), keyconfigsync.Absent, 0, nil)
+	check(keyconfigRequest(123, 456, keyconfigsync.Identify, 0, 0, nil), keyconfigsync.OK, 0, []byte{0, 0, 0, 10})
+	check(keyconfigRequest(123, 457, keyconfigsync.Identify, 0, 0, nil), keyconfigsync.OK, 0, []byte{0, 0, 0, 10})
+	check(keyconfigRequest(124, 458, keyconfigsync.Identify, 0, 0, nil), keyconfigsync.OK, 0, []byte{0, 0, 0, 11})
 	first := keyconfigRequest(123, 456, 1, 0, 0, data)
 	check(first, keyconfigsync.OK, 1, nil)
 	check(first, keyconfigsync.Conflict, 0, nil)                                  // Replay cannot overwrite.
@@ -120,7 +123,9 @@ func TestKeyconfigAccountExchange(t *testing.T) {
 	check(keyconfigRequest(124, 458, 0, 0, 0, nil), keyconfigsync.Absent, 0, nil) // Other account.
 	check(keyconfigRequest(123, 456, 0, 1, 0, nil), keyconfigsync.Absent, 0, nil) // Independent file.
 	check(keyconfigRequest(123, 456, 1, 0, 1, data), keyconfigsync.OK, 2, nil)
-	for _, b := range [][]byte{keyconfigRequest(123, 458, 0, 0, 0, nil), keyconfigRequest(123, 456, 1, 0, 2, []byte("truncated")), keyconfigRequest(123, 456, 0, 3, 0, nil)} {
+	for _, b := range [][]byte{keyconfigRequest(123, 458, 0, 0, 0, nil), keyconfigRequest(123, 456, 1, 0, 2, []byte("truncated")), keyconfigRequest(123, 456, 0, 3, 0, nil),
+		keyconfigRequest(123, 458, keyconfigsync.Identify, 0, 0, nil), keyconfigRequest(123, 456, keyconfigsync.Identify, 1, 0, nil),
+		keyconfigRequest(123, 456, keyconfigsync.Identify, 0, 1, nil), keyconfigRequest(123, 456, keyconfigsync.Identify, 0, 0, []byte("bad"))} {
 		if _, err := keyconfigExchange(t, s, b); err == nil {
 			t.Fatal("invalid request accepted")
 		}

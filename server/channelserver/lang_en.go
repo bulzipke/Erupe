@@ -87,26 +87,7 @@ func langEnglish() i18n {
 	i.guild.invite.declined.title = "Declined"
 	i.guild.invite.declined.body = "The recipient declined your invitation to join\n「%s」."
 
-	i.beads = []Bead{
-		{1, "Bead of Storms", "A prayer bead imbued with the power of storms.\nSummons raging winds to bolster allies."},
-		{3, "Bead of Severing", "A prayer bead imbued with severing power.\nGrants allies increased cutting strength."},
-		{4, "Bead of Vitality", "A prayer bead imbued with vitality.\nBoosts the health of those around it."},
-		{8, "Bead of Healing", "A prayer bead imbued with healing power.\nProtects allies with restorative energy."},
-		{9, "Bead of Fury", "A prayer bead imbued with furious energy.\nFuels allies with battle rage."},
-		{10, "Bead of Blight", "A prayer bead imbued with miasma.\nInfuses allies with poisonous power."},
-		{11, "Bead of Power", "A prayer bead imbued with raw might.\nGrants allies overwhelming strength."},
-		{14, "Bead of Thunder", "A prayer bead imbued with lightning.\nCharges allies with electric force."},
-		{15, "Bead of Ice", "A prayer bead imbued with freezing cold.\nGrants allies chilling elemental power."},
-		{17, "Bead of Fire", "A prayer bead imbued with searing heat.\nIgnites allies with fiery elemental power."},
-		{18, "Bead of Water", "A prayer bead imbued with flowing water.\nGrants allies water elemental power."},
-		{19, "Bead of Dragon", "A prayer bead imbued with dragon energy.\nGrants allies dragon elemental power."},
-		{20, "Bead of Earth", "A prayer bead imbued with earth power.\nGrounds allies with elemental earth force."},
-		{21, "Bead of Wind", "A prayer bead imbued with swift wind.\nGrants allies increased agility."},
-		{22, "Bead of Light", "A prayer bead imbued with radiant light.\nInspires allies with luminous energy."},
-		{23, "Bead of Shadow", "A prayer bead imbued with darkness.\nInfuses allies with shadowy power."},
-		{24, "Bead of Iron", "A prayer bead imbued with iron strength.\nGrants allies fortified defence."},
-		{25, "Bead of Immunity", "A prayer bead imbued with sealing power.\nNullifies elemental weaknesses for allies."},
-	}
+	i.beads = divaLocalizedBeads("en")
 
 	return i
 }

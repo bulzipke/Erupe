@@ -25,7 +25,9 @@ func (r *DivaRepository) EnsureDivaSongEvent(now time.Time) (DivaEvent, error) {
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return DivaEvent{}, err
 	}
+	var previousID uint32
 	if event.ID == 0 || now.Unix() >= int64(event.StartTime)+divaPhaseDuration {
+		previousID = event.ID
 		t := now.In(divaLocation)
 		start := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, divaLocation)
 		if err = tx.QueryRow("INSERT INTO events(event_type,start_time) VALUES('diva',$1) RETURNING id", start.UTC()).Scan(&event.ID); err != nil {
@@ -36,6 +38,9 @@ func (r *DivaRepository) EnsureDivaSongEvent(now time.Time) (DivaEvent, error) {
 			ON CONFLICT(singleton) DO UPDATE SET event_id=EXCLUDED.event_id`, event.ID); err != nil {
 			return DivaEvent{}, err
 		}
+	}
+	if err = ensureDivaBeadRotationTx(tx, event.ID, previousID, 1); err != nil {
+		return DivaEvent{}, err
 	}
 	return event, tx.Commit()
 }

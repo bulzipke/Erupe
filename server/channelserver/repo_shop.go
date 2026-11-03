@@ -2,6 +2,7 @@ package channelserver
 
 import (
 	"github.com/jmoiron/sqlx"
+	"time"
 )
 
 // ShopRepository centralizes all database access for shop-related tables.
@@ -16,6 +17,13 @@ func NewShopRepository(db *sqlx.DB) *ShopRepository {
 
 // GetShopItems returns shop items with per-character purchase counts.
 func (r *ShopRepository) GetShopItems(shopType uint8, shopID uint32, charID uint32) ([]ShopItem, error) {
+	if shopType == 8 && shopID == 7 {
+		return r.GetDivaShopItems(shopID, charID, -1)
+	}
+	return r.getShopItems(shopType, shopID, charID)
+}
+
+func (r *ShopRepository) getShopItems(shopType uint8, shopID uint32, charID uint32) ([]ShopItem, error) {
 	var result []ShopItem
 	err := r.db.Select(&result, `SELECT si.id, item_id, cost, quantity, min_hr, min_sr, min_gr, store_level, max_quantity,
         CASE WHEN si.road_weekly_limit AND si.shop_type=10 AND si.shop_id IN (7,8)
@@ -34,7 +42,11 @@ func (r *ShopRepository) GetShopItems(shopType uint8, shopID uint32, charID uint
 // the upsert is atomic, including simultaneous purchases after a rollover.
 // A delayed pre-rollover request must not rewind a newer receipt's week.
 func (r *ShopRepository) RecordPurchase(charID, shopItemID, quantity uint32) error {
-	_, err := r.db.Exec(`INSERT INTO shop_items_bought (character_id, shop_item_id, bought, week_start)
+	return r.RecordExchangeShopPurchases(charID, []exchangeShopPurchase{{shopItemID, quantity}}, -1)
+}
+
+func recordShopPurchase(q sqlx.Execer, charID, shopItemID, quantity uint32, week time.Time) error {
+	_, err := q.Exec(`INSERT INTO shop_items_bought (character_id, shop_item_id, bought, week_start)
         VALUES ($1,$2,$3,CASE WHEN COALESCE((SELECT road_weekly_limit
             FROM shop_items WHERE id=$2 AND shop_type=10 AND shop_id IN (7,8)), false)
             THEN $4::timestamptz ELSE NULL END)
@@ -45,7 +57,7 @@ func (r *ShopRepository) RecordPurchase(charID, shopItemID, quantity uint32) err
                         THEN EXCLUDED.bought ELSE shop_items_bought.bought + EXCLUDED.bought END,
           week_start = CASE WHEN EXCLUDED.week_start IS NULL THEN NULL
                             ELSE GREATEST(shop_items_bought.week_start, EXCLUDED.week_start) END
-        `, charID, shopItemID, quantity, TimeWeekStart())
+        `, charID, shopItemID, quantity, week)
 	return err
 }
 

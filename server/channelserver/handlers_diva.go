@@ -90,9 +90,23 @@ func handleMsgMhfGetKijuInfo(s *Session, p mhfpacket.MHFPacket) {
 	//   +0x220 u8        color_id  (slot index, 1-based)
 	//   +0x221 u8        bead_type (effect ID)
 	// Response: u8 count + count × 546 bytes.
-	beadTypes, err := s.server.divaRepo.GetBeads()
-	if err != nil || len(beadTypes) == 0 {
-		beadTypes = defaultBeadTypes
+	var beadTypes []int
+	if _, scoped := s.server.divaRepo.(DivaEventBeadRepository); scoped {
+		event, err := s.divaEvent()
+		if err == nil {
+			beadTypes, err = s.divaBeadsForEvent(event)
+		}
+		if err != nil {
+			s.logger.Warn("Failed to read Diva event beads", zap.Error(err))
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
+	} else {
+		var err error
+		beadTypes, err = s.divaBeadsForEvent(DivaEvent{})
+		if err != nil {
+			beadTypes = defaultBeadTypes
+		}
 	}
 	if len(beadTypes) > 4 {
 		beadTypes = beadTypes[:4]
@@ -115,21 +129,22 @@ func handleMsgMhfGetKijuInfo(s *Session, p mhfpacket.MHFPacket) {
 func handleMsgMhfSetKiju(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfSetKiju)
 	beadIndex := int(pkt.Unk1)
-	beads, err := s.server.divaRepo.GetBeads()
-	if err != nil {
-		doAckSimpleFail(s, pkt.AckHandle, []byte{1})
-		return
-	}
-	if len(beads) == 0 {
-		beads = defaultBeadTypes
-	}
-	if beadIndex < 1 || beadIndex > min(len(beads), 4) {
+	if beadIndex < 1 || beadIndex > 4 {
 		doAckBufSucceed(s, pkt.AckHandle, []byte{0xF9})
 		return
 	}
 	event, err := s.divaEvent()
 	if err != nil || event.ID == 0 {
 		doAckBufFail(s, pkt.AckHandle, nil)
+		return
+	}
+	beads, err := s.divaBeadsForEvent(event)
+	if err != nil {
+		doAckSimpleFail(s, pkt.AckHandle, []byte{1})
+		return
+	}
+	if beadIndex < 1 || beadIndex > min(len(beads), 4) {
+		doAckBufSucceed(s, pkt.AckHandle, []byte{0xF9})
 		return
 	}
 	now := TimeAdjusted()
@@ -208,14 +223,6 @@ func handleMsgMhfGetUdMyPoint(s *Session, p mhfpacket.MHFPacket) {
 	doAckBufSucceed(s, pkt.AckHandle, divaMyPointPayload(days, firstDay))
 }
 
-// udMilestones are the global contribution milestones for Diva Defense.
-// RE confirms: 64 × u64 target_values + 64 × u8 target_types + u64 total = ~585 bytes.
-// Slots 0–12 are populated; slots 13–63 are zero.
-var udMilestones = []uint64{
-	500000, 1000000, 2000000, 3000000, 5000000, 7000000, 10000000,
-	15000000, 20000000, 30000000, 50000000, 70000000, 100000000,
-}
-
 func handleMsgMhfGetUdTotalPointInfo(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfGetUdTotalPointInfo)
 
@@ -230,25 +237,7 @@ func handleMsgMhfGetUdTotalPointInfo(s *Session, p mhfpacket.MHFPacket) {
 		doAckBufFail(s, pkt.AckHandle, []byte{1})
 		return
 	}
-	total := questTotal + bonusTotal
-
-	bf := byteframe.NewByteFrame()
-	bf.WriteUint8(0) // error = success
-	// 64 × u64 target_values (big-endian)
-	for i := 0; i < 64; i++ {
-		var v uint64
-		if i < len(udMilestones) {
-			v = udMilestones[i]
-		}
-		bf.WriteUint64(v)
-	}
-	// 64 × u8 target_types (0 = global)
-	for i := 0; i < 64; i++ {
-		bf.WriteUint8(0)
-	}
-	// u64 total_souls
-	bf.WriteUint64(uint64(total))
-	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
+	doAckBufSucceed(s, pkt.AckHandle, divaTotalPointPayload(uint64(questTotal+bonusTotal)))
 }
 
 func handleMsgMhfGetUdSelectedColorInfo(s *Session, p mhfpacket.MHFPacket) {

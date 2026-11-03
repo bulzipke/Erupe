@@ -98,7 +98,9 @@ func ensureDivaEventTx(tx *sqlx.Tx, now time.Time, override int) (DivaEvent, err
 	if err = recordStartedDivaInterceptionPeriod(tx, event, override, now); err != nil {
 		return DivaEvent{}, err
 	}
+	var previousID uint32
 	if event.ID == 0 || !now.Before(divaLifecycleExpiry(event, override)) {
+		previousID = event.ID
 		legacyBootstrap := false
 		if firstAnchor && (override == 2 || override == 3) {
 			// An already-running legacy round must not turn reward-eligible merely
@@ -128,6 +130,9 @@ func ensureDivaEventTx(tx *sqlx.Tx, now time.Time, override int) (DivaEvent, err
 				return DivaEvent{}, err
 			}
 		}
+	}
+	if err = ensureDivaBeadRotationTx(tx, event.ID, previousID, override); err != nil {
+		return DivaEvent{}, err
 	}
 	if _, err = tx.Exec(`INSERT INTO diva_event_lifecycle(mode,event_id) VALUES($1,$2)
 		ON CONFLICT(mode) DO UPDATE SET event_id=EXCLUDED.event_id`, override, event.ID); err != nil {

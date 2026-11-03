@@ -87,26 +87,7 @@ func langSpanish() i18n {
 	i.guild.invite.declined.title = "Declinada"
 	i.guild.invite.declined.body = "El destinatario declinó tu invitación para unirse a\n「%s」."
 
-	i.beads = []Bead{
-		{1, "Perla de Tormentas", "Una perla de oración imbuida con el poder de las tormentas.\nInvoca vientos furiosos para fortalecer a los aliados."},
-		{3, "Perla de Corte", "Una perla de oración imbuida con poder cortante.\nOtorga a los aliados mayor fuerza de corte."},
-		{4, "Perla de Vitalidad", "Una perla de oración imbuida con vitalidad.\nAumenta los puntos de vida de los aliados cercanos."},
-		{8, "Perla de Curación", "Una perla de oración imbuida con poder curativo.\nProtege a los aliados con energía restauradora."},
-		{9, "Perla de Furia", "Una perla de oración imbuida con energía furiosa.\nImbuye a los aliados con rabia de combate."},
-		{10, "Perla de Plaga", "Una perla de oración imbuida con miasma.\nInfunde a los aliados con poder venenoso."},
-		{11, "Perla de Poder", "Una perla de oración imbuida con fuerza bruta.\nOtorga a los aliados una fuerza abrumadora."},
-		{14, "Perla del Trueno", "Una perla de oración imbuida con rayos.\nCarga a los aliados con fuerza eléctrica."},
-		{15, "Perla de Hielo", "Una perla de oración imbuida con frío glacial.\nOtorga a los aliados poder elemental helado."},
-		{17, "Perla de Fuego", "Una perla de oración imbuida con calor abrasador.\nEnciende a los aliados con poder elemental ígneo."},
-		{18, "Perla de Agua", "Una perla de oración imbuida con agua fluyente.\nOtorga a los aliados poder elemental acuático."},
-		{19, "Perla del Dragón", "Una perla de oración imbuida con energía dracónica.\nOtorga a los aliados poder elemental dracónico."},
-		{20, "Perla de Tierra", "Una perla de oración imbuida con el poder de la tierra.\nAfianza a los aliados con fuerza elemental telúrica."},
-		{21, "Perla del Viento", "Una perla de oración imbuida con viento veloz.\nOtorga a los aliados mayor agilidad."},
-		{22, "Perla de Luz", "Una perla de oración imbuida con luz radiante.\nInspira a los aliados con energía luminosa."},
-		{23, "Perla de Sombra", "Una perla de oración imbuida con oscuridad.\nInfunde a los aliados con poder sombrío."},
-		{24, "Perla de Hierro", "Una perla de oración imbuida con la resistencia del hierro.\nOtorga a los aliados una defensa reforzada."},
-		{25, "Perla de Inmunidad", "Una perla de oración imbuida con poder de sellado.\nAnula las debilidades elementales de los aliados."},
-	}
+	i.beads = divaLocalizedBeads("es")
 
 	return i
 }

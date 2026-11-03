@@ -87,26 +87,7 @@ func langFrench() i18n {
 	i.guild.invite.declined.title = "Déclinée"
 	i.guild.invite.declined.body = "Le destinataire a décliné votre invitation à rejoindre\n「%s」."
 
-	i.beads = []Bead{
-		{1, "Perle des Tempêtes", "Une perle de prière imprégnée du pouvoir des tempêtes.\nInvoque des vents déchaînés pour soutenir les alliés."},
-		{3, "Perle de Tranchant", "Une perle de prière imprégnée du pouvoir tranchant.\nAccorde aux alliés une force de coupe accrue."},
-		{4, "Perle de Vitalité", "Une perle de prière imprégnée de vitalité.\nAugmente les points de vie des alliés proches."},
-		{8, "Perle de Guérison", "Une perle de prière imprégnée du pouvoir de guérison.\nProtège les alliés avec une énergie restauratrice."},
-		{9, "Perle de Fureur", "Une perle de prière imprégnée d'énergie furieuse.\nEmbrasse les alliés d'une rage au combat."},
-		{10, "Perle de Fléau", "Une perle de prière imprégnée de miasmes.\nInfuse les alliés d'un pouvoir venimeux."},
-		{11, "Perle de Puissance", "Une perle de prière imprégnée d'une force brute.\nAccorde aux alliés une force accablante."},
-		{14, "Perle du Tonnerre", "Une perle de prière imprégnée de foudre.\nCharge les alliés d'une force électrique."},
-		{15, "Perle de Glace", "Une perle de prière imprégnée d'un froid glacial.\nAccorde aux alliés un pouvoir élémentaire glacé."},
-		{17, "Perle de Feu", "Une perle de prière imprégnée d'une chaleur brûlante.\nEnflamme les alliés d'un pouvoir élémentaire ardent."},
-		{18, "Perle d'Eau", "Une perle de prière imprégnée d'eau courante.\nAccorde aux alliés un pouvoir élémentaire aquatique."},
-		{19, "Perle du Dragon", "Une perle de prière imprégnée d'énergie draconique.\nAccorde aux alliés un pouvoir élémentaire draconique."},
-		{20, "Perle de Terre", "Une perle de prière imprégnée du pouvoir de la terre.\nAncre les alliés avec une force élémentaire tellurique."},
-		{21, "Perle du Vent", "Une perle de prière imprégnée d'un vent rapide.\nAccorde aux alliés une agilité accrue."},
-		{22, "Perle de Lumière", "Une perle de prière imprégnée d'une lumière radieuse.\nInspire les alliés avec une énergie lumineuse."},
-		{23, "Perle d'Ombre", "Une perle de prière imprégnée d'obscurité.\nInfuse les alliés d'un pouvoir ténébreux."},
-		{24, "Perle de Fer", "Une perle de prière imprégnée de la résistance du fer.\nAccorde aux alliés une défense renforcée."},
-		{25, "Perle d'Immunité", "Une perle de prière imprégnée d'un pouvoir de scellement.\nAnnule les faiblesses élémentaires des alliés."},
-	}
+	i.beads = divaLocalizedBeads("fr")
 
 	return i
 }
