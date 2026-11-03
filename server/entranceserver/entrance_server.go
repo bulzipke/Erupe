@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"erupe-ce/common/accountprivilege"
+	"erupe-ce/common/keyconfigsync"
 	cfg "erupe-ce/config"
 	"erupe-ce/network"
 	"github.com/jmoiron/sqlx"
@@ -26,6 +27,7 @@ type Server struct {
 	sessionRepo    EntranceSessionRepo
 	listener       net.Listener
 	isShuttingDown bool
+	profileLimits  profileLimits
 }
 
 // Config struct allows configuring the server.
@@ -139,6 +141,13 @@ func (s *Server) handleEntranceServerConnection(conn net.Conn) {
 		s.handleAccountPrivilege(conn, nullInit)
 		return
 	}
+	if string(nullInit) == keyconfigsync.RequestMagic {
+		s.handleKeyconfig(conn, nullInit)
+		return
+	}
+	if string(nullInit) == "ERUKCF01" {
+		return
+	} // Old uploads lack header authentication; require the paired v2 DLL.
 
 	// Create a new encrypted connection handler and read a packet from it.
 	var cc network.Conn = network.NewCryptConn(conn, s.erupeConfig.RealClientMode, s.logger)
