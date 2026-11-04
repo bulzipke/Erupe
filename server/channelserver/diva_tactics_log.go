@@ -100,22 +100,34 @@ func divaTacticsLogPayload(rows []divaTacticsLogEntry) ([]byte, error) {
 	return bf.Data(), nil
 }
 
-// The UI consumes server order. Show newest actual events first, inserting the
-// client's own date separator format in UTC+9; headers count toward its cap.
+// Input is newest first so the cap retains the most recent actual events.
+// The native UI renders server order and opens at the bottom: send the retained
+// events oldest first so its initial view contains the latest events. Insert
+// UTC+9 date headers after reversing; headers still count toward the 200-row cap.
 func divaTacticsLogWithDates(rows []divaTacticsLogEntry) []divaTacticsLogEntry {
-	result := make([]divaTacticsLogEntry, 0, divaTacticsLogMaxRows)
+	selected, count := 0, 0
 	var previousDay int64 = -1
 	for _, row := range rows {
 		day := (row.At.Unix() + 9*60*60) / (24 * 60 * 60)
+		needed := 1
 		if day != previousDay {
-			if len(result)+2 > divaTacticsLogMaxRows {
-				break
-			}
+			needed++
+		}
+		if count+needed > divaTacticsLogMaxRows {
+			break
+		}
+		selected++
+		count += needed
+		previousDay = day
+	}
+	result := make([]divaTacticsLogEntry, 0, count)
+	previousDay = -1
+	for i := selected - 1; i >= 0; i-- {
+		row := rows[i]
+		day := (row.At.Unix() + 9*60*60) / (24 * 60 * 60)
+		if day != previousDay {
 			result = append(result, divaTacticsLogEntry{Kind: 5, At: row.At})
 			previousDay = day
-		}
-		if len(result) == divaTacticsLogMaxRows {
-			break
 		}
 		result = append(result, row)
 	}

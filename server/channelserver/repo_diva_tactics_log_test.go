@@ -96,7 +96,7 @@ func TestRepoDivaTacticsLogPersonalMilestoneBoundariesAndReplay(t *testing.T) {
 		t.Fatalf("exact or multi-threshold crossing lost: %+v", milestones)
 	}
 	for i, row := range milestones {
-		if row.Value != uint32(30000-i*10000) || row.CharID != char || row.Name != "MapHunter" || !row.At.Equal(reported) || row.Branch != 0 {
+		if row.Value != uint32((i+1)*10000) || row.CharID != char || row.Name != "MapHunter" || !row.At.Equal(reported) || row.Branch != 0 {
 			t.Fatalf("milestone differs from accepted journal: %+v", row)
 		}
 	}
@@ -161,11 +161,11 @@ func TestRepoDivaTacticsLogPersonalMilestoneSignedAndRowCaps(t *testing.T) {
 		t.Fatalf("bounded maximum journal: %d %v", len(rows), err)
 	}
 	milestones := divaLogMilestones(rows)
-	if len(milestones) != divaTacticsLogMaxRows-1 || milestones[0].Value != uint32(math.MaxInt32/divaTacticsLogPersonalStep*divaTacticsLogPersonalStep) {
+	if len(milestones) != divaTacticsLogMaxRows-1 || milestones[len(milestones)-1].Value != uint32(math.MaxInt32/divaTacticsLogPersonalStep*divaTacticsLogPersonalStep) {
 		t.Fatalf("native signed limit or newest milestones: %+v", milestones)
 	}
 	for i, row := range milestones {
-		if row.Value > math.MaxInt32 || row.Value == 0 || (i > 0 && row.Value != milestones[i-1].Value-divaTacticsLogPersonalStep) {
+		if row.Value > math.MaxInt32 || row.Value == 0 || (i > 0 && row.Value != milestones[i-1].Value+divaTacticsLogPersonalStep) {
 			t.Fatalf("unbounded or incorrectly ordered milestone: %+v", row)
 		}
 	}

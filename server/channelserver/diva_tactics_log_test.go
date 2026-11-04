@@ -108,7 +108,8 @@ func TestDivaTacticsLogNameAndDates(t *testing.T) {
 	latest := time.Date(2026, 9, 23, 15, 0, 0, 0, time.UTC)
 	rows := []divaTacticsLogEntry{{Kind: 1, Value: 2, At: latest}, {Kind: 1, Value: 1, At: latest.Add(-time.Second)}}
 	withDates := divaTacticsLogWithDates(rows)
-	if len(withDates) != 4 || withDates[0].Kind != 5 || withDates[2].Kind != 5 || !withDates[1].At.Equal(latest) {
+	if len(withDates) != 4 || withDates[0].Kind != 5 || withDates[2].Kind != 5 ||
+		!withDates[1].At.Equal(latest.Add(-time.Second)) || !withDates[3].At.Equal(latest) {
 		t.Fatal(withDates)
 	}
 	rows = make([]divaTacticsLogEntry, 300)
@@ -121,8 +122,45 @@ func TestDivaTacticsLogNameAndDates(t *testing.T) {
 	// 198 entries + one header leaves one slot, insufficient for another day.
 	rows = rows[:199]
 	rows[198].At = latest.Add(-24 * time.Hour)
-	if got := divaTacticsLogWithDates(rows); len(got) != 199 || got[198].Kind == 5 {
+	if got := divaTacticsLogWithDates(rows); len(got) != 199 || got[198].Kind == 5 || !got[198].At.Equal(latest) {
 		t.Fatal("orphan date header")
+	}
+}
+
+func TestDivaTacticsLogChronologicalWirePreservesDaysAndNewestWindow(t *testing.T) {
+	latest := time.Date(2026, 11, 4, 12, 39, 0, 0, time.UTC)
+	previousDay := latest.Add(-24 * time.Hour)
+	rows := []divaTacticsLogEntry{
+		{Kind: 2, CharID: 1, Name: "Hunter", Value: 30000, At: latest},
+		{Kind: 0, CharID: 1, Name: "Hunter", Value: 3384, At: latest},
+		{Kind: 3, At: latest.Add(-39 * time.Minute)},
+		{Kind: 1, Value: 24, At: previousDay},
+	}
+	ordered := divaTacticsLogWithDates(rows)
+	wantKinds := []uint8{5, 1, 5, 3, 0, 2}
+	if len(ordered) != len(wantKinds) || rows[0].Kind != 2 {
+		t.Fatal("presentation changed the source journal or row count")
+	}
+	data, err := divaTacticsLogPayload(ordered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, kind := range wantKinds {
+		if ordered[i].Kind != kind || data[1+46*i] != kind {
+			t.Fatalf("wire row %d kind=%d want=%d", i, ordered[i].Kind, kind)
+		}
+		if i > 0 && ordered[i].At.Before(ordered[i-1].At) {
+			t.Fatalf("date header or event out of chronological order: %+v", ordered)
+		}
+	}
+	rows = make([]divaTacticsLogEntry, 300)
+	for i := range rows {
+		rows[i] = divaTacticsLogEntry{Kind: 1, Value: uint32(300 - i), At: latest.Add(-time.Duration(i) * time.Second)}
+	}
+	ordered = divaTacticsLogWithDates(rows)
+	if len(ordered) != 200 || ordered[0].Kind != 5 || ordered[1].Value != 102 || ordered[199].Value != 300 ||
+		!ordered[199].At.Equal(latest) {
+		t.Fatalf("reversal retained older rows or dropped the newest event: %+v", ordered)
 	}
 }
 
