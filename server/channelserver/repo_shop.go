@@ -26,7 +26,8 @@ func (r *ShopRepository) GetShopItems(shopType uint8, shopID uint32, charID uint
 func (r *ShopRepository) getShopItems(shopType uint8, shopID uint32, charID uint32) ([]ShopItem, error) {
 	var result []ShopItem
 	err := r.db.Select(&result, `SELECT si.id, item_id, cost, quantity, min_hr, min_sr, min_gr, store_level, max_quantity,
-        CASE WHEN si.road_weekly_limit AND si.shop_type=10 AND si.shop_id IN (7,8)
+        CASE WHEN si.shop_type=8 AND si.shop_id=0 AND si.max_quantity=0 THEN 0
+             WHEN si.road_weekly_limit AND si.shop_type=10 AND si.shop_id IN (7,8)
                   AND (b.week_start IS NULL OR b.week_start < $4::timestamptz)
              THEN 0 ELSE COALESCE(b.bought, 0) END AS used_quantity,
         road_floors, road_fatalis
