@@ -248,8 +248,9 @@ type OnlineCharacter struct {
 	WeaponType *int   `db:"weapon_type" json:"weaponType,omitempty"`
 	WeaponName string `json:"weaponName,omitempty"`
 	// Quest fields are empty unless the character is inside a quest.
-	QuestName      string `json:"questName"`
-	QuestElapsedMs int64  `json:"questElapsedMs"`
+	QuestName      string              `json:"questName"`
+	QuestElapsedMs int64               `json:"questElapsedMs"`
+	DivaBeads      *DashboardDivaBeads `json:"divaBeads,omitempty"`
 }
 
 // DashboardSessionInfo is the live per-character state the channel servers
@@ -796,6 +797,9 @@ func (s *APIServer) dashboardOnlineCharacters(ctx context.Context) ([]OnlineChar
 		return online, err
 	}
 	enrichDashboardOnlineCharacters(online, s.dashboardStageSnapshot(), time.Now())
+	if err := s.enrichDashboardDivaBeads(ctx, online, time.Now()); err != nil {
+		s.logger.Warn("Dashboard: failed to query active Diva prayer beads", zap.Error(err))
+	}
 	return online, nil
 }
 

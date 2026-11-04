@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"time"
@@ -209,11 +210,15 @@ func (r *DivaRepository) GetDivaRanking(eventID, charID uint32, cutoff time.Time
 // Chronological, completed UTC+9 noon windows only. The native selection UI
 // counts published winners before it enables a new day's change right.
 func (r *DivaRepository) GetDivaWinningColors(eventID uint32, firstDay, now time.Time) ([]byte, error) {
+	return r.GetDivaWinningColorsContext(context.Background(), eventID, firstDay, now)
+}
+
+func (r *DivaRepository) GetDivaWinningColorsContext(ctx context.Context, eventID uint32, firstDay, now time.Time) ([]byte, error) {
 	var rows []struct {
 		Index int `db:"day_index"`
 		Color int `db:"color"`
 	}
-	err := r.db.Select(&rows, `WITH days AS (
+	err := r.db.SelectContext(ctx, &rows, `WITH days AS (
 		SELECT n day_index,$2::timestamptz+n*interval '1 day' day_start FROM generate_series(0,7) n
 	), scores AS (
 		SELECT day_start,bead_index,SUM(quest_points) points FROM diva_song_records

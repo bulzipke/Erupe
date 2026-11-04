@@ -68,6 +68,7 @@ button,input{font:inherit}
 }
 .table-wrap{overflow-x:auto}
 #online-content table{min-width:440px}
+.hunter-name.has-diva-beads,.monster-time-name.has-diva-beads{cursor:help;text-decoration:underline dotted var(--accent-soft);text-underline-offset:3px}
 /* Hunter, rank and weapon are compact columns. The channel/status column gets
    the remaining width so the rank does not drift to the far edge of the card. */
 #online-content th:nth-child(1),#online-content td:nth-child(1),
@@ -656,6 +657,46 @@ tbody tr:last-child td{border-bottom:0}
         return String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
     }
 
+    function divaBeadDescription(info) {
+        if (!info || !Number.isInteger(info.round) || info.round <= 0 ||
+            !Array.isArray(info.beads) || !info.beads.length || info.beads.length > 4 ||
+            !info.beads.every(function (name) { return typeof name === "string" && name.length > 0; })) return "";
+        var levelsKnown = Array.isArray(info.levels) && info.levels.length === info.beads.length &&
+            info.levels.every(function (level) { return Number.isInteger(level) && level >= 0 && level <= 3; });
+        return "사용 기주: " + info.beads.map(function (name, index) {
+            return name + (levelsKnown ? info.levels[index] : "");
+        }).join(", ");
+    }
+
+    function onlineDivaBeadDescription(player, now) {
+        var info = player.divaBeads;
+        if (!info) return "";
+        var expires = Date.parse(info.expiresAt);
+        return Number.isFinite(expires) && expires > now ? divaBeadDescription(info) : "";
+    }
+
+    function buildOnlineHunterCell(player) {
+        var cell = text("td", "hunter-name", player.name);
+        function refresh() {
+            var description = onlineDivaBeadDescription(player, Date.now());
+            cell.title = description;
+            cell.className = "hunter-name" + (description ? " has-diva-beads" : "");
+            if (description) {
+                cell.setAttribute("tabindex", "0");
+                cell.setAttribute("aria-label", player.name + " · " + description);
+            } else {
+                cell.removeAttribute("tabindex");
+                cell.removeAttribute("aria-label");
+            }
+        }
+        refresh();
+        if (cell.title) {
+            cell.addEventListener("mouseenter", refresh);
+            cell.addEventListener("focus", refresh);
+        }
+        return cell;
+    }
+
     function buildOnlineChannelCell(player) {
         var cell = document.createElement("td");
         cell.className = "channel-name";
@@ -713,7 +754,7 @@ tbody tr:last-child td{border-bottom:0}
         var signature = JSON.stringify(players.map(function (player) {
             return [player.name, player.hr, player.gr, player.weaponType, player.weaponName,
                 player.channel, player.land, player.location, player.questName,
-                Math.floor((Number(player.questElapsedMs) || 0) / 1000)];
+                Math.floor((Number(player.questElapsedMs) || 0) / 1000), player.divaBeads || null];
         }));
         if (signature === onlineSignature) return;
         var scrollLeft = container.scrollLeft;
@@ -735,7 +776,7 @@ tbody tr:last-child td{border-bottom:0}
         var tbody = document.createElement("tbody");
         players.forEach(function (player) {
             var row = document.createElement("tr");
-            row.appendChild(text("td", "hunter-name", player.name));
+            row.appendChild(buildOnlineHunterCell(player));
             row.appendChild(text("td", "rank-mark", hunterRank(player.hr, player.gr)));
             row.appendChild(buildWeaponIconCell(player, "online-weapon", "online-weapon-icon", "online-weapon-empty"));
             row.appendChild(buildOnlineChannelCell(player));
@@ -1280,7 +1321,15 @@ tbody tr:last-child td{border-bottom:0}
         entries.slice(0, 10).forEach(function (entry, index) {
             var row = document.createElement("tr");
             row.appendChild(text("td", "monster-time-rank", String(index + 1)));
-            row.appendChild(text("td", "monster-time-name", entry.name));
+            var hunter = text("td", "monster-time-name", entry.name);
+            var beadDescription = divaBeadDescription(entry.clientSettings && entry.clientSettings.divaBeads);
+            if (beadDescription) {
+                hunter.title = beadDescription;
+                hunter.className += " has-diva-beads";
+                hunter.setAttribute("tabindex", "0");
+                hunter.setAttribute("aria-label", entry.name + " · " + beadDescription);
+            }
+            row.appendChild(hunter);
             row.appendChild(buildMonsterTimeWeaponCell(entry));
             row.appendChild(text("td", "monster-time-value", huntTimeLabel(entry.frames)));
             var questName = entry.questName || (entry.questId ? "퀘스트 #" + entry.questId : "퀘스트 번호 없음");

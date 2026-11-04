@@ -38,6 +38,39 @@ func divaBeadDefinitionFor(effect int) (divaBeadDefinition, bool) {
 	return divaBeadDefinition{}, false
 }
 
+// DivaBeadNameKO shares the game's verified catalog with dashboard displays.
+func DivaBeadNameKO(effect int) string {
+	b, ok := divaBeadDefinitionFor(effect)
+	if !ok {
+		return ""
+	}
+	return b.KO
+}
+
+// DivaBeadLevels matches native 1039D8F0 -> 103A0BC0: count the eight
+// published winning colors and cap each slot at its effect's maximum level.
+// No victories means level zero; missing evidence is not a fabricated level 1.
+func DivaBeadLevels(effects []int, colors []byte) map[int]int {
+	if len(effects) == 0 || len(effects) > 4 || len(colors) != 8 {
+		return nil
+	}
+	levels := make(map[int]int, len(effects))
+	for slot, effect := range effects {
+		bead, valid := divaBeadDefinitionFor(effect)
+		if _, duplicate := levels[effect]; !valid || duplicate {
+			return nil
+		}
+		wins := 0
+		for _, color := range colors {
+			if int(color) == slot+1 {
+				wins++
+			}
+		}
+		levels[effect] = min(wins, bead.MaxLevel)
+	}
+	return levels
+}
+
 // English is the fallback for locales without a verified prayer-bead catalog.
 // The old locale tables contained invented names and unrelated effect descriptions.
 func divaLocalizedBeads(language string) []Bead {

@@ -777,6 +777,7 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 		hadParty := s.questHadParty.Load()
 		if clientSettings != nil {
 			clientSettings.Solo = !hadParty
+			clientSettings.DivaBeads = s.divaBeadsForHuntRecord(questID)
 		}
 		var questWeaponType *uint8
 		if weaponType, ok := s.questWeaponForResult(questID); ok {

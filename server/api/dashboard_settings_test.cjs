@@ -11,6 +11,7 @@ function section(start, end) {
     return html.slice(from, to);
 }
 const timeCode = section("    function huntTimeLabel(", "\n\tfunction ravienteDurationLabel");
+const divaCode = section("    function divaBeadDescription(", "    function buildOnlineChannelCell(");
 const controlCode = section("    function buildMonsterTimeCard(", "    function renderMonsterTimes(");
 const bindingCode = section("\tfunction positionRavienteParticipants(", "\tfunction buildRavienteRunTable(");
 const functions = vm.runInNewContext(timeCode + "\n({huntTimeLabel})");
@@ -53,7 +54,7 @@ function fixture(nativePopover) {
         setTimeout(callback) { const id = ++nextTimer; timers.set(id, callback); return id; },
         clearTimeout(id) { timers.delete(id); },
     });
-    vm.runInContext(timeCode + controlCode + bindingCode, context);
+    vm.runInContext(divaCode + timeCode + controlCode + bindingCode, context);
     return {
         context,
         flush() { const pending = Array.from(timers.values()); timers.clear(); pending.forEach(callback => callback()); },
@@ -126,4 +127,20 @@ test("hunt names remain plain text for all client settings and keep time and que
         assert.equal(row.cells[3].title, "");
         assert.equal(row.cells[4].title, "테스트 퀘스트");
     }
+});
+
+test("historical hunt names keep their own bead tooltip without a live activation", () => {
+    const h = fixture(true);
+    const card = h.context.buildMonsterTimeCard({key: "6:g:normal", name: "몬스터"}, [
+        {name: "<img src=x>", frames: 900, clientSettings: {version: 1, divaBeads: {round: 5,
+            beads: ["결집", "봉뢰", "가호", "단력"], levels: [1, 2, 1, 1], expiresAt: "2000-01-01T00:00:00Z"}}},
+        {name: "기주 없음", frames: 1000, clientSettings: {version: 1}},
+    ]);
+    const rows = card.children[1].children[0].children[0].children;
+    const hunter = rows[0].cells[1];
+    assert.equal(hunter.textContent, "<img src=x>");
+    assert.equal(hunter.children.length, 0);
+    assert.equal(hunter.title, "사용 기주: 결집1, 봉뢰2, 가호1, 단력1");
+    assert.equal(hunter.attrs.tabindex, "0");
+    assert.equal(rows[1].cells[1].title, "");
 });

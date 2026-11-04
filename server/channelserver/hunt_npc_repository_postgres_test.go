@@ -1,7 +1,9 @@
 package channelserver
 
 import (
+	"encoding/json"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
@@ -142,7 +144,43 @@ func TestNPCPriorityPersonalBestPostgres(t *testing.T) {
 			t.Fatalf("NPC priority frames=%d want=%d for %+v", frames, tc.want, tc)
 		}
 	}
+	// Historical bead metadata must stay with the winning time permanently.
+	record.QuestID = 50005
+	record.ClientSettings = &HuntClientSettings{Version: 1, SupportKnown: true, NPCKnown: true, Solo: true,
+		DivaBeads: &HuntDivaBeads{Round: 5, Beads: []string{"결집", "봉뢰", "가호", "단력"}, Levels: []int{1, 2, 1, 1}}}
+	for _, tc := range []struct {
+		frames     uint32
+		beads      *HuntDivaBeads
+		wantRound  uint32
+		wantLevels []int
+	}{
+		{1000, record.ClientSettings.DivaBeads, 5, []int{1, 2, 1, 1}},
+		{1100, nil, 5, []int{1, 2, 1, 1}},
+		{900, &HuntDivaBeads{Round: 6, Beads: []string{"폭풍"}, Levels: []int{3}}, 6, []int{3}},
+		{800, nil, 0, nil},
+	} {
+		record.BestTimeFrames = tc.frames
+		record.ClientSettings.DivaBeads = tc.beads
+		if err := repo.UpsertPersonalBest(record); err != nil {
+			t.Fatal(err)
+		}
+		var raw []byte
+		if err := db.Get(&raw, `SELECT client_settings FROM monster_hunt_records WHERE quest_id=50005`); err != nil {
+			t.Fatal(err)
+		}
+		var saved HuntClientSettings
+		if err := json.Unmarshal(raw, &saved); err != nil {
+			t.Fatal(err)
+		}
+		if (tc.wantRound == 0 && saved.DivaBeads != nil) || (tc.wantRound != 0 && (saved.DivaBeads == nil || saved.DivaBeads.Round != tc.wantRound)) {
+			t.Fatalf("saved time lost/reused another hunt's beads: %s", raw)
+		}
+		if saved.DivaBeads != nil && !reflect.DeepEqual(saved.DivaBeads.Levels, tc.wantLevels) {
+			t.Fatalf("saved time lost/reused another hunt's levels: %s", raw)
+		}
+	}
 	// Raviente retains its existing time-only rule, independent of NPC proof.
+	record.QuestID = 50003
 	for _, monsterID := range []int{93, 149} {
 		record.MonsterID = monsterID
 		record.ClientSettings.Solo = false

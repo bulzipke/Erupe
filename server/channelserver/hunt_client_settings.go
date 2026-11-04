@@ -13,18 +13,26 @@ const nativeQuestRecordBytes = 0x4ac
 // HP display, VUI4 NPC usage and VUI3 Support usage govern ranking priority.
 // Timings use the native final RecordLog frame field.
 type HuntClientSettings struct {
-	Version      uint8 `json:"version"`
-	HPView       bool  `json:"hpView"`
-	HPViewUsed   bool  `json:"hpViewUsed"`
-	ElapsedMode  uint8 `json:"elapsedMode"`
-	ElapsedUsed  bool  `json:"elapsedUsed"`
-	FOV          uint8 `json:"fov"`
-	FOVUsed      bool  `json:"fovUsed"`
-	SupportKnown bool  `json:"supportKnown,omitempty"`
-	SupportUsed  bool  `json:"supportUsed"`
-	NPCKnown     bool  `json:"npcKnown,omitempty"`
-	NPCUsed      bool  `json:"npcUsed"`
-	Solo         bool  `json:"solo"` // Filled by the server's quest-party tracking.
+	Version      uint8          `json:"version"`
+	HPView       bool           `json:"hpView"`
+	HPViewUsed   bool           `json:"hpViewUsed"`
+	ElapsedMode  uint8          `json:"elapsedMode"`
+	ElapsedUsed  bool           `json:"elapsedUsed"`
+	FOV          uint8          `json:"fov"`
+	FOVUsed      bool           `json:"fovUsed"`
+	SupportKnown bool           `json:"supportKnown,omitempty"`
+	SupportUsed  bool           `json:"supportUsed"`
+	NPCKnown     bool           `json:"npcKnown,omitempty"`
+	NPCUsed      bool           `json:"npcUsed"`
+	Solo         bool           `json:"solo"`                // Filled by the server's quest-party tracking.
+	DivaBeads    *HuntDivaBeads `json:"divaBeads,omitempty"` // Server-captured departure snapshot; never client supplied.
+}
+
+// HuntDivaBeads stays with the saved time after the activation or event ends.
+type HuntDivaBeads struct {
+	Round  uint32   `json:"round"`
+	Beads  []string `json:"beads"`
+	Levels []int    `json:"levels,omitempty"`
 }
 
 // decodeHuntClientTrailer validates the complete optional extension, including
