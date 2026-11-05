@@ -97,6 +97,38 @@ func TestHuntClientSettingsRejectsUnboundOrInvalidTrailer(t *testing.T) {
 	}
 }
 
+func TestHuntClientSettingsFeature(t *testing.T) {
+	data := mainTargetRecordFixture(settingsRecordFixture(), 2, 9)
+	tail := data[nativeQuestRecordBytes:]
+	if got := decodeHuntClientSettings(data); got == nil || got.FeatureEnabled {
+		t.Fatalf("VUI4 settings = %#v", got)
+	}
+	copy(tail, "VUI5")
+	tail[4] = 64 | 32 | 16
+	if got := decodeHuntClientSettings(data); got == nil || !got.FeatureEnabled || !got.SupportUsed || !got.NPCUsed || !huntRecordMainTargetCleared(data) {
+		t.Fatalf("VUI5 settings = %#v", got)
+	}
+	tail[4] &^= 64
+	if decodeHuntClientSettings(data) != nil {
+		t.Fatal("accepted VUI5 without FEATURE")
+	}
+	tail[4] |= 64
+	tail[8] ^= 1
+	if decodeHuntClientSettings(data) != nil {
+		t.Fatal("accepted mismatched VUI5 frames")
+	}
+	tail[8] ^= 1
+	data[killLogHeaderSize+93] = 1
+	tail[7], tail[15] = 0, 0
+	if decodeHuntClientSettings(data) != nil {
+		t.Fatal("accepted raid VUI5 with an NPC bit")
+	}
+	tail[4] &^= 32
+	if got := decodeHuntClientSettings(data); got == nil || !got.FeatureEnabled || got.NPCKnown || !got.SupportUsed || huntRecordMainTargetCleared(data) {
+		t.Fatalf("raid VUI5 settings = %#v", got)
+	}
+}
+
 func TestHuntRecordSettingsStayWithFasterTime(t *testing.T) {
 	db := SetupTestDB(t)
 	defer TeardownTestDB(t, db)
@@ -105,6 +137,7 @@ func TestHuntRecordSettingsStayWithFasterTime(t *testing.T) {
 	repo := NewHuntRecordRepository(db)
 	best := HuntRecordUpsert{CharacterID: char, MonsterID: 6, QuestID: 50001, RankKind: "g", VariantKind: "normal", BestTimeFrames: 8051, RecordedAt: time.Now(), ClientSettings: decodeHuntClientSettings(supportRecordFixture(false, 6))}
 	best.ClientSettings.Solo = true
+	best.ClientSettings.FeatureEnabled = true
 	best.ClientSettings.HPView, best.ClientSettings.HPViewUsed = false, false
 	if err := repo.UpsertPersonalBest(best); err != nil {
 		t.Fatal(err)
@@ -123,7 +156,7 @@ func TestHuntRecordSettingsStayWithFasterTime(t *testing.T) {
 	if err := json.Unmarshal(raw, &saved); err != nil {
 		t.Fatal(err)
 	}
-	if saved.ElapsedMode != 2 || saved.FOV != 60 {
+	if saved.ElapsedMode != 2 || saved.FOV != 60 || !saved.FeatureEnabled {
 		t.Fatalf("slower metadata overwrote best: %#v", saved)
 	}
 	faster := slower
@@ -134,10 +167,11 @@ func TestHuntRecordSettingsStayWithFasterTime(t *testing.T) {
 	if err := db.Get(&raw, "SELECT client_settings FROM monster_hunt_records WHERE character_id=$1", char); err != nil {
 		t.Fatal(err)
 	}
+	saved = HuntClientSettings{}
 	if err := json.Unmarshal(raw, &saved); err != nil {
 		t.Fatal(err)
 	}
-	if saved.FOV != 45 || saved.ElapsedMode != 0 {
+	if saved.FOV != 45 || saved.ElapsedMode != 0 || saved.FeatureEnabled {
 		t.Fatalf("faster metadata missing: %#v", saved)
 	}
 }

@@ -1322,12 +1322,16 @@ tbody tr:last-child td{border-bottom:0}
             var row = document.createElement("tr");
             row.appendChild(text("td", "monster-time-rank", String(index + 1)));
             var hunter = text("td", "monster-time-name", entry.name);
-            var beadDescription = divaBeadDescription(entry.clientSettings && entry.clientSettings.divaBeads);
-            if (beadDescription) {
-                hunter.title = beadDescription;
+            var settings = entry.clientSettings;
+            var description = divaBeadDescription(settings && settings.divaBeads);
+            if (settings && settings.featureEnabled === true) {
+                description += (description ? "\n" : "") + "FEATURE 활성";
+            }
+            if (description) {
+                hunter.title = description;
                 hunter.className += " has-diva-beads";
                 hunter.setAttribute("tabindex", "0");
-                hunter.setAttribute("aria-label", entry.name + " · " + beadDescription);
+                hunter.setAttribute("aria-label", entry.name + " · " + description.replace("\n", " · "));
             }
             row.appendChild(hunter);
             row.appendChild(buildMonsterTimeWeaponCell(entry));

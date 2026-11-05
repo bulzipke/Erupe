@@ -68,6 +68,25 @@ func (m Mode) String() string {
 	return versionStrings[m]
 }
 
+// FeatureWeaponCount is the number of FEATURE bits the client version supports.
+func (m Mode) FeatureWeaponCount() int {
+	switch {
+	case m < GG:
+		return 11
+	case m < G10:
+		return 12
+	case m < ZZ:
+		return 13
+	default:
+		return 14
+	}
+}
+
+// AllFeatureWeaponMask returns the native FEATURE mask for this client version.
+func (m Mode) AllFeatureWeaponMask() uint32 {
+	return (uint32(1) << m.FeatureWeaponCount()) - 1
+}
+
 // Config holds the global server-wide config.
 type Config struct {
 	Host                      string `mapstructure:"Host"`
@@ -225,6 +244,7 @@ type GameplayOptions struct {
 	DivaBonusTargets               []DivaBonusTarget // Explicit song-phase bonus windows; empty means none configured.
 	DivaMapRedTreasureMode         string            // off (default), random-one, or all; pinned only for future v2 rounds.
 	DisableDailyGachaCoins         bool              // Disable account-wide daily 10 login + 10 one-hour premium coins (midnight KST).
+	AllFeatureWeapons              bool              // Enable FEATURE for every weapon supported by the client version
 	MinFeatureWeapons              int               // Minimum number of Active Feature weapons to generate daily
 	MaxFeatureWeapons              int               // Maximum number of Active Feature weapons to generate daily
 	MaximumNP                      int               // Maximum number of NP held by a player
@@ -628,6 +648,7 @@ func registerDefaults() {
 
 	// GameplayOptions (dot-notation — critical to avoid zeroing multipliers)
 	viper.SetDefault("GameplayOptions.MaxFeatureWeapons", 1)
+	viper.SetDefault("GameplayOptions.AllFeatureWeapons", true)
 	viper.SetDefault("GameplayOptions.MaximumNP", 100000)
 	viper.SetDefault("GameplayOptions.MaximumRP", uint16(50000))
 	viper.SetDefault("GameplayOptions.MaximumFP", uint32(120000))
@@ -636,7 +657,7 @@ func registerDefaults() {
 	viper.SetDefault("GameplayOptions.ClanMealDuration", 3600)
 	viper.SetDefault("GameplayOptions.ClanMemberLimits", [][]uint8{{0, 30}, {3, 40}, {7, 50}, {10, 60}})
 	viper.SetDefault("GameplayOptions.BonusQuestAllowance", uint32(3))
-	viper.SetDefault("GameplayOptions.DailyQuestAllowance", uint32(1))
+	viper.SetDefault("GameplayOptions.DailyQuestAllowance", uint32(5))
 	viper.SetDefault("GameplayOptions.RaviAutoStartSeconds", 0)
 	viper.SetDefault("GameplayOptions.RaviAutoResurrectionSeconds", 0)
 	viper.SetDefault("GameplayOptions.RaviAutoSedationSeconds", 0)

@@ -144,3 +144,19 @@ test("historical hunt names keep their own bead tooltip without a live activatio
     assert.equal(hunter.attrs.tabindex, "0");
     assert.equal(rows[1].cells[1].title, "");
 });
+
+test("hunt FEATURE tooltip follows beads and only appears when ON", () => {
+    const h = fixture(true);
+    const divaBeads = {round: 5, beads: ["결집"], levels: [1]};
+    const card = h.context.buildMonsterTimeCard({key: "6:g:normal", name: "몬스터"}, [
+        {name: "둘 다", frames: 900, clientSettings: {divaBeads, featureEnabled: true}},
+        {name: "FEATURE", frames: 950, clientSettings: {featureEnabled: true}},
+        {name: "기주만", frames: 1000, clientSettings: {divaBeads, featureEnabled: false}},
+        {name: "OFF", frames: 1050, clientSettings: {featureEnabled: false}},
+    ]);
+    const rows = card.children[1].children[0].children[0].children;
+    assert.equal(rows[0].cells[1].title, "사용 기주: 결집1\nFEATURE 활성");
+    assert.equal(rows[1].cells[1].title, "FEATURE 활성");
+    assert.equal(rows[2].cells[1].title, "사용 기주: 결집1");
+    assert.equal(rows[3].cells[1].title, "");
+});

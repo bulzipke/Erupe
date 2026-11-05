@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"encoding/binary"
 	"math/bits"
 	"testing"
 
@@ -347,6 +348,31 @@ func TestHandleMsgMhfGetWeeklySchedule(t *testing.T) {
 	case p := <-s.sendPackets:
 		if len(p.data) == 0 {
 			t.Fatal("Expected non-empty response")
+		}
+	default:
+		t.Fatal("No response packet queued")
+	}
+}
+
+func TestHandleMsgMhfGetWeeklyScheduleAllFeatureWeapons(t *testing.T) {
+	srv := createMockServer()
+	// The override should never consult or populate the persisted daily rotation.
+	srv.eventRepo = nil
+	srv.erupeConfig.RealClientMode = cfg.ZZ
+	srv.erupeConfig.GameplayOptions.AllFeatureWeapons = true
+	s := createMockSession(100, srv)
+	handleMsgMhfGetWeeklySchedule(s, &mhfpacket.MsgMhfGetWeeklySchedule{AckHandle: 1})
+	select {
+	case p := <-s.sendPackets:
+		const headerBytes = 10 // opcode plus buffer ACK header
+		payload := p.data[headerBytes:]
+		if len(payload) != 35 || payload[0] != 3 {
+			t.Fatalf("unexpected weekly schedule: %x", payload)
+		}
+		for i := 0; i < 3; i++ {
+			if mask := binary.BigEndian.Uint32(payload[9+i*10:]); mask != 0x3fff {
+				t.Errorf("day %d FEATURE mask = %#x", i, mask)
+			}
 		}
 	default:
 		t.Fatal("No response packet queued")

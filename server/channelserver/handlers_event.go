@@ -64,7 +64,13 @@ func handleMsgMhfGetWeeklySchedule(s *Session, p mhfpacket.MHFPacket) {
 		TimeMidnight().Add(24 * time.Hour),
 	}
 
+	allWeapons := s.server.erupeConfig.GameplayOptions.AllFeatureWeapons
+	mask := s.server.erupeConfig.RealClientMode.AllFeatureWeaponMask()
 	for _, t := range times {
+		if allWeapons {
+			features = append(features, activeFeature{StartTime: t, ActiveFeatures: mask})
+			continue
+		}
 		temp, err := s.server.eventRepo.GetFeatureWeapon(t)
 		if err != nil || temp.StartTime.IsZero() {
 			weapons := token.RNG.Intn(s.server.erupeConfig.GameplayOptions.MaxFeatureWeapons-s.server.erupeConfig.GameplayOptions.MinFeatureWeapons+1) + s.server.erupeConfig.GameplayOptions.MinFeatureWeapons
@@ -89,16 +95,7 @@ func handleMsgMhfGetWeeklySchedule(s *Session, p mhfpacket.MHFPacket) {
 }
 
 func generateFeatureWeapons(count int, mode cfg.Mode) activeFeature {
-	_max := 14
-	if mode < cfg.ZZ {
-		_max = 13
-	}
-	if mode < cfg.G10 {
-		_max = 12
-	}
-	if mode < cfg.GG {
-		_max = 11
-	}
+	_max := mode.FeatureWeaponCount()
 	if count > _max {
 		count = _max
 	}

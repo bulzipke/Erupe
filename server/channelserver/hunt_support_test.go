@@ -58,7 +58,7 @@ func TestSupportRankEvidence(t *testing.T) {
 			t.Fatalf("flags %02x: expected rank eligibility %v", flags, want)
 		}
 	}
-	for _, version := range []string{"VUI1", "VUI2", "VUI5"} {
+	for _, version := range []string{"VUI1", "VUI2", "VUI6"} {
 		data := settingsRecordFixture()
 		copy(data[nativeQuestRecordBytes:], version)
 		if version == "VUI1" {

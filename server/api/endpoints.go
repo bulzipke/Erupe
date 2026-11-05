@@ -627,9 +627,13 @@ func (s *APIServer) ServerStatus(w http.ResponseWriter, r *http.Request) {
 		MezFes: s.buildMezFes(),
 	}
 
-	if s.eventRepo != nil {
-		weekStart := gametime.WeekStart()
-		fw, err := s.eventRepo.GetFeatureWeapon(ctx, weekStart)
+	if s.erupeConfig.GameplayOptions.AllFeatureWeapons {
+		resp.FeaturedWeapon = &FeatureWeaponInfo{
+			StartTime:      uint32(gametime.Midnight().Unix()),
+			ActiveFeatures: s.erupeConfig.RealClientMode.AllFeatureWeaponMask(),
+		}
+	} else if s.eventRepo != nil {
+		fw, err := s.eventRepo.GetFeatureWeapon(ctx, gametime.WeekStart())
 		if err != nil {
 			s.logger.Warn("Failed to query feature weapon", zap.Error(err))
 		} else if fw != nil {
@@ -638,7 +642,8 @@ func (s *APIServer) ServerStatus(w http.ResponseWriter, r *http.Request) {
 				ActiveFeatures: fw.ActiveFeatures,
 			}
 		}
-
+	}
+	if s.eventRepo != nil {
 		festaEvents, err := s.eventRepo.GetActiveEvents(ctx, "festa")
 		if err != nil {
 			s.logger.Warn("Failed to query festa events", zap.Error(err))

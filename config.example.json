@@ -30,6 +30,8 @@
     "ClaimDays": 21
   },
   "GameplayOptions": {
+    "AllFeatureWeapons": true,
+    "DailyQuestAllowance": 5,
     "HunterGemPointMultiplier": 1.00,
     "DivaBonusRandom": false,
     "DivaMapRedTreasureMode": "off"
