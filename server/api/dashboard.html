@@ -337,6 +337,20 @@ tbody tr:last-child td{border-bottom:0}
     }
     .operator-unlock label { display: flex; flex-direction: column; gap: 4px; }
     .operator-remember { flex-direction: row !important; align-items: center; gap: 6px !important; }
+    .operator-password-dialog {
+        width: min(380px, calc(100% - 32px));
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--surface);
+        color: var(--text);
+    }
+    .operator-password-dialog::backdrop { background: rgba(0, 0, 0, .65); }
+    .operator-password-dialog label { display: grid; gap: 6px; }
+    .operator-password-dialog .chat-feedback { margin: 8px 0 0; padding: 0; }
+    .operator-password-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .operator-password-actions button { padding: 0 16px; }
+    .operator-password-actions .operator-cancel { background: var(--surface-strong); border-color: var(--line); color: var(--text); }
 </style>
 </head>
 <body>
@@ -344,6 +358,20 @@ tbody tr:last-child td{border-bottom:0}
     <div id="error-banner" class="error-banner" role="alert">
         서버 현황을 불러오지 못했습니다. 잠시 후 자동으로 다시 시도합니다.
     </div>
+
+    <dialog class="operator-password-dialog" id="operator-password-dialog" aria-labelledby="operator-password-title">
+        <form id="operator-password-form" method="dialog">
+            <label for="operator-password">
+                <span id="operator-password-title">운영자 비밀번호</span>
+                <input class="chat-input" id="operator-password" type="password" autocomplete="current-password" required autofocus>
+            </label>
+            <p class="chat-feedback error" id="operator-password-feedback" role="alert"></p>
+            <div class="operator-password-actions">
+                <button class="chat-submit operator-cancel" id="operator-password-cancel" type="button">취소</button>
+                <button class="chat-submit" id="operator-password-submit" type="submit">확인</button>
+            </div>
+        </form>
+    </dialog>
 
     <div class="operator-unlock" id="operator-unlock" hidden>
         <label class="operator-remember">
@@ -353,9 +381,7 @@ tbody tr:last-child td{border-bottom:0}
         <span class="chat-feedback" id="operator-feedback">운영자 화면이 열렸습니다.</span>
     </div>
 
-    <!-- Operator-only. Hidden until the server confirms the key: the sequence
-         below is readable in this page's source, so it only reveals the prompt.
-         The panels stay empty for anyone the server does not authorise. -->
+    <!-- The server authorizes every request for operator data. -->
     <section class="layout" id="operator-layout" hidden>
         <article class="panel">
             <div class="panel-header">
@@ -587,7 +613,7 @@ tbody tr:last-child td{border-bottom:0}
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify(body)
         }).then(function (response) {
-            if (!response.ok) throw new Error("HTTP " + response.status);
+            if (!response.ok && response.status !== 429) throw new Error("HTTP " + response.status);
             return response.json();
         });
     }
@@ -1690,17 +1716,62 @@ tbody tr:last-child td{border-bottom:0}
         if (savedName) byId("chat-name").value = savedName;
     } catch (_) {}
 
-    // Scroll gesture: 위 아래 위 위. Works with a wheel, a trackpad, and a finger,
+    // The scroll gesture works with a wheel, a trackpad, and a finger,
     // so it is the one trigger available on every device. It reads wheel and touch
     // movement rather than scroll position, so it still works pinned at the top or
     // bottom of the page where the document itself cannot scroll any further.
     var scrollGestures = [];    // reported to the server, which holds the sequence
     var scrollDisarmed = false; // one wrong gesture disables it until reload
+    var gestureCheck = Promise.resolve();
     var gestureDir = "";
     var gestureAmount = 0;
     var gestureTimer = null;
     var gestureMinPixels = 40; // ignore jitter and trackpad edge bounce
     var gestureGapMs = 220;    // a pause ends the current gesture
+
+    var passwordDialog = byId("operator-password-dialog");
+    var passwordInput = byId("operator-password");
+    var passwordFeedback = byId("operator-password-feedback");
+    var passwordSubmit = byId("operator-password-submit");
+    var passwordCancel = byId("operator-password-cancel");
+    var passwordGestures = null;
+
+    byId("operator-password-form").addEventListener("submit", function (event) {
+        event.preventDefault();
+        if (!passwordGestures || !passwordInput.value || passwordSubmit.disabled) return;
+        passwordSubmit.disabled = true;
+        passwordCancel.disabled = true;
+        passwordFeedback.textContent = "";
+        unlockRequest({gestures: passwordGestures, password: passwordInput.value, remember: false})
+            .then(function (data) {
+                if (data.status === "matched") {
+                    passwordDialog.close();
+                    updateStats();
+                } else if (data.status === "password_rejected") {
+                    passwordFeedback.textContent = "비밀번호가 올바르지 않습니다.";
+                } else {
+                    passwordFeedback.textContent = "잠시 후 다시 시도해 주세요.";
+                }
+            })
+            .catch(function () {
+                passwordFeedback.textContent = "인증에 실패했습니다. 다시 시도해 주세요.";
+            })
+            .finally(function () {
+                passwordSubmit.disabled = false;
+                passwordCancel.disabled = false;
+                if (passwordDialog.open) passwordInput.focus();
+            });
+        passwordInput.value = "";
+    });
+    passwordCancel.addEventListener("click", function () { passwordDialog.close(); });
+    passwordDialog.addEventListener("cancel", function (event) {
+        if (passwordSubmit.disabled) event.preventDefault();
+    });
+    passwordDialog.addEventListener("close", function () {
+        passwordGestures = null;
+        passwordInput.value = "";
+        passwordFeedback.textContent = "";
+    });
 
     // The sequence must be the first gestures made on the page. A single wrong
     // one disarms the trigger for good, so someone who simply scrolls the
@@ -1708,26 +1779,23 @@ tbody tr:last-child td{border-bottom:0}
     function advanceScroll(dir) {
         if (scrollDisarmed) return;
         scrollGestures.push(dir);
-        unlockRequest({gestures: scrollGestures, remember: false})
-            .then(function (data) {
-                if (data.status === "matched") {
-                    scrollDisarmed = true;
-                    scrollGestures = [];
-                    // Do not unhide here: the cookie is now set, so the next
-                    // stats response is what decides. Flipping it locally would
-                    // flash the panels open if the cookie failed to stick.
-                    updateStats();
-                    return;
+        var gestures = scrollGestures.slice();
+        gestureCheck = gestureCheck.then(function () {
+            if (scrollDisarmed) return;
+            return unlockRequest({gestures: gestures}).then(function (data) {
+                if (data.status === "password_required") {
+                    passwordGestures = gestures;
+                    passwordDialog.showModal();
                 }
                 if (data.status !== "pending") {
                     scrollDisarmed = true;
                     scrollGestures = [];
                 }
-            })
-            .catch(function () {
-                scrollDisarmed = true;
-                scrollGestures = [];
             });
+        }).catch(function () {
+            scrollDisarmed = true;
+            scrollGestures = [];
+        });
     }
 
     function commitGesture() {
@@ -1775,7 +1843,8 @@ tbody tr:last-child td{border-bottom:0}
     byId("operator-remember").addEventListener("change", function () {
         var feedback = byId("operator-feedback");
         unlockRequest({gestures: [], remember: byId("operator-remember").checked})
-            .then(function () {
+            .then(function (data) {
+                if (data.status !== "matched") throw new Error("operator session expired");
                 feedback.textContent = byId("operator-remember").checked
                     ? "이 기기에서 운영자 화면을 기억합니다."
                     : "이 브라우저를 닫으면 다시 잠깁니다.";

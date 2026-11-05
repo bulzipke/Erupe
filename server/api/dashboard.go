@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
 	"encoding/hex"
@@ -32,8 +33,7 @@ var dashboardMonsterIconFS embed.FS
 
 var dashboardTmpl = template.Must(template.New("dashboard").Parse(dashboardHTML))
 
-// dashboardOperatorCookie holds the unlock token issued after the scroll
-// sequence is matched. It is HttpOnly so page scripts cannot read it back out.
+// dashboardOperatorCookie holds the HttpOnly token issued after both checks.
 const dashboardOperatorCookie = "erupe_dashboard_operator"
 
 // dashboardOperatorRememberAge is how long "remember this device" keeps the
@@ -47,7 +47,7 @@ const dashboardMaxUnlockGestures = 32
 // dashboardOperatorSequence returns the configured unlock gestures. An empty
 // result means the operator panels are disabled entirely.
 func (s *APIServer) dashboardOperatorSequence() []string {
-	if s.erupeConfig == nil {
+	if s.erupeConfig == nil || strings.TrimSpace(s.erupeConfig.API.DashboardOperatorPassword) == "" {
 		return nil
 	}
 	raw := strings.Split(s.erupeConfig.API.DashboardOperatorSequence, ",")
@@ -81,8 +81,7 @@ func (s *APIServer) operatorToken() string {
 }
 
 // dashboardOperatorAuthorized reports whether a request may see who is online
-// and broadcast to every world. An unset sequence closes those features to
-// everyone rather than opening them.
+// and use the other operator tools. Both unlock settings are required.
 func (s *APIServer) dashboardOperatorAuthorized(r *http.Request) bool {
 	if len(s.dashboardOperatorSequence()) == 0 {
 		return false
@@ -102,17 +101,15 @@ func (s *APIServer) dashboardOperatorAuthorized(r *http.Request) bool {
 type dashboardUnlockRequest struct {
 	Gestures []string `json:"gestures"`
 	Remember bool     `json:"remember"`
+	Password *string  `json:"password"`
 }
 
 type dashboardUnlockResponse struct {
-	// Status is "pending" while the gestures so far are a prefix of the
-	// sequence, "matched" once they equal it, and "rejected" otherwise.
 	Status string `json:"status"`
 }
 
-// DashboardUnlock validates the scroll sequence and issues the operator cookie.
-// Keeping the sequence server side means it never appears in the page source,
-// unlike a check written in the page's own script.
+// DashboardUnlock issues the operator cookie after the gestures and password
+// are both verified. Gesture progress only determines when to show the prompt.
 func (s *APIServer) DashboardUnlock(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
@@ -151,6 +148,25 @@ func (s *APIServer) DashboardUnlock(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(request.Gestures) < len(sequence) {
 		writeJSON(w, http.StatusOK, dashboardUnlockResponse{Status: "pending"})
+		return
+	}
+
+	if request.Password == nil {
+		writeJSON(w, http.StatusOK, dashboardUnlockResponse{Status: "password_required"})
+		return
+	}
+	// Bound password guesses across clients without slowing gesture requests.
+	now := time.Now().UnixNano()
+	next := s.operatorRetryAt.Load()
+	if now < next || !s.operatorRetryAt.CompareAndSwap(next, now+int64(time.Second)) {
+		w.Header().Set("Retry-After", "1")
+		writeJSON(w, http.StatusTooManyRequests, dashboardUnlockResponse{Status: "rate_limited"})
+		return
+	}
+	want := sha256.Sum256([]byte(s.erupeConfig.API.DashboardOperatorPassword))
+	got := sha256.Sum256([]byte(*request.Password))
+	if subtle.ConstantTimeCompare(got[:], want[:]) != 1 {
+		writeJSON(w, http.StatusOK, dashboardUnlockResponse{Status: "password_rejected"})
 		return
 	}
 

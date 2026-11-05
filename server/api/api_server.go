@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"erupe-ce/common/stringsupport"
@@ -54,6 +55,7 @@ type APIServer struct {
 	chatMu               sync.RWMutex
 	operatorTokenOnce    sync.Once
 	operatorTokenValue   string
+	operatorRetryAt      atomic.Int64
 	chatMessages         []DashboardChatMessage
 	worldChatBroadcaster func(sender, message string) error
 	deliveryCatalog      dashboardDeliveryCatalog
@@ -115,8 +117,7 @@ func (s *APIServer) Start() error {
 	s.startTime = time.Now()
 
 	if len(s.dashboardOperatorSequence()) == 0 {
-		s.logger.Warn("API.DashboardOperatorSequence is unset: the dashboard shows rankings only, " +
-			"and the online hunter list and world chat broadcast stay disabled")
+		s.logger.Warn("Set API.DashboardOperatorSequence and API.DashboardOperatorPassword to enable the dashboard operator panels")
 	}
 
 	// Set up the routes responsible for serving the launcher HTML, serverlist, unique name check, and JP auth.

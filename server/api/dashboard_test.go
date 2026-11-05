@@ -897,7 +897,7 @@ func TestDashboardStatsHidesOperatorDataWithoutKey(t *testing.T) {
 	// Rankings stay public; anything naming who is online must not.
 	server := &APIServer{
 		logger:      NewTestLogger(t),
-		erupeConfig: &cfg.Config{API: cfg.API{DashboardOperatorSequence: "up,down,up,up"}},
+		erupeConfig: NewTestConfig(),
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/stats", nil)
@@ -927,7 +927,7 @@ func TestDashboardStatsHidesOperatorDataWithoutKey(t *testing.T) {
 func TestDashboardStatsMarksOperatorWithKey(t *testing.T) {
 	server := &APIServer{
 		logger:      NewTestLogger(t),
-		erupeConfig: &cfg.Config{API: cfg.API{DashboardOperatorSequence: "up,down,up,up"}},
+		erupeConfig: NewTestConfig(),
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/stats", nil)
@@ -950,7 +950,7 @@ func TestDashboardStatsMarksOperatorWithKey(t *testing.T) {
 func TestDashboardStatsRejectsWrongKey(t *testing.T) {
 	server := &APIServer{
 		logger:      NewTestLogger(t),
-		erupeConfig: &cfg.Config{API: cfg.API{DashboardOperatorSequence: "up,down,up,up"}},
+		erupeConfig: NewTestConfig(),
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/stats", nil)
@@ -971,12 +971,12 @@ func TestDashboardUnlockSequence(t *testing.T) {
 	newServer := func() *APIServer {
 		return &APIServer{
 			logger:      NewTestLogger(t),
-			erupeConfig: &cfg.Config{API: cfg.API{DashboardOperatorSequence: "up,down,up,up"}},
+			erupeConfig: NewTestConfig(),
 		}
 	}
 
 	post := func(server *APIServer, body string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodPost, "/api/dashboard/unlock", strings.NewReader(body))
+		req := httptest.NewRequest(http.MethodPost, "https://example.com/api/dashboard/unlock", strings.NewReader(body))
 		rec := httptest.NewRecorder()
 		server.DashboardUnlock(rec, req)
 		return rec
@@ -1001,9 +1001,16 @@ func TestDashboardUnlockSequence(t *testing.T) {
 		}
 	})
 
-	t.Run("full sequence issues the cookie", func(t *testing.T) {
+	t.Run("full sequence only requests the password", func(t *testing.T) {
+		rec := post(newServer(), `{"gestures":["up","down","up","up"]}`)
+		if got := status(rec); got != "password_required" || len(rec.Result().Cookies()) != 0 {
+			t.Fatalf("gesture alone must not authorize: status=%s cookies=%d", got, len(rec.Result().Cookies()))
+		}
+	})
+
+	t.Run("password and sequence issue the cookie", func(t *testing.T) {
 		server := newServer()
-		rec := post(server, `{"gestures":["up","down","up","up"]}`)
+		rec := post(server, `{"gestures":["up","down","up","up"],"password":"`+testDashboardOperatorPassword+`"}`)
 		if got := status(rec); got != "matched" {
 			t.Fatalf("status = %q, want matched", got)
 		}
@@ -1014,8 +1021,13 @@ func TestDashboardUnlockSequence(t *testing.T) {
 		if cookies[0].Value != server.operatorToken() {
 			t.Fatal("cookie does not carry this process's token")
 		}
-		if !cookies[0].HttpOnly {
-			t.Error("operator cookie must be HttpOnly so page scripts cannot read it")
+		if !cookies[0].HttpOnly || !cookies[0].Secure || cookies[0].SameSite != http.SameSiteStrictMode {
+			t.Error("operator cookie must be HttpOnly, Secure on HTTPS and SameSite Strict")
+		}
+		req := httptest.NewRequest(http.MethodGet, "/api/dashboard/stats", nil)
+		req.AddCookie(cookies[0])
+		if !server.dashboardOperatorAuthorized(req) {
+			t.Fatal("issued cookie did not authorize the operator API")
 		}
 		// Not remembered: a session cookie must not carry an expiry.
 		if cookies[0].MaxAge != 0 {
@@ -1025,10 +1037,34 @@ func TestDashboardUnlockSequence(t *testing.T) {
 
 	t.Run("remember extends the cookie", func(t *testing.T) {
 		server := newServer()
-		rec := post(server, `{"gestures":["up","down","up","up"],"remember":true}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/dashboard/unlock", strings.NewReader(`{"remember":true}`))
+		rec := httptest.NewRecorder()
+		server.DashboardUnlock(rec, authorizeDashboard(req, server))
 		cookies := rec.Result().Cookies()
-		if len(cookies) != 1 || cookies[0].MaxAge <= 0 {
+		if status(rec) != "matched" || len(cookies) != 1 || cookies[0].MaxAge <= 0 {
 			t.Fatalf("remember did not set a persistent cookie: %+v", cookies)
+		}
+	})
+
+	t.Run("password failure and retry limit do not issue a cookie", func(t *testing.T) {
+		server := newServer()
+		rec := post(server, `{"gestures":["up","down","up","up"],"password":"wrong","remember":true}`)
+		if got := status(rec); got != "password_rejected" || len(rec.Result().Cookies()) != 0 {
+			t.Fatalf("wrong password was accepted: status=%s", got)
+		}
+		server.operatorRetryAt.Store(time.Now().Add(time.Minute).UnixNano())
+		rec = post(server, `{"gestures":["up","down","up","up"],"password":"`+testDashboardOperatorPassword+`"}`)
+		if rec.Code != http.StatusTooManyRequests || status(rec) != "rate_limited" || len(rec.Result().Cookies()) != 0 {
+			t.Fatalf("rate limited attempt did not fail closed: HTTP %d", rec.Code)
+		}
+	})
+
+	t.Run("password or remember flag cannot bypass the gestures", func(t *testing.T) {
+		for _, body := range []string{`{"password":"` + testDashboardOperatorPassword + `"}`, `{"remember":true}`} {
+			rec := post(newServer(), body)
+			if got := status(rec); got != "rejected" || len(rec.Result().Cookies()) != 0 {
+				t.Fatalf("missing gestures were accepted: status=%s", got)
+			}
 		}
 	})
 
@@ -1052,13 +1088,24 @@ func TestDashboardUnlockSequence(t *testing.T) {
 	})
 
 	t.Run("unset sequence keeps the panels closed", func(t *testing.T) {
-		server := &APIServer{logger: NewTestLogger(t), erupeConfig: &cfg.Config{}}
+		server := newServer()
+		server.erupeConfig.API.DashboardOperatorSequence = ""
 		rec := post(server, `{"gestures":["up","down","up","up"]}`)
 		if rec.Code != http.StatusForbidden {
 			t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
 		}
 		if len(rec.Result().Cookies()) != 0 {
 			t.Fatal("an unconfigured server issued a cookie")
+		}
+	})
+
+	t.Run("unset password keeps the panels closed", func(t *testing.T) {
+		server := newServer()
+		server.erupeConfig.API.DashboardOperatorPassword = ""
+		rec := post(server, `{"gestures":["up","down","up","up"]}`)
+		req := authorizeDashboard(httptest.NewRequest(http.MethodGet, "/api/dashboard/stats", nil), server)
+		if rec.Code != http.StatusForbidden || len(rec.Result().Cookies()) != 0 || server.dashboardOperatorAuthorized(req) {
+			t.Fatal("operator access was enabled without a configured password")
 		}
 	})
 }

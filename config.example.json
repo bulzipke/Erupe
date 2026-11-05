@@ -17,6 +17,10 @@
     "Database": "erupe"
   },
   "ClientMode": "ZZ",
+  "API": {
+    "DashboardOperatorSequence": "",
+    "DashboardOperatorPassword": ""
+  },
   "TowerRotation": {
     "Enabled": true,
     "StartAt": "",

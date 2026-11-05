@@ -14,7 +14,7 @@ import (
 
 func newOperatorChatServer() *APIServer {
 	return &APIServer{
-		erupeConfig: &cfg.Config{API: cfg.API{DashboardOperatorSequence: TestDashboardOperatorSequence}},
+		erupeConfig: NewTestConfig(),
 	}
 }
 
