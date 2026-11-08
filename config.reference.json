@@ -168,6 +168,8 @@
     "MezFesSoloTickets": 5,
     "MezFesGroupTickets": 1,
     "MezFesDuration": 172800,
+    "MezFesDailyReset": true,
+    "MezFesResetHour": 12,
     "MezFesSwitchMinigame": false,
     "MezFesRandomMinigame": false,
     "EnableKaijiEvent": false,

@@ -586,14 +586,13 @@ func (s *APIServer) buildMezFes() *MezFes {
 	if s.erupeConfig.GameplayOptions.MezFesSwitchMinigame {
 		stalls[4] = 2
 	}
+	// Same window as the sign response; a new ID refills tickets client-side.
+	gameplay := s.erupeConfig.GameplayOptions
+	window := gametime.MezFesWindowAt(time.Now(), gameplay.MezFesDuration, gameplay.MezFesDailyReset, gameplay.MezFesResetHour)
 	return &MezFes{
-		ID: uint32(gametime.WeekStart().Unix()),
-		// The event ends at the week boundary and runs backwards from it for
-		// MezFesDuration, so the start is relative to WeekNext — the same window the
-		// sign response reports. Deriving it from WeekStart put the start a week
-		// early, which the launcher then handed to the game as the event window.
-		Start:        uint32(gametime.WeekNext().Add(-time.Duration(s.erupeConfig.GameplayOptions.MezFesDuration) * time.Second).Unix()),
-		End:          uint32(gametime.WeekNext().Unix()),
+		ID:           window.ID,
+		Start:        window.Start,
+		End:          window.End,
 		SoloTickets:  s.erupeConfig.GameplayOptions.MezFesSoloTickets,
 		GroupTickets: s.erupeConfig.GameplayOptions.MezFesGroupTickets,
 		Stalls:       stalls,

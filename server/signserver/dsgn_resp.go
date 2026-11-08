@@ -219,12 +219,12 @@ func (s *Session) makeSignResponse(uid uint32) []byte {
 		stalls[4] = 2
 	}
 
-	// We can just use the start timestamp as the event ID
-	bf.WriteUint32(uint32(gametime.WeekStart().Unix()))
-	// Start time
-	bf.WriteUint32(uint32(gametime.WeekNext().Add(-time.Duration(s.server.erupeConfig.GameplayOptions.MezFesDuration) * time.Second).Unix()))
-	// End time
-	bf.WriteUint32(uint32(gametime.WeekNext().Unix()))
+	// A new event ID makes the client reset its used ticket counts (refill).
+	gameplay := s.server.erupeConfig.GameplayOptions
+	window := gametime.MezFesWindowAt(time.Now(), gameplay.MezFesDuration, gameplay.MezFesDailyReset, gameplay.MezFesResetHour)
+	bf.WriteUint32(window.ID)
+	bf.WriteUint32(window.Start)
+	bf.WriteUint32(window.End)
 	bf.WriteUint8(uint8(len(tickets)))
 	for i := range tickets {
 		bf.WriteUint32(tickets[i])

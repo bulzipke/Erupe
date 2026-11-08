@@ -168,6 +168,7 @@ type Server struct {
 	huntRecordRepo       HuntRecordRepo
 	weaponUsageRepo      WeaponUsageRepo
 	legendQuestUsageRepo LegendQuestUsageRepo
+	mezFesPlayRepo       MezFesPlayRepo
 	ravienteRunRepo      RavienteRunRepo
 	ravienteRunTracker   *RavienteRunTracker
 	questStatsRepo       QuestStatsRepo
@@ -247,6 +248,7 @@ func NewServer(config *Config) *Server {
 	s.weaponUsageRepo = NewWeaponUsageRepository(config.DB)
 	s.legendQuestUsageRepo = NewLegendQuestUsageRepository(config.DB)
 	if config.DB != nil {
+		s.mezFesPlayRepo = NewMezFesPlayRepository(config.DB)
 		s.ravienteRunRepo = NewRavienteRunRepository(config.DB)
 		s.ravienteRunTracker = NewRavienteRunTracker(s.ravienteRunRepo, config.Logger)
 	}

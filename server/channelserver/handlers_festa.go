@@ -17,7 +17,15 @@ import (
 
 func handleMsgMhfSaveMezfesData(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfSaveMezfesData)
+	var prev []byte
+	if s.server.mezFesPlayRepo != nil {
+		var err error
+		if prev, err = s.server.charRepo.LoadColumn(s.charID, "mezfes"); err != nil {
+			s.logger.Warn("MezFes play log: load previous save failed", zap.Error(err))
+		}
+	}
 	saveCharacterData(s, pkt.AckHandle, "mezfes", pkt.RawDataPayload, 4096)
+	s.recordMezFesPlay(prev, pkt.RawDataPayload)
 }
 
 func handleMsgMhfLoadMezfesData(s *Session, p mhfpacket.MHFPacket) {

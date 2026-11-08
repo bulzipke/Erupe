@@ -272,6 +272,11 @@ tbody tr:last-child td{border-bottom:0}
 .quest-usage-ranking-grid{grid-template-columns:repeat(2,minmax(0,1fr));border-top:1px solid var(--line)}
 .usage-ranking-grid{grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid var(--line)}
 .usage-ranking-grid .ranking-name{white-space:normal;overflow-wrap:anywhere}
+/* Every minigame on one row; cell lines are shadows so wrapped rows stay ruled. */
+.ranking-grid.mezfes-grid{grid-template-columns:repeat(7,minmax(0,1fr));overflow:hidden}
+.ranking-grid.mezfes-grid>.ranking-block{border:0;padding:16px 12px;box-shadow:1px 0 0 var(--line),0 1px 0 var(--line)}
+.mezfes-grid .ranking-item{grid-template-columns:20px minmax(0,1fr) auto;gap:6px}
+.mezfes-grid .ranking-name{white-space:normal;overflow-wrap:anywhere}
 .ranking-block{min-width:0;padding:18px;border-right:1px solid var(--line)}
 .ranking-block:last-child{border-right:0}
 .ranking-heading{margin:0 0 14px;color:var(--accent-soft);font-size:.78rem;font-weight:800}
@@ -301,6 +306,7 @@ tbody tr:last-child td{border-bottom:0}
 }
 @media (max-width:1050px){
     .monster-time-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .ranking-grid.mezfes-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
 }
 @media (max-width:900px){
     .shell{width:min(calc(100% - 24px),var(--max-width));padding-top:14px}
@@ -309,6 +315,8 @@ tbody tr:last-child td{border-bottom:0}
     .ranking-grid{grid-template-columns:1fr}
     .ranking-grid>.ranking-block{border-top:0;border-right:0;border-bottom:1px solid var(--line)}
     .ranking-grid>.ranking-block:last-child{border-bottom:0}
+    .ranking-grid.mezfes-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .ranking-grid.mezfes-grid>.ranking-block{border:0}
     .chat-form{grid-template-columns:120px minmax(0,1fr)}
     .chat-submit{grid-column:1 / -1}
     .footer{flex-direction:column;gap:5px}
@@ -516,6 +524,43 @@ tbody tr:last-child td{border-bottom:0}
             <article class="ranking-block">
                 <h3 class="ranking-heading">가장 많이 구매한 키트</h3>
                 <ol class="ranking-list" id="kit-popularity-ranking" aria-label="키트 구매 순위"></ol>
+            </article>
+        </div>
+    </section>
+
+    <section class="rankings" aria-labelledby="mezfes-ranking-heading">
+        <div class="rankings-header">
+            <h2 id="mezfes-ranking-heading">메제페스 최고 기록</h2>
+            <p>입장권을 사용한 플레이만 집계됩니다.</p>
+        </div>
+        <div class="ranking-grid mezfes-grid">
+            <article class="ranking-block">
+                <h3 class="ranking-heading">다같이 볼뻐끔</h3>
+                <ol class="ranking-list" id="mezfes-ranking-465" aria-label="다같이 볼뻐끔 최고 기록"></ol>
+            </article>
+            <article class="ranking-block">
+                <h3 class="ranking-heading">아장아장 파트냥</h3>
+                <ol class="ranking-list" id="mezfes-ranking-463" aria-label="아장아장 파트냥 최고 기록"></ol>
+            </article>
+            <article class="ranking-block">
+                <h3 class="ranking-heading">울키 새총</h3>
+                <ol class="ranking-list" id="mezfes-ranking-464" aria-label="울키 새총 최고 기록"></ol>
+            </article>
+            <article class="ranking-block">
+                <h3 class="ranking-heading">냥련도</h3>
+                <ol class="ranking-list" id="mezfes-ranking-467" aria-label="냥련도 최고 기록"></ol>
+            </article>
+            <article class="ranking-block">
+                <h3 class="ranking-heading">펑! 통던지냥</h3>
+                <ol class="ranking-list" id="mezfes-ranking-469" aria-label="펑! 통던지냥 최고 기록"></ol>
+            </article>
+            <article class="ranking-block">
+                <h3 class="ranking-heading">구쿠 건지기</h3>
+                <ol class="ranking-list" id="mezfes-ranking-466" aria-label="구쿠 건지기 최고 기록"></ol>
+            </article>
+            <article class="ranking-block">
+                <h3 class="ranking-heading">패닉 허니</h3>
+                <ol class="ranking-list" id="mezfes-ranking-468" aria-label="패닉 허니 최고 기록"></ol>
             </article>
         </div>
     </section>
@@ -1288,6 +1333,20 @@ tbody tr:last-child td{border-bottom:0}
         list.replaceChildren(fragment);
     }
 
+    var mezFesStages = [465, 463, 464, 467, 469, 466, 468];
+
+    // One card per minigame; entries arrive already ranked per stage.
+    function renderMezFesRankings(entries) {
+        mezFesStages.forEach(function (stage) {
+            var games = entries.filter(function (entry) { return entry.stageId === stage; });
+            renderRanking("mezfes-ranking-" + stage, games, function (entry) {
+                return entry.bestScore == null
+                    ? numberFormatter.format(entry.bestPoints) + "pt"
+                    : numberFormatter.format(entry.bestScore) + "점";
+            });
+        });
+    }
+
     function renderLegendRanking(targetId, entries) {
         var list = byId(targetId);
         if (!entries.length) {
@@ -1683,6 +1742,7 @@ tbody tr:last-child td{border-bottom:0}
         renderRanking("kit-popularity-ranking", (rankings.popularKits || []).slice(0, 14), function (entry) {
             return numberFormatter.format(entry.count) + "회";
         });
+        renderMezFesRankings(rankings.mezFesGames || []);
         renderMonsterTimes(rankings.monsterTimes || []);
 		renderRavienteRuns(rankings.ravienteRuns || []);
 

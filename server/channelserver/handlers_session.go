@@ -71,6 +71,7 @@ func handleMsgSysTerminalLog(s *Session, p mhfpacket.MHFPacket) {
 			zap.Int("total", len(pkt.Entries)),
 			zap.Int("logged", loggedEntries))
 	}
+	s.recordMezFesResultLogs(pkt.Entries)
 	resp := byteframe.NewByteFrame()
 	resp.WriteUint32(pkt.LogID + 1) // LogID to use for requests after this.
 	doAckSimpleSucceed(s, pkt.AckHandle, resp.Data())

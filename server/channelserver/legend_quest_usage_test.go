@@ -70,6 +70,23 @@ func TestLegendQuestRosterAdmission(t *testing.T) {
 	if repo.calls != 2 || len(repo.ids) != 2 || repo.ids[0] != repo.ids[1] {
 		t.Fatal("two other-owner same-persona NPCs rejected")
 	}
+	pkt.RawDataPayload = []byte("LRQ1\x02\x11\x0c\x00") // Ruler + Leila
+	handleMsgSysSetStageBinary(other, pkt)
+	if repo.calls != 3 || len(repo.ids) != 1 || repo.ids[0] != 12 {
+		t.Fatalf("Ruler not dropped from roster: calls=%d ids=%v", repo.calls, repo.ids)
+	}
+	for _, id := range []byte{17, 18, 19, 20} {
+		pkt.RawDataPayload = []byte{'L', 'R', 'Q', '1', 1, id, 0, 0} // collaboration preset only
+		handleMsgSysSetStageBinary(other, pkt)
+		if repo.calls != 3 {
+			t.Fatalf("roster of only legend %d counted", id)
+		}
+	}
+	pkt.RawDataPayload = []byte("LRQ1\x02\x15\x14\x00") // Graham + Black Rider
+	handleMsgSysSetStageBinary(other, pkt)
+	if repo.calls != 4 || len(repo.ids) != 1 || repo.ids[0] != 21 {
+		t.Fatalf("Graham not kept: calls=%d ids=%v", repo.calls, repo.ids)
+	}
 }
 
 // This test creates only session-local temporary tables on an explicitly
@@ -116,6 +133,9 @@ func TestLegendQuestRosterPostgres(t *testing.T) {
 	}
 	if err = repo.RecordRoster(strings.Repeat("c", 32), []int64{16}); err == nil {
 		t.Fatal("accepted unknown persona")
+	}
+	if err = repo.RecordRoster(strings.Repeat("e", 32), []int64{20}); err == nil {
+		t.Fatal("accepted Black Rider")
 	}
 	// A rejected aggregate write must also roll back the receipt claim.
 	_, err = db.Exec(`ALTER TABLE legend_rasta_usage_stats ADD CONSTRAINT test_reject CHECK(legend_id<>12)`)

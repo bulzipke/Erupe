@@ -34,6 +34,22 @@ func decodeLegendQuestRoster(data []byte) ([]int64, bool) {
 	return ids, true
 }
 
+// The collaboration presets Ruler (17), Red Saber (18), Black Saber (19) and
+// Black Rider (20) are not counted as Legend Rastas: operators found Ruler in
+// the usage ranking by mistake. They still validate as roster entries so the
+// other companions of the same quest keep counting.
+var legendUsageExcluded = map[int64]bool{17: true, 18: true, 19: true, 20: true}
+
+func countedLegendRoster(ids []int64) []int64 {
+	counted := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if !legendUsageExcluded[id] {
+			counted = append(counted, id)
+		}
+	}
+	return counted
+}
+
 type LegendQuestUsageRepo interface {
 	RecordRoster(runID string, ids []int64) error
 }
@@ -66,7 +82,7 @@ func (r *LegendQuestUsageRepository) RecordRoster(runID string, ids []int64) err
 		return fmt.Errorf("invalid legend roster receipt")
 	}
 	for _, id := range ids {
-		if id < 1 || id > 21 || legendrasta.Name(uint8(id)) == "" {
+		if id < 1 || id > 21 || legendrasta.Name(uint8(id)) == "" || legendUsageExcluded[id] {
 			return fmt.Errorf("invalid legend ID")
 		}
 	}
@@ -93,6 +109,10 @@ func (s *Session) recordLegendQuestRoster(pkt *mhfpacket.MsgSysSetStageBinary) {
 	humans := len(stage.clients)
 	stage.RUnlock()
 	if !member || !quest || runID == "" || humans < 1 || len(ids)+humans > 4 {
+		return
+	}
+	ids = countedLegendRoster(ids)
+	if len(ids) == 0 {
 		return
 	}
 	if err := s.server.legendQuestUsageRepo.RecordRoster(runID, ids); err != nil {

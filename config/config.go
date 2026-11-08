@@ -297,9 +297,11 @@ type GameplayOptions struct {
 	GExtraCarves                   uint16  // Grant n extra chances to carve ALL G Rank carcasses
 	GExtraCarvesNC                 uint16  // Grant n extra chances to carve ALL G Rank carcasses in a NetCafe
 	DisableHunterNavi              bool    // Disables the Hunter Navi
-	MezFesSoloTickets              uint32  // Number of solo tickets given weekly
-	MezFesGroupTickets             uint32  // Number of group tickets given weekly
-	MezFesDuration                 int     // Seconds that MezFes will last for weekly (from 12AM Mon backwards)
+	MezFesSoloTickets              uint32  // Number of solo tickets given per MezFes event (daily or weekly)
+	MezFesGroupTickets             uint32  // Number of group tickets given per MezFes event (daily or weekly)
+	MezFesDuration                 int     // Weekly mode only: seconds MezFes lasts (from 12AM Mon backwards)
+	MezFesDailyReset               bool    // Start a new MezFes event (ticket refill) every day at MezFesResetHour JST
+	MezFesResetHour                int     // Daily reset hour 0-23 in JST; out of range falls back to weekly
 	MezFesSwitchMinigame           bool    // Swaps out Volpakkun Together for Tokotoko Partnya
 	MezFesRandomMinigame           bool    // Random group game per occupied MezFes world; requires matching Vorbis update
 	EnableKaijiEvent               bool    // Enables the Kaiji event in the Rasta Bar
@@ -678,6 +680,8 @@ func registerDefaults() {
 	viper.SetDefault("GameplayOptions.MezFesSoloTickets", uint32(5))
 	viper.SetDefault("GameplayOptions.MezFesGroupTickets", uint32(1))
 	viper.SetDefault("GameplayOptions.MezFesDuration", 172800)
+	viper.SetDefault("GameplayOptions.MezFesDailyReset", true)
+	viper.SetDefault("GameplayOptions.MezFesResetHour", 12)
 
 	// Discord
 	viper.SetDefault("Discord.RelayChannel.MaxMessageLength", 183)

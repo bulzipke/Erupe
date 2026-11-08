@@ -8,9 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Refill MezFes tickets daily at 12:00 JST by starting a new event each day (`MezFesDailyReset`, `MezFesResetHour`); festival points are kept.
+- Log real (ticketed) MezFes minigame plays per hunter, group games included, with the result-screen score total, and rank them on the dashboard; practice plays are excluded.
 - Add four operator-approved GR1+ Diva personal rewards at 10,000 song points (items 14410, 14411, 14412 and 15163, one each), with matching Ferias acquisition notes.
 
 ### Fixed 
+- Stop counting the Fate collaboration presets (Legend Rasta IDs 17-20) in usage and remove their existing counts; other companions of the same quest still count.
 - Set HR Raviente success NPC totals to 10,000 secret orbs for normal and 20,000 for ferocious in client R383, and prepare material-only HR carving quests with a persistent post-translation overlay.
 - Correct the client-side Raviente victory receipt omitted in R380; R381 applies the fixed NPC totals only to native victories, retaining ordinary failure awards.
 - Store public Raviente quest ZIP entries with explicit Unix 0644 permissions so root extraction cannot block the unprivileged server from reading them.

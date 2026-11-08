@@ -445,6 +445,7 @@ type DashboardRankings struct {
 	RavienteRuns     []RavienteRunRankEntry   `json:"ravienteRuns"`
 	QuestClears      []QuestResultRankEntry   `json:"questClears"`
 	QuestFails       []QuestResultRankEntry   `json:"questFails"`
+	MezFesGames      []MezFesRankEntry        `json:"mezFesGames"`
 }
 
 const dashboardRankingTTL = time.Minute
@@ -854,6 +855,7 @@ func emptyDashboardRankings() DashboardRankings {
 		RavienteRuns:     make([]RavienteRunRankEntry, 0),
 		QuestClears:      make([]QuestResultRankEntry, 0),
 		QuestFails:       make([]QuestResultRankEntry, 0),
+		MezFesGames:      make([]MezFesRankEntry, 0),
 	}
 }
 
@@ -952,6 +954,10 @@ func (s *APIServer) getDashboardRankings(ctx context.Context) DashboardRankings 
 	}
 	if err := s.db.SelectContext(ctx, &rankings.RavienteRuns, dashboardRavienteRunsQuery); err != nil {
 		s.logger.Warn("Dashboard: failed to query Raviente run rankings", zap.Error(err))
+		return dashboardRankingsAfterQueryError(s.dashboardRankings, s.dashboardRankingsAt, rankings)
+	}
+	if err := s.loadDashboardMezFesRankings(ctx, &rankings); err != nil {
+		s.logger.Warn("Dashboard: failed to query MezFes rankings", zap.Error(err))
 		return dashboardRankingsAfterQueryError(s.dashboardRankings, s.dashboardRankingsAt, rankings)
 	}
 	if err := s.loadDashboardShopRankings(ctx, &rankings); err != nil {
