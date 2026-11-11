@@ -56,7 +56,6 @@ type APIServer struct {
 	operatorTokenOnce    sync.Once
 	operatorTokenValue   string
 	operatorRetryAt      atomic.Int64
-	chatMessages         []DashboardChatMessage
 	worldChatBroadcaster func(sender, message string) error
 	deliveryCatalog      dashboardDeliveryCatalog
 	deliveryMailNotifier func(uint32)

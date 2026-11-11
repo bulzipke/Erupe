@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode"
@@ -14,7 +16,8 @@ import (
 )
 
 const (
-	dashboardChatHistoryLimit       = 10
+	dashboardChatHistoryLimit       = 100
+	dashboardChatHistoryFileLimit   = 256 << 10
 	dashboardChatNameMaxRunes       = 8
 	dashboardChatStoredNameMaxRunes = 32
 	dashboardChatTextMaxRunes       = 120
@@ -22,7 +25,6 @@ const (
 )
 
 // DashboardChatMessage is one recent public game-chat line shown on the dashboard.
-// History is intentionally memory-only and resets with the Erupe process.
 type DashboardChatMessage struct {
 	Sender  string    `json:"sender"`
 	Message string    `json:"message"`
@@ -63,7 +65,7 @@ func (s *APIServer) RecordGameChat(scope, sender, message string) {
 	}
 }
 
-func (s *APIServer) recordDashboardChat(source, scope, sender, message string) DashboardChatMessage {
+func (s *APIServer) recordDashboardChat(source, scope, sender, message string) {
 	entry := DashboardChatMessage{
 		Sender:  truncateRunes(cleanChatLine(sender), dashboardChatStoredNameMaxRunes),
 		Message: truncateRunes(cleanChatLine(message), dashboardChatTextMaxRunes),
@@ -72,27 +74,80 @@ func (s *APIServer) recordDashboardChat(source, scope, sender, message string) D
 		Time:    time.Now(),
 	}
 	if entry.Sender == "" || entry.Message == "" {
-		return DashboardChatMessage{}
+		return
 	}
 
 	s.chatMu.Lock()
-	s.chatMessages = append(s.chatMessages, entry)
-	if len(s.chatMessages) > dashboardChatHistoryLimit {
-		start := len(s.chatMessages) - dashboardChatHistoryLimit
-		s.chatMessages = append([]DashboardChatMessage(nil), s.chatMessages[start:]...)
+	path := s.dashboardChatPath()
+	messages, err := readDashboardChat(path)
+	if err == nil {
+		messages = append(messages, entry)
+		if len(messages) > dashboardChatHistoryLimit {
+			messages = messages[len(messages)-dashboardChatHistoryLimit:]
+		}
+		err = writeDashboardChat(path, messages)
 	}
 	s.chatMu.Unlock()
-	return entry
+	if err != nil && s.logger != nil {
+		s.logger.Warn("Dashboard: failed to save chat history", zap.Error(err))
+	}
 }
 
-func (s *APIServer) dashboardChatSnapshot() []DashboardChatMessage {
+func (s *APIServer) dashboardChatPath() string {
+	return filepath.Join(s.erupeConfig.BinPath, "dashboard-chat.json")
+}
+
+func (s *APIServer) dashboardChatSnapshot() ([]DashboardChatMessage, error) {
 	s.chatMu.RLock()
-	messages := append([]DashboardChatMessage(nil), s.chatMessages...)
-	s.chatMu.RUnlock()
-	if messages == nil {
-		return make([]DashboardChatMessage, 0)
+	defer s.chatMu.RUnlock()
+	return readDashboardChat(s.dashboardChatPath())
+}
+
+func readDashboardChat(path string) ([]DashboardChatMessage, error) {
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return []DashboardChatMessage{}, nil
 	}
-	return messages
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, dashboardChatHistoryFileLimit+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > dashboardChatHistoryFileLimit {
+		return nil, errors.New("dashboard chat history file exceeds size limit")
+	}
+	messages := []DashboardChatMessage{}
+	if err := json.Unmarshal(raw, &messages); err != nil {
+		return nil, err
+	}
+	if len(messages) > dashboardChatHistoryLimit {
+		messages = messages[len(messages)-dashboardChatHistoryLimit:]
+	}
+	return messages, nil
+}
+
+func writeDashboardChat(path string, messages []DashboardChatMessage) error {
+	// CreateTemp uses mode 0600. The same-directory rename preserves the old
+	// file if writing is interrupted before the new snapshot is complete.
+	f, err := os.CreateTemp(filepath.Dir(path), ".dashboard-chat-*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if err := json.NewEncoder(f).Encode(messages); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }
 
 // DashboardChat serves the recent chat log and accepts web-originated world
@@ -160,8 +215,20 @@ func (s *APIServer) DashboardChat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) writeDashboardChatResponse(w http.ResponseWriter, status int) {
+	messages, err := s.dashboardChatSnapshot()
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("Dashboard: failed to load chat history", zap.Error(err))
+		}
+		if status != http.StatusCreated {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		// POST already broadcast successfully. A failed history read must
+		// not prompt the operator to send that same message again.
+	}
 	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(dashboardChatResponse{Messages: s.dashboardChatSnapshot()}); err != nil && s.logger != nil {
+	if err := json.NewEncoder(w).Encode(dashboardChatResponse{Messages: messages}); err != nil && s.logger != nil {
 		s.logger.Error("Dashboard: failed to encode chat response", zap.Error(err))
 	}
 }

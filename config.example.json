@@ -6,7 +6,7 @@
   "ClientIntegrity": {
     "Enabled": true,
     "ManifestFile": "client_integrity.json",
-    "IntervalSeconds": 60,
+    "IntervalSeconds": 600,
     "TimeoutSeconds": 15
   },
   "Host": "",

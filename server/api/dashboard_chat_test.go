@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -24,16 +25,23 @@ func authorizeDashboard(req *http.Request, server *APIServer) *http.Request {
 	return req
 }
 
-func TestDashboardChatKeepsLatestTenMessages(t *testing.T) {
+func newChatHistoryTestServer(t *testing.T) *APIServer {
+	t.Helper()
 	server := newOperatorChatServer()
-	for i := 0; i < 12; i++ {
+	server.erupeConfig.BinPath = t.TempDir()
+	return server
+}
+
+func TestDashboardChatKeepsLatestHundredAcrossRestart(t *testing.T) {
+	server := newChatHistoryTestServer(t)
+	for i := 0; i < dashboardChatHistoryLimit+2; i++ {
 		server.RecordWorldChat(fmt.Sprintf("Hunter%02d", i), fmt.Sprintf("message-%02d", i))
 	}
-
+	restarted := newOperatorChatServer()
+	restarted.erupeConfig.BinPath = server.erupeConfig.BinPath
 	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/chat", nil)
 	rec := httptest.NewRecorder()
-	server.DashboardChat(rec, authorizeDashboard(req, server))
-
+	restarted.DashboardChat(rec, authorizeDashboard(req, restarted))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
@@ -41,24 +49,48 @@ func TestDashboardChatKeepsLatestTenMessages(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(response.Messages) != dashboardChatHistoryLimit {
-		t.Fatalf("message count = %d, want %d", len(response.Messages), dashboardChatHistoryLimit)
+	if len(response.Messages) != 100 {
+		t.Fatalf("message count = %d, want 100", len(response.Messages))
 	}
-	if response.Messages[0].Sender != "Hunter02" || response.Messages[9].Sender != "Hunter11" {
-		t.Fatalf("unexpected retained range: first=%q last=%q", response.Messages[0].Sender, response.Messages[9].Sender)
+	first, last := response.Messages[0], response.Messages[99]
+	if first.Sender != "Hunter02" || last.Sender != "Hunter101" {
+		t.Fatalf("unexpected retained range: first=%q last=%q", first.Sender, last.Sender)
 	}
-	if response.Messages[0].Source != "game" || response.Messages[0].Scope != "world" || response.Messages[0].Time.IsZero() {
-		t.Fatalf("unexpected message metadata: %+v", response.Messages[0])
+	if first.Source != "game" || first.Scope != "world" || first.Time.IsZero() {
+		t.Fatalf("unexpected message metadata: %+v", first)
+	}
+}
+
+func TestDashboardChatDoesNotOverwriteUnreadableHistory(t *testing.T) {
+	server := newChatHistoryTestServer(t)
+	path := server.dashboardChatPath()
+	before := []byte("{invalid")
+	if err := os.WriteFile(path, before, 0600); err != nil {
+		t.Fatal(err)
+	}
+	server.RecordWorldChat("Hunter", "new message")
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("unreadable file was overwritten", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/chat", nil)
+	rec := httptest.NewRecorder()
+	server.DashboardChat(rec, authorizeDashboard(req, server))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status %d", rec.Code)
 	}
 }
 
 func TestDashboardChatRecordsPublicScopesOnly(t *testing.T) {
-	server := newOperatorChatServer()
+	server := newChatHistoryTestServer(t)
 	for _, scope := range []string{"world", "land", "party", "guild", "alliance", "whisper", "unknown"} {
 		server.RecordGameChat(scope, "Hunter", scope+" message")
 	}
 
-	messages := server.dashboardChatSnapshot()
+	messages, err := server.dashboardChatSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(messages) != 3 {
 		t.Fatalf("message count = %d, want 3: %+v", len(messages), messages)
 	}
@@ -70,7 +102,7 @@ func TestDashboardChatRecordsPublicScopesOnly(t *testing.T) {
 }
 
 func TestDashboardChatPostBroadcastsAndRecords(t *testing.T) {
-	server := newOperatorChatServer()
+	server := newChatHistoryTestServer(t)
 	var gotSender, gotMessage string
 	server.SetWorldChatBroadcaster(func(sender, message string) error {
 		gotSender = sender
@@ -112,7 +144,7 @@ func TestDashboardChatPostValidatesNameAndMessage(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			server := newOperatorChatServer()
+			server := newChatHistoryTestServer(t)
 			called := false
 			server.SetWorldChatBroadcaster(func(_, _ string) error {
 				called = true
@@ -134,7 +166,7 @@ func TestDashboardChatPostValidatesNameAndMessage(t *testing.T) {
 }
 
 func TestDashboardChatPostRequiresChannelBridge(t *testing.T) {
-	server := newOperatorChatServer()
+	server := newChatHistoryTestServer(t)
 	req := httptest.NewRequest(
 		http.MethodPost,
 		"/api/dashboard/chat",
@@ -162,7 +194,7 @@ func TestDashboardChatRejectsWithoutOperatorKey(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			server := newOperatorChatServer()
+			server := newChatHistoryTestServer(t)
 			called := false
 			server.SetWorldChatBroadcaster(func(_, _ string) error {
 				called = true

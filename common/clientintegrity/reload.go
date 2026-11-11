@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"time"
 )
 
 const maxManifestBytes = 48 * 1024 * 1024
-const manifestPollInterval = time.Second
+const reloadAddress = "127.0.0.1:53311"
 
 func readManifest(path string) ([]byte, error) {
 	f, err := os.Open(path)
@@ -89,68 +91,86 @@ func (m *Manager) addManifest(raw []byte) (added, total int, err error) {
 	return added, len(m.builds), nil
 }
 
-// WatchManifest adds approved builds without restarting or dropping sessions.
-// It only reads ManifestFile; the accumulated history lives in memory and is
-// intentionally lost on restart. The startup file must still be valid.
-// Full-content hashes also catch same-size/same-timestamp replacements and
-// work on network mounts where native change notifications may be absent.
-func (m *Manager) WatchManifest(report func(added, total int, err error)) error {
-	return m.watchManifest(manifestPollInterval, report)
-}
-
-func (m *Manager) watchManifest(interval time.Duration, report func(added, total int, err error)) error {
-	m.mu.Lock()
-	if m.closed || m.watchDone != nil || interval <= 0 {
-		m.mu.Unlock()
-		return errors.New("integrity: watcher already started, closed, or invalid interval")
+// StartReloadHook serves operator requests on the Erupe network namespace's
+// loopback. The NAS deploy tool reaches it through the existing SSH login.
+func (m *Manager) StartReloadHook(report func(added, total int, err error)) (*http.Server, error) {
+	listener, err := net.Listen("tcp4", reloadAddress)
+	if err != nil {
+		return nil, err
 	}
-	m.watchDone = make(chan struct{})
-	m.mu.Unlock()
+	server := &http.Server{
+		Handler:           m.reloadHandler(report),
+		ReadHeaderTimeout: 3 * time.Second,
+		ReadTimeout:       5 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       5 * time.Second,
+		MaxHeaderBytes:    4096,
+	}
 	go func() {
-		defer close(m.watchDone)
-		timer := time.NewTicker(interval)
-		defer timer.Stop()
-		lastHash := m.manifestHash
-		lastReadOK := true
-		lastError := ""
-		for {
-			select {
-			case <-m.stopped:
-				return
-			case <-timer.C:
-			}
-			raw, err := readManifest(m.manifestPath)
-			added, total := 0, 0
-			if err == nil {
-				digest := sha256.Sum256(raw)
-				if lastReadOK && digest == lastHash {
-					continue
-				}
-				lastHash = digest
-				lastReadOK = true
-				added, total, err = m.addManifest(raw)
-			} else {
-				lastReadOK = false
-			}
-			// A stop racing a file read may not publish through addManifest, and must
-			// not report a normal shutdown as a rejected operator update.
-			select {
-			case <-m.stopped:
-				return
-			default:
-			}
-			if err != nil {
-				if err.Error() != lastError && report != nil {
-					report(0, 0, err)
-				}
-				lastError = err.Error()
-			} else {
-				if (added > 0 || lastError != "") && report != nil {
-					report(added, total, nil)
-				}
-				lastError = ""
-			}
+		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			report(0, 0, err)
 		}
 	}()
-	return nil
+	return server, nil
+}
+
+type reloadRequest struct {
+	SHA256 string `json:"sha256"`
+}
+
+type reloadReceipt struct {
+	SHA256         string `json:"sha256"`
+	AddedBuilds    int    `json:"addedBuilds"`
+	AcceptedBuilds int    `json:"acceptedBuilds"`
+}
+
+func (m *Manager) reloadHandler(report func(added, total int, err error)) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /reload", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Content-Type") != "application/json" {
+			http.Error(w, "expected application/json", http.StatusUnsupportedMediaType)
+			return
+		}
+		d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 128))
+		d.DisallowUnknownFields()
+		var req reloadRequest
+		if err := d.Decode(&req); err != nil || len(req.SHA256) != 64 || d.Decode(&struct{}{}) != io.EOF {
+			http.Error(w, "expected manifest SHA-256", http.StatusBadRequest)
+			return
+		}
+		if _, err := hex.DecodeString(req.SHA256); err != nil {
+			http.Error(w, "invalid SHA-256", http.StatusBadRequest)
+			return
+		}
+		raw, err := readManifest(m.manifestPath)
+		if err != nil {
+			report(0, 0, err)
+			http.Error(w, "manifest unavailable", http.StatusUnprocessableEntity)
+			return
+		}
+		digest := sha256.Sum256(raw)
+		if hex.EncodeToString(digest[:]) != req.SHA256 {
+			http.Error(w, "manifest hash mismatch", http.StatusConflict)
+			return
+		}
+		added, total, err := m.addManifest(raw)
+		report(added, total, err)
+		if err != nil {
+			http.Error(w, "manifest rejected", http.StatusUnprocessableEntity)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(reloadReceipt{req.SHA256, added, total})
+	})
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Reject requests routed to loopback using a foreign browser origin.
+		if r.Host != reloadAddress || r.Header.Get("Origin") != "" {
+			http.Error(w, "loopback operator requests only", http.StatusForbidden)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 }

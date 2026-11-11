@@ -247,6 +247,30 @@ func TestManifestRejectsBadConfiguration(t *testing.T) {
 	}
 }
 
+func TestConfiguredTenMinuteIntervalIsSignedInChallenge(t *testing.T) {
+	fixtureManager, hello, _, key := fixture(t)
+	m, err := Load(fixtureManager.manifestPath, fixtureManager.signer, 600*time.Second, 15*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	if bad, err := Load(fixtureManager.manifestPath, fixtureManager.signer, 601*time.Second, 15*time.Second); err == nil {
+		bad.Close()
+		t.Fatal("accepted an interval greater than 600 seconds")
+	}
+	challenge, err := m.challenge(hello, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if interval, timeout := binary.BigEndian.Uint32(challenge[36:40]), binary.BigEndian.Uint32(challenge[40:44]); interval != 600 || timeout != 15 {
+		t.Fatalf("signed interval=%d timeout=%d", interval, timeout)
+	}
+	hash := sha256.Sum256(challenge[:110])
+	if !ecdsa.Verify(&key.PublicKey, hash[:], new(big.Int).SetBytes(challenge[110:142]), new(big.Int).SetBytes(challenge[142:])) {
+		t.Fatal("invalid 600-second challenge signature")
+	}
+}
+
 func TestCrossLanguageVectors(t *testing.T) {
 	raw, e := os.ReadFile("testdata/vectors.json")
 	if e != nil {

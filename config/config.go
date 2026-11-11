@@ -756,7 +756,7 @@ func registerDefaults() {
 	viper.SetDefault("AccountPrivilege.SigningKeyID", 1)
 	viper.SetDefault("ClientIntegrity.Enabled", true)
 	viper.SetDefault("ClientIntegrity.ManifestFile", "client_integrity.json")
-	viper.SetDefault("ClientIntegrity.IntervalSeconds", 60)
+	viper.SetDefault("ClientIntegrity.IntervalSeconds", 600)
 	viper.SetDefault("ClientIntegrity.TimeoutSeconds", 15)
 
 	// Security audit log

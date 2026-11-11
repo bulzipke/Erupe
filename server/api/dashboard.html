@@ -619,6 +619,7 @@ tbody tr:last-child td{border-bottom:0}
     var lastUpdated = null;
     var numberFormatter = new Intl.NumberFormat("ko-KR");
     var onlineSignature = "";
+    var chatSignature = null;
     var monsterTimesSignature = "";
 	var ravienteRunsSignature = "";
 	var participantNameCollator = new Intl.Collator("en", {numeric: true, sensitivity: "base"});
@@ -871,6 +872,28 @@ tbody tr:last-child td{border-bottom:0}
 
     function renderChat(messages) {
         var container = byId("chat-log");
+        var keys = messages.map(function (entry) {
+            return JSON.stringify([entry.time, entry.sender, entry.message, entry.source, entry.scope]);
+        });
+        var signature = JSON.stringify(keys);
+        if (signature === chatSignature) return;
+        var followLatest = chatSignature === null ||
+            container.scrollHeight - container.scrollTop - container.clientHeight <= 2;
+        var anchorKey = "";
+        var anchorOffset = 0;
+        var viewportTop = container.getBoundingClientRect().top + container.clientTop;
+        if (!followLatest) {
+            for (var i = 0; i < container.children.length; i++) {
+                var oldLine = container.children[i];
+                var bounds = oldLine.getBoundingClientRect();
+                if (bounds.bottom > viewportTop) {
+                    anchorKey = oldLine.dataset.chatKey;
+                    anchorOffset = bounds.top - viewportTop;
+                    break;
+                }
+            }
+        }
+        chatSignature = signature;
         if (!messages.length) {
             container.replaceChildren(text("div", "chat-empty", "아직 기록된 게임 채팅이 없습니다."));
             return;
@@ -878,10 +901,13 @@ tbody tr:last-child td{border-bottom:0}
 
         var scopeLabels = {world: "월드", land: "랜드", party: "파티"};
         var fragment = document.createDocumentFragment();
-        messages.forEach(function (entry) {
+        var anchorLine = null;
+        messages.forEach(function (entry, index) {
             var scope = scopeLabels[entry.scope] ? entry.scope : "world";
             var line = document.createElement("div");
             line.className = "chat-line scope-" + scope + (entry.source === "web" ? " web" : "");
+            line.dataset.chatKey = keys[index];
+            if (line.dataset.chatKey === anchorKey) anchorLine = line;
             line.appendChild(text("time", "chat-time", chatTime(entry.time)));
             line.appendChild(text("span", "chat-scope", scopeLabels[scope]));
             line.appendChild(text("span", "chat-sender", entry.sender));
@@ -889,7 +915,14 @@ tbody tr:last-child td{border-bottom:0}
             fragment.appendChild(line);
         });
         container.replaceChildren(fragment);
-        container.scrollTop = container.scrollHeight;
+        if (followLatest) {
+            container.scrollTop = container.scrollHeight;
+        } else if (anchorLine) {
+            container.scrollTop += anchorLine.getBoundingClientRect().top - viewportTop - anchorOffset;
+        } else {
+            // The visible message has aged out of the bounded history.
+            container.scrollTop = 0;
+        }
     }
 
     function updateChat() {
@@ -900,7 +933,7 @@ tbody tr:last-child td{border-bottom:0}
                 return response.json();
             })
             .then(function (data) {
-                renderChat(data.messages || []);
+                if (operatorMode && Array.isArray(data.messages)) renderChat(data.messages);
             })
             .catch(function () {
                 byId("chat-feedback").textContent = "채팅 기록을 불러오지 못했습니다.";
@@ -955,7 +988,7 @@ tbody tr:last-child td{border-bottom:0}
                 byId("chat-message").value = "";
                 feedback.textContent = "전체 월드에 운영자 메시지를 전송했습니다.";
                 feedback.className = "chat-feedback";
-                renderChat(data.messages || []);
+                if (operatorMode && Array.isArray(data.messages)) renderChat(data.messages);
                 byId("chat-message").focus();
             })
             .catch(function (error) {

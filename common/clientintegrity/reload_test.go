@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
-	"sync"
 	"testing"
 	"time"
 )
@@ -39,18 +41,6 @@ func hasBuild(m *Manager, image []byte) bool {
 	return ok
 }
 func buildCount(m *Manager) int { m.mu.Lock(); defer m.mu.Unlock(); return len(m.builds) }
-func eventually(t *testing.T, condition func() bool) {
-	t.Helper()
-	end := time.Now().Add(2 * time.Second)
-	for time.Now().Before(end) {
-		if condition() {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
-	t.Fatal("condition timed out")
-}
-
 func TestReloadAddsDeduplicatesAndRestartUsesOnlyCurrentFile(t *testing.T) {
 	m, _, old, _ := fixture(t)
 	newImage := []byte("second approved image")
@@ -107,78 +97,63 @@ func TestReloadRejectsEntireInvalidDocument(t *testing.T) {
 	}
 }
 
-func TestWatcherOverwritesRenameRemovalRecoveryAndShutdown(t *testing.T) {
+func TestReloadHookChecksFileDigestBeforeAccepting(t *testing.T) {
 	m, _, old, _ := fixture(t)
-	info, err := os.Stat(m.manifestPath)
-	if err != nil {
-		t.Fatal(err)
+	handler := m.reloadHandler(func(added, total int, err error) {})
+	request := func(method, host, path string, raw []byte, origin string) *httptest.ResponseRecorder {
+		hash := sha256.Sum256(raw)
+		body, _ := json.Marshal(reloadRequest{SHA256: hex.EncodeToString(hash[:])})
+		r := httptest.NewRequest(method, "http://"+host+path, bytes.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		if origin != "" {
+			r.Header.Set("Origin", origin)
+		}
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
 	}
-	var mu sync.Mutex
-	errorsSeen, successes := 0, 0
-	report := func(added, total int, err error) {
-		mu.Lock()
-		defer mu.Unlock()
-		if err != nil {
-			errorsSeen++
-		} else {
-			successes++
+	if got := request(http.MethodGet, reloadAddress, "/ready", nil, "").Code; got != http.StatusNoContent {
+		t.Fatalf("ready status %d", got)
+	}
+	updated := []byte("build installed by operator")
+	raw := manifestBytes(t, updated)
+	writeManifest(t, m.manifestPath, raw)
+	if hasBuild(m, updated) {
+		t.Fatal("file accepted before reload hook")
+	}
+
+	for _, tc := range []struct {
+		host, origin string
+		raw          []byte
+		status       int
+	}{
+		{"public.example", "", raw, http.StatusForbidden},
+		{reloadAddress, "http://public.example", raw, http.StatusForbidden},
+		{reloadAddress, "", []byte("different file"), http.StatusConflict},
+	} {
+		if got := request(http.MethodPost, tc.host, "/reload", tc.raw, tc.origin).Code; got != tc.status {
+			t.Fatalf("reload status %d, want %d", got, tc.status)
+		}
+		if hasBuild(m, updated) {
+			t.Fatal("rejected hook added a build")
 		}
 	}
-	if err = m.watchManifest(5*time.Millisecond, report); err != nil {
-		t.Fatal(err)
+	invalid := []byte(`{"version":1,"builds":[]}`)
+	writeManifest(t, m.manifestPath, invalid)
+	if got := request(http.MethodPost, reloadAddress, "/reload", invalid, "").Code; got != http.StatusUnprocessableEntity || buildCount(m) != 1 {
+		t.Fatalf("invalid manifest status=%d builds=%d", got, buildCount(m))
 	}
-	if err = m.WatchManifest(report); err == nil {
-		t.Fatal("duplicate watcher")
+	writeManifest(t, m.manifestPath, raw)
+	for _, want := range []int{1, 0} {
+		w := request(http.MethodPost, reloadAddress, "/reload", raw, "")
+		var receipt reloadReceipt
+		if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &receipt) != nil ||
+			receipt.SHA256 != fmt.Sprintf("%x", sha256.Sum256(raw)) || receipt.AddedBuilds != want || receipt.AcceptedBuilds != 2 {
+			t.Fatalf("reload status=%d receipt=%+v", w.Code, receipt)
+		}
 	}
-	// Equal length and preserved timestamps must not suppress a new build.
-	sameLength := append([]byte(nil), old...)
-	sameLength[0] ^= 1
-	writeManifest(t, m.manifestPath, manifestBytes(t, sameLength))
-	if err = os.Chtimes(m.manifestPath, info.ModTime(), info.ModTime()); err != nil {
-		t.Fatal(err)
-	}
-	eventually(t, func() bool { return hasBuild(m, sameLength) })
-	writeManifest(t, m.manifestPath, []byte(`{"version":1`))
-	eventually(t, func() bool { mu.Lock(); defer mu.Unlock(); return errorsSeen > 0 })
-	if buildCount(m) != 2 || !hasBuild(m, old) {
-		t.Fatal("partial upload removed old builds")
-	}
-	// Identical broken bytes are not reparsed/reported every tick.
-	mu.Lock()
-	count := errorsSeen
-	mu.Unlock()
-	time.Sleep(30 * time.Millisecond)
-	mu.Lock()
-	unchanged := errorsSeen == count
-	mu.Unlock()
-	if !unchanged {
-		t.Fatal("invalid file log spam")
-	}
-	third := []byte("atomic replacement")
-	temp := m.manifestPath + ".upload"
-	writeManifest(t, temp, manifestBytes(t, third))
-	if err = os.Rename(temp, m.manifestPath); err != nil {
-		t.Fatal(err)
-	}
-	eventually(t, func() bool { return hasBuild(m, third) })
-	if err = os.Remove(m.manifestPath); err != nil {
-		t.Fatal(err)
-	}
-	eventually(t, func() bool { mu.Lock(); defer mu.Unlock(); return errorsSeen > count })
-	if buildCount(m) != 3 {
-		t.Fatal("missing file cleared approvals")
-	}
-	writeManifest(t, m.manifestPath, manifestBytes(t, third))
-	eventually(t, func() bool { mu.Lock(); defer mu.Unlock(); return successes >= 3 })
-	m.Close()
-	m.Close()
-	select {
-	case <-m.watchDone:
-	case <-time.After(time.Second):
-		t.Fatal("watcher did not stop")
-	}
-	if _, _, err = m.addManifest(manifestBytes(t, []byte("after close"))); err == nil {
-		t.Fatal("closed manager accepted update")
+	if !hasBuild(m, old) || !hasBuild(m, updated) {
+		t.Fatal("accepted builds missing")
 	}
 }
 

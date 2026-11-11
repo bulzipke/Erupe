@@ -342,14 +342,17 @@ func main() {
 			logger.Fatal("ClientIntegrity configuration", zap.Error(e))
 		}
 		defer integrity.Close()
-		if e = integrity.WatchManifest(func(added, total int, err error) {
+		reloadHook, e := integrity.StartReloadHook(func(added, total int, err error) {
 			if err != nil {
 				logger.Warn("ClientIntegrity manifest update rejected; retaining accepted builds", zap.Error(err))
 				return
 			}
 			logger.Info("ClientIntegrity manifest accepted", zap.Int("addedBuilds", added), zap.Int("acceptedBuilds", total))
-		}); e != nil {
-			logger.Fatal("ClientIntegrity manifest watcher", zap.Error(e))
+		})
+		if e != nil {
+			logger.Error("ClientIntegrity reload hook unavailable", zap.Error(e))
+		} else {
+			defer reloadHook.Close()
 		}
 	}
 	// Now start our server(s).

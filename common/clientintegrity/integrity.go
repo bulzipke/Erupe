@@ -78,13 +78,10 @@ type Manager struct {
 	interval, timeout time.Duration
 	closed            bool
 	manifestPath      string
-	manifestHash      [32]byte // Startup contents; watcher state stays local to its goroutine.
-	stopped           chan struct{}
-	watchDone         chan struct{}
 }
 
 func Load(path string, signer *accountprivilege.Signer, interval, timeout time.Duration) (*Manager, error) {
-	if signer == nil || interval < 15*time.Second || interval > 300*time.Second || timeout < 5*time.Second || timeout > 60*time.Second {
+	if signer == nil || interval < 15*time.Second || interval > 600*time.Second || timeout < 5*time.Second || timeout > 60*time.Second {
 		return nil, errors.New("integrity: signing key and bounded interval/timeout required")
 	}
 	raw, err := readManifest(path)
@@ -96,8 +93,7 @@ func Load(path string, signer *accountprivilege.Signer, interval, timeout time.D
 		return nil, err
 	}
 	return &Manager{signer: signer, builds: builds, sessions: make(map[Key]*Lease),
-		interval: interval, timeout: timeout, manifestPath: path,
-		manifestHash: sha256.Sum256(raw), stopped: make(chan struct{})}, nil
+		interval: interval, timeout: timeout, manifestPath: path}, nil
 }
 
 type Lease struct {
@@ -191,7 +187,6 @@ func (m *Manager) Close() {
 		return
 	}
 	m.closed = true
-	close(m.stopped)
 	ls := make([]*Lease, 0, len(m.sessions))
 	for _, l := range m.sessions {
 		ls = append(ls, l)
