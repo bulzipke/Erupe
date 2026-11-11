@@ -68,7 +68,7 @@ button,input{font:inherit}
 }
 .table-wrap{overflow-x:auto}
 #online-content table{min-width:440px}
-.hunter-name.has-diva-beads,.monster-time-name.has-diva-beads{cursor:help;text-decoration:underline dotted var(--accent-soft);text-underline-offset:3px}
+.hunter-name.has-diva-beads{cursor:help;text-decoration:underline dotted var(--accent-soft);text-underline-offset:3px}
 /* Hunter, rank and weapon are compact columns. The channel/status column gets
    the remaining width so the rank does not drift to the far edge of the card. */
 #online-content th:nth-child(1),#online-content td:nth-child(1),
@@ -227,6 +227,8 @@ tbody tr:last-child td{border-bottom:0}
 .monster-time-rank{color:#66716c;font-family:Georgia,"Times New Roman",serif;font-variant-numeric:tabular-nums}
 .monster-time-name,.monster-time-quest{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .monster-time-name{color:var(--text);font-weight:750}
+.monster-time-settings-trigger{display:block;width:100%;overflow:hidden;padding:0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;text-overflow:ellipsis;white-space:nowrap;cursor:help;text-decoration:underline dotted var(--accent-soft);text-underline-offset:3px}
+.monster-time-settings-trigger:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .monster-time-weapon{display:flex;align-items:center;justify-content:center;padding-top:4px !important;padding-bottom:4px !important}
 .monster-time-weapon-icon{display:block;width:26px;height:26px;object-fit:contain}
 .monster-time-weapon-empty{color:#66716c;text-align:center}
@@ -250,20 +252,20 @@ tbody tr:last-child td{border-bottom:0}
 .raviente-participant-trigger{border:0;border-bottom:1px dotted #7f8e87;background:transparent;color:var(--text);cursor:pointer;font-size:inherit;font-weight:750;padding:0 1px;white-space:nowrap}
 .raviente-participant-trigger:hover{color:var(--accent-soft);border-bottom-color:var(--accent-soft)}
 .raviente-participant-trigger:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
-.raviente-participants-popover{
+.raviente-participants-popover,.monster-time-settings-popover{
     position:fixed;
     inset:auto;
-    width:min(360px,calc(100vw - 24px));
+    z-index:10;
     max-height:min(280px,calc(100vh - 24px));
     margin:0;
-    padding:0;
-    overflow:hidden;
     border:1px solid #59635e;
     background:#171e1b;
     color:var(--text);
     box-shadow:0 12px 32px rgba(0,0,0,.52)
 }
-.raviente-participants-popover::backdrop{background:transparent}
+.raviente-participants-popover{width:min(360px,calc(100vw - 24px));padding:0;overflow:hidden}
+.monster-time-settings-popover{width:max-content;max-width:min(320px,calc(100vw - 24px));padding:8px 12px;overflow:auto;overflow-wrap:anywhere;white-space:pre-line;font-size:.73rem;line-height:1.55}
+.raviente-participants-popover::backdrop,.monster-time-settings-popover::backdrop{background:transparent}
 .raviente-participants-title{margin:0;padding:10px 12px;border-bottom:1px solid var(--line);color:var(--accent-soft);font-size:.73rem;font-weight:800}
 .raviente-participant-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));max-height:220px;margin:0;padding:8px 12px;overflow-y:auto;list-style:none;scrollbar-color:#53605a #171e1b}
 .raviente-participant-list li{min-width:0;padding:4px 5px;overflow-wrap:anywhere;color:#d9dfda;font-size:.71rem}
@@ -1439,17 +1441,27 @@ tbody tr:last-child td{border-bottom:0}
         entries.slice(0, 10).forEach(function (entry, index) {
             var row = document.createElement("tr");
             row.appendChild(text("td", "monster-time-rank", String(index + 1)));
-            var hunter = text("td", "monster-time-name", entry.name);
             var settings = entry.clientSettings;
             var description = divaBeadDescription(settings && settings.divaBeads);
             if (settings && settings.featureEnabled === true) {
                 description += (description ? "\n" : "") + "FEATURE 활성";
             }
+            var hunter = text("td", "monster-time-name", description ? "" : entry.name);
             if (description) {
-                hunter.title = description;
-                hunter.className += " has-diva-beads";
-                hunter.setAttribute("tabindex", "0");
-                hunter.setAttribute("aria-label", entry.name + " · " + description.replace("\n", " · "));
+                var trigger = text("button", "monster-time-settings-trigger", entry.name);
+                var popover = text("div", "monster-time-settings-popover", description);
+                popover.id = "hunt-settings-" + monster.key.replace(/[^a-zA-Z0-9_-]/g, "-") + "-" + index;
+                popover.setAttribute("popover", "auto");
+                popover.setAttribute("role", "dialog");
+                popover.setAttribute("aria-label", entry.name + " 기록 정보");
+                popover.tabIndex = 0;
+                trigger.type = "button";
+                trigger.setAttribute("aria-controls", popover.id);
+                trigger.setAttribute("aria-haspopup", "dialog");
+                trigger.setAttribute("aria-expanded", "false");
+                hunter.appendChild(trigger);
+                hunter.appendChild(popover);
+                bindRankingPopover(trigger, popover);
             }
             row.appendChild(hunter);
             row.appendChild(buildMonsterTimeWeaponCell(entry));
@@ -1545,7 +1557,7 @@ tbody tr:last-child td{border-bottom:0}
         });
     }
 
-	function positionRavienteParticipants(popover, trigger) {
+	function positionRankingPopover(popover, trigger) {
 		requestAnimationFrame(function () {
 			if (!popover.isConnected) return;
 			var triggerRect = trigger.getBoundingClientRect();
@@ -1578,7 +1590,7 @@ tbody tr:last-child td{border-bottom:0}
 				else popover.hidden = false;
 			}
 			trigger.setAttribute("aria-expanded", "true");
-			positionRavienteParticipants(popover, trigger);
+			positionRankingPopover(popover, trigger);
 		}
 		function hide() {
 			clearTimeout(closeTimer);

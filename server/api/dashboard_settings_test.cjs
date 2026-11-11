@@ -13,7 +13,7 @@ function section(start, end) {
 const timeCode = section("    function huntTimeLabel(", "\n\tfunction ravienteDurationLabel");
 const divaCode = section("    function divaBeadDescription(", "    function buildOnlineChannelCell(");
 const controlCode = section("    function buildMonsterTimeCard(", "    function renderMonsterTimes(");
-const bindingCode = section("\tfunction positionRavienteParticipants(", "\tfunction buildRavienteRunTable(");
+const bindingCode = section("\tfunction positionRankingPopover(", "\tfunction buildRavienteRunTable(");
 const functions = vm.runInNewContext(timeCode + "\n({huntTimeLabel})");
 test("hunt digits retain native centisecond truncation", () => {
     for (const [frames, want] of [[0,"00:00.00"],[1,"00:00.03"],[2,"00:00.06"],[29,"00:00.96"],[30,"00:01.00"],[1799,"00:59.96"],[1800,"01:00.00"],[8051,"04:28.36"],[108000,"60:00.00"]]) {
@@ -104,7 +104,7 @@ test("Raviente participant popup stays in the narrow viewport", () => {
     assert.equal(popover.style.top, "782px");
     assert.equal(popover.children[1].children[0].textContent, "Lab0r");
 });
-test("hunt names remain plain text for all client settings and keep time and quest labels", () => {
+test("hunt names remain plain text when settings have no displayable detail", () => {
     const h = fixture(true);
     const entry = {name: "<img src=x>", frames: 8051, questName: "테스트 퀘스트"};
     const settings = [undefined, null, {}, {version: 2}, {version: 1, hpView: true}, {version: 1, hpViewUsed: true},
@@ -137,26 +137,47 @@ test("historical hunt names keep their own bead tooltip without a live activatio
         {name: "기주 없음", frames: 1000, clientSettings: {version: 1}},
     ]);
     const rows = card.children[1].children[0].children[0].children;
-    const hunter = rows[0].cells[1];
-    assert.equal(hunter.textContent, "<img src=x>");
-    assert.equal(hunter.children.length, 0);
-    assert.equal(hunter.title, "사용 기주: 결집1, 봉뢰2, 가호1, 단력1");
-    assert.equal(hunter.attrs.tabindex, "0");
-    assert.equal(rows[1].cells[1].title, "");
+    const [trigger, popover] = rows[0].cells[1].children;
+    assert.equal(trigger.textContent, "<img src=x>");
+    assert.equal(trigger.children.length, 0);
+    assert.equal(popover.textContent, "사용 기주: 결집1, 봉뢰2, 가호1, 단력1");
+    assert.equal(trigger.getAttribute("aria-controls"), popover.id);
+    assert.equal(rows[1].cells[1].children.length, 0);
 });
 
-test("hunt FEATURE tooltip follows beads and only appears when ON", () => {
-    const h = fixture(true);
-    const divaBeads = {round: 5, beads: ["결집"], levels: [1]};
-    const card = h.context.buildMonsterTimeCard({key: "6:g:normal", name: "몬스터"}, [
-        {name: "둘 다", frames: 900, clientSettings: {divaBeads, featureEnabled: true}},
-        {name: "FEATURE", frames: 950, clientSettings: {featureEnabled: true}},
-        {name: "기주만", frames: 1000, clientSettings: {divaBeads, featureEnabled: false}},
-        {name: "OFF", frames: 1050, clientSettings: {featureEnabled: false}},
-    ]);
-    const rows = card.children[1].children[0].children[0].children;
-    assert.equal(rows[0].cells[1].title, "사용 기주: 결집1\nFEATURE 활성");
-    assert.equal(rows[1].cells[1].title, "FEATURE 활성");
-    assert.equal(rows[2].cells[1].title, "사용 기주: 결집1");
-    assert.equal(rows[3].cells[1].title, "");
-});
+for (const nativePopover of [true, false]) {
+    test(`hunt settings open on hover, focus or tap (${nativePopover ? "native" : "fallback"})`, () => {
+        const h = fixture(nativePopover);
+        const divaBeads = {round: 5, beads: ["결집"], levels: [1]};
+        const card = h.context.buildMonsterTimeCard({key: "142:g:zenith", name: "천이종 가스라바즈라"}, [
+            {name: "Lab0r", frames: 30415, clientSettings: {featureEnabled: true}},
+            {name: "둘 다", frames: 31000, clientSettings: {divaBeads, featureEnabled: true}},
+            {name: "기주만", frames: 32000, clientSettings: {divaBeads, featureEnabled: false}},
+            {name: "OFF", frames: 33000, clientSettings: {featureEnabled: false}},
+        ]);
+        const rows = card.children[1].children[0].children[0].children;
+        const [trigger, popover] = rows[0].cells[1].children;
+        assert.equal(trigger.type, "button");
+        assert.equal(trigger.title, "");
+        assert.equal(trigger.getAttribute("aria-controls"), popover.id);
+        assert.equal(popover.textContent, "FEATURE 활성");
+        assert.equal(rows[1].cells[1].children[1].textContent, "사용 기주: 결집1\nFEATURE 활성");
+        assert.equal(rows[2].cells[1].children[1].textContent, "사용 기주: 결집1");
+        assert.equal(rows[3].cells[1].children.length, 0);
+
+        assert.equal(h.isOpen(popover), false);
+        trigger.fire("mouseenter");
+        assert.equal(h.isOpen(popover), true);
+        assert.equal(trigger.getAttribute("aria-expanded"), "true");
+        trigger.fire("mouseleave"); h.flush();
+        assert.equal(h.isOpen(popover), false);
+        trigger.fire("focus");
+        assert.equal(h.isOpen(popover), true);
+        trigger.fire("blur"); h.flush();
+        assert.equal(h.isOpen(popover), false);
+        trigger.fire("click");
+        assert.equal(h.isOpen(popover), true);
+        trigger.fire("click");
+        assert.equal(h.isOpen(popover), false);
+    });
+}
