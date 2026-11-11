@@ -89,6 +89,11 @@ func handleMsgSysLogin(s *Session, p mhfpacket.MHFPacket) {
 		}
 	}
 
+	// The side connection must answer a fresh server challenge before gameplay.
+	if !s.attachClientIntegrity(pkt.LoginTokenNumber, pkt.CharID0, pkt.LoginTokenString) {
+		return
+	}
+
 	// Existing characters already have a server-authoritative database name.
 	// Validate it before binding/broadcasting the channel session so a modified
 	// client cannot skip MSG_MHF_LOADDATA and operate with a legacy invalid name.

@@ -7,6 +7,8 @@ import (
 	"io"
 	"net"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type privilegeSession struct {
@@ -46,6 +48,14 @@ func (s *Server) handleAccountPrivilege(conn net.Conn, header []byte) {
 		return
 	}
 	response := accountprivilege.Response(r, now, session.Newcomer.Time, session.Returning.Time, session.Token)
+	// Append this server's identity signature when configured. A client built to
+	// require it rejects an unsigned (or wrongly signed) reply as a foreign server.
+	if appendix, err := s.privilegeSigner.Appendix(response, r); err != nil {
+		s.logger.Error("Account privilege: failed to sign reply", zap.Error(err))
+		return
+	} else if appendix != nil {
+		response = append(response, appendix...)
+	}
 	for len(response) > 0 {
 		n, err := conn.Write(response)
 		if err != nil || n == 0 {

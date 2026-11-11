@@ -154,6 +154,8 @@ type Session struct {
 	activeQuestID        atomic.Uint32
 	activeQuestStart     atomic.Int64 // unix seconds, 0 when not in a quest
 	activeQuestName      atomic.Value // string
+	integrityMu          sync.Mutex
+	integrityRelease     func()
 	closeOnce            sync.Once
 	logoutOnce           sync.Once
 	lifecycleMu          sync.Mutex
@@ -596,8 +598,15 @@ func (s *Session) logMessage(opcode uint16, data []byte, sender string, recipien
 }
 
 func (s *Session) markClosed() {
-	s.dailyCoinsClosedAt.CompareAndSwap(0, time.Now().UnixNano())
 	s.closed.Store(true)
+	s.integrityMu.Lock()
+	release := s.integrityRelease
+	s.integrityRelease = nil
+	s.integrityMu.Unlock()
+	if release != nil {
+		release()
+	}
+	s.dailyCoinsClosedAt.CompareAndSwap(0, time.Now().UnixNano())
 	if s.done != nil {
 		s.closeOnce.Do(func() {
 			close(s.done)

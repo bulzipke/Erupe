@@ -2,6 +2,7 @@ package entranceserver
 
 import (
 	"encoding/hex"
+	"erupe-ce/common/clientintegrity"
 	"fmt"
 	"io"
 	"net"
@@ -20,18 +21,22 @@ import (
 
 // Server is a MHF entrance server.
 type Server struct {
+	integrity *clientintegrity.Manager
 	sync.Mutex
-	logger         *zap.Logger
-	erupeConfig    *cfg.Config
-	serverRepo     EntranceServerRepo
-	sessionRepo    EntranceSessionRepo
-	listener       net.Listener
-	isShuttingDown bool
-	profileLimits  profileLimits
+	logger               *zap.Logger
+	erupeConfig          *cfg.Config
+	serverRepo           EntranceServerRepo
+	sessionRepo          EntranceSessionRepo
+	listener             net.Listener
+	isShuttingDown       bool
+	profileLimits        profileLimits
+	privilegeSigner      *accountprivilege.Signer
+	privilegeSignerError error
 }
 
 // Config struct allows configuring the server.
 type Config struct {
+	Integrity   *clientintegrity.Manager
 	Logger      *zap.Logger
 	DB          *sqlx.DB
 	ErupeConfig *cfg.Config
@@ -40,6 +45,7 @@ type Config struct {
 // NewServer creates a new Server type.
 func NewServer(config *Config) *Server {
 	s := &Server{
+		integrity:   config.Integrity,
 		logger:      config.Logger,
 		erupeConfig: config.ErupeConfig,
 	}
@@ -47,11 +53,23 @@ func NewServer(config *Config) *Server {
 		s.serverRepo = NewEntranceServerRepository(config.DB)
 		s.sessionRepo = NewEntranceSessionRepository(config.DB)
 	}
+	if config.ErupeConfig != nil {
+		s.privilegeSigner, s.privilegeSignerError = accountprivilege.LoadSigner(
+			config.ErupeConfig.AccountPrivilege.SigningKeyPEM, config.ErupeConfig.AccountPrivilege.SigningKeyPEMFile,
+			config.ErupeConfig.AccountPrivilege.SigningKeyID)
+	}
+
 	return s
 }
 
 // Start starts the server in a new goroutine.
 func (s *Server) Start() error {
+	if s.privilegeSignerError != nil {
+		return fmt.Errorf("server identity key: %w", s.privilegeSignerError)
+	}
+	if s.erupeConfig.ClientIntegrity.Enabled && (s.integrity == nil || s.privilegeSigner == nil) {
+		return fmt.Errorf("client integrity runtime/signing key missing")
+	}
 
 	l, err := net.Listen("tcp", fmt.Sprintf(":%d", s.erupeConfig.Entrance.Port))
 	if err != nil {
@@ -137,6 +155,10 @@ func (s *Server) handleEntranceServerConnection(conn net.Conn) {
 		return
 	}
 
+	if string(nullInit) == clientintegrity.HelloMagic {
+		s.handleClientIntegrity(conn, nullInit)
+		return
+	}
 	if string(nullInit) == accountprivilege.RequestMagic {
 		s.handleAccountPrivilege(conn, nullInit)
 		return

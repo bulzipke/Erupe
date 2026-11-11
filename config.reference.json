@@ -1,4 +1,14 @@
 {
+  "AccountPrivilege": {
+    "SigningKeyPEMFile": "server_identity_private.pem",
+    "SigningKeyID": 1
+  },
+  "ClientIntegrity": {
+    "Enabled": true,
+    "ManifestFile": "client_integrity.json",
+    "IntervalSeconds": 60,
+    "TimeoutSeconds": 15
+  },
   "Host": "127.0.0.1",
   "BinPath": "bin",
   "Language": "en",

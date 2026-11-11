@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"erupe-ce/common/accountprivilege"
+	"erupe-ce/common/clientintegrity"
 	"erupe-ce/common/gametime"
 	"erupe-ce/common/logging"
 	cfg "erupe-ce/config"
@@ -325,6 +327,31 @@ func main() {
 		return
 	}
 
+	// Validate immutable allowlist and identity key BEFORE opening any listener.
+	var integrity *clientintegrity.Manager
+	if config.ClientIntegrity.Enabled {
+		if !config.Entrance.Enabled || config.DebugOptions.DisableTokenCheck {
+			logger.Fatal("ClientIntegrity requires entrance and authenticated tokens")
+		}
+		signer, e := accountprivilege.LoadSigner(config.AccountPrivilege.SigningKeyPEM, config.AccountPrivilege.SigningKeyPEMFile, config.AccountPrivilege.SigningKeyID)
+		if e != nil {
+			logger.Fatal("ClientIntegrity identity key", zap.Error(e))
+		}
+		integrity, e = clientintegrity.Load(config.ClientIntegrity.ManifestFile, signer, time.Duration(config.ClientIntegrity.IntervalSeconds)*time.Second, time.Duration(config.ClientIntegrity.TimeoutSeconds)*time.Second)
+		if e != nil {
+			logger.Fatal("ClientIntegrity configuration", zap.Error(e))
+		}
+		defer integrity.Close()
+		if e = integrity.WatchManifest(func(added, total int, err error) {
+			if err != nil {
+				logger.Warn("ClientIntegrity manifest update rejected; retaining accepted builds", zap.Error(err))
+				return
+			}
+			logger.Info("ClientIntegrity manifest accepted", zap.Int("addedBuilds", added), zap.Int("acceptedBuilds", total))
+		}); e != nil {
+			logger.Fatal("ClientIntegrity manifest watcher", zap.Error(e))
+		}
+	}
 	// Now start our server(s).
 
 	// Entrance server.
@@ -333,6 +360,7 @@ func main() {
 	if config.Entrance.Enabled {
 		entranceServer = entranceserver.NewServer(
 			&entranceserver.Config{
+				Integrity:   integrity,
 				Logger:      logger.Named("entrance"),
 				ErupeConfig: config,
 				DB:          db,
@@ -428,6 +456,7 @@ func main() {
 					collabRotation = channelserver.NewCollabRotation()
 				}
 				c := channelserver.NewServer(&channelserver.Config{
+					Integrity:      integrity,
 					ID:             uint16(sid),
 					Logger:         logger.Named("channel-" + fmt.Sprint(count)),
 					ErupeConfig:    config,

@@ -134,17 +134,38 @@ type Config struct {
 	Screenshots               ScreenshotsOptions
 	Capture                   CaptureOptions
 
-	DebugOptions    DebugOptions
-	GameplayOptions GameplayOptions
-	Discord         Discord
-	Commands        []Command
-	Courses         []Course
-	Database        Database
-	SecurityAudit   SecurityAudit
-	Sign            Sign
-	API             API
-	Channel         Channel
-	Entrance        Entrance
+	DebugOptions     DebugOptions
+	GameplayOptions  GameplayOptions
+	Discord          Discord
+	Commands         []Command
+	Courses          []Course
+	Database         Database
+	SecurityAudit    SecurityAudit
+	Sign             Sign
+	AccountPrivilege AccountPrivilege
+	ClientIntegrity  ClientIntegrity
+	API              API
+	Channel          Channel
+	Entrance         Entrance
+}
+
+// AccountPrivilege configures the startup eligibility exchange on the entrance
+// port. SigningKeyPEM is this server's identity key (ECDSA P-256 PKCS#8/SEC1
+// PEM). When set, each reply is signed so the paired client can confirm it
+// reached this server and not another. Empty disables signing; a client built
+// to require it will then treat every server as foreign, so keep the private
+// key here and only the public key in the client build.
+type ClientIntegrity struct {
+	Enabled         bool
+	ManifestFile    string
+	IntervalSeconds int
+	TimeoutSeconds  int
+}
+
+type AccountPrivilege struct {
+	SigningKeyPEM     string // Inline PEM private key. Prefer SigningKeyPEMFile to keep it out of the config.
+	SigningKeyPEMFile string // Path to a PEM private key file. Used when SigningKeyPEM is empty.
+	SigningKeyID      uint8  // Advertised key id, for rotation. Default 1.
 }
 
 // SecurityAudit controls retention for append-only security observations.
@@ -728,6 +749,15 @@ func registerDefaults() {
 	viper.SetDefault("Sign.Enabled", true)
 	viper.SetDefault("Sign.Port", 53312)
 	viper.SetDefault("Sign.SessionTokenExpirySeconds", 7*24*60*60)
+
+	// Account-privilege startup exchange (server-identity signature)
+	viper.SetDefault("AccountPrivilege.SigningKeyPEM", "")
+	viper.SetDefault("AccountPrivilege.SigningKeyPEMFile", "")
+	viper.SetDefault("AccountPrivilege.SigningKeyID", 1)
+	viper.SetDefault("ClientIntegrity.Enabled", true)
+	viper.SetDefault("ClientIntegrity.ManifestFile", "client_integrity.json")
+	viper.SetDefault("ClientIntegrity.IntervalSeconds", 60)
+	viper.SetDefault("ClientIntegrity.TimeoutSeconds", 15)
 
 	// Security audit log
 	viper.SetDefault("SecurityAudit.RetentionDays", 90)

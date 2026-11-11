@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"erupe-ce/common/clientintegrity"
 	"fmt"
 	"net"
 	"os"
@@ -28,6 +29,7 @@ import (
 
 // Config struct allows configuring the server.
 type Config struct {
+	Integrity      *clientintegrity.Manager
 	ID             uint16
 	Logger         *zap.Logger
 	DB             *sqlx.DB
@@ -65,6 +67,7 @@ type Config struct {
 // Self-contained stores (userBinary, minidata, questCache) manage their
 // own locks internally and may be acquired at any point.
 type Server struct {
+	integrity *clientintegrity.Manager
 	sync.Mutex
 	Registry           ChannelRegistry
 	ID                 uint16
@@ -204,6 +207,7 @@ func (s *Server) configureChannelContent(config *Config) {
 // NewServer creates a new Server type.
 func NewServer(config *Config) *Server {
 	s := &Server{
+		integrity:      config.Integrity,
 		ID:             config.ID,
 		logger:         config.Logger,
 		db:             config.DB,
@@ -320,6 +324,9 @@ func NewServer(config *Config) *Server {
 
 // Start starts the server in a new goroutine.
 func (s *Server) Start() error {
+	if s.erupeConfig.ClientIntegrity.Enabled && (s.integrity == nil || s.erupeConfig.DebugOptions.DisableTokenCheck) {
+		return fmt.Errorf("client integrity runtime/authentication missing")
+	}
 	if err := s.validateCommonPublicationBinding(); err != nil {
 		return err
 	}
