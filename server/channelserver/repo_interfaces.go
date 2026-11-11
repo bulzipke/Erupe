@@ -114,6 +114,7 @@ type CharacterRepo interface {
 	AdjustInt(charID uint32, column string, delta int) (int, error)
 	SpendInt(charID uint32, column string, amount int) (int, error)
 	GetName(charID uint32) (string, error)
+	ListFriends(charID uint32) ([]FriendListEntry, error)
 	GetUserID(charID uint32) (uint32, error)
 	UpdateLastLogin(charID uint32, timestamp int64) error
 	UpdateTimePlayed(charID uint32, timePlayed int) error
@@ -216,6 +217,10 @@ type GuildRepo interface {
 	LeaveAlliance(allianceID, guildID, actorCharID uint32) error
 	KickGuildFromAlliance(allianceID, guildID, actorCharID uint32) error
 	SetAllianceRecruiting(allianceID uint32, recruiting bool) error
+	ApplyToAlliance(allianceID, guildID, actorCharID uint32) error
+	DecideAllianceApplication(allianceID, parentGuildID, applicantGuildID, actorCharID uint32, accept bool) error
+	GetPendingAllianceID(guildID uint32) (uint32, error)
+	ListAllianceApplicants(allianceID uint32) ([]Guild, error)
 	ListAdventures(guildID uint32) ([]*GuildAdventure, error)
 	CreateAdventure(guildID, destination uint32, depart, returnTime int64) error
 	CreateAdventureForGuild(guildID, actorCharID, destination uint32, depart, returnTime int64) error

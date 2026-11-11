@@ -13,9 +13,12 @@ type OperateJointAction uint8
 
 const (
 	OPERATE_JOINT_DISBAND = 0x01
-	OPERATE_JOINT_LEAVE   = 0x03
-	OPERATE_JOINT_ALLOW   = 0x06
-	OPERATE_JOINT_DENY    = 0x07
+	OPERATE_JOINT_APPLY   = 0x02
+	OPERATE_JOINT_LEAVE   = 0x03 // Also withdraws a pending application.
+	OPERATE_JOINT_DENY    = 0x04
+	OPERATE_JOINT_ALLOW   = 0x05
+	OPERATE_JOINT_ACCEPT  = 0x07
+	OPERATE_JOINT_REJECT  = 0x08
 	OPERATE_JOINT_KICK    = 0x09
 )
 
@@ -43,7 +46,7 @@ func (m *MsgMhfOperateJoint) Parse(bf *byteframe.ByteFrame, ctx *clientctx.Clien
 	dataLen := uint(bf.ReadUint8())
 	m.Data1 = byteframe.NewByteFrameFromBytes(bf.ReadBytes(4))
 	m.Data2 = byteframe.NewByteFrameFromBytes(bf.ReadBytes(dataLen))
-	return nil
+	return bf.Err()
 }
 
 // Build builds a binary packet from the current data.

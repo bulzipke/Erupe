@@ -222,10 +222,12 @@ func (m *mockCharacterRepo) GetName(_ uint32) (string, error) {
 	}
 	return "TestChar", nil
 }
-func (m *mockCharacterRepo) GetUserID(_ uint32) (uint32, error)            { return 1, nil }
-func (m *mockCharacterRepo) UpdateLastLogin(_ uint32, _ int64) error       { return nil }
-func (m *mockCharacterRepo) UpdateTimePlayed(_ uint32, _ int) error        { return nil }
-func (m *mockCharacterRepo) GetCharIDsByUserID(_ uint32) ([]uint32, error) { return nil, nil }
+
+func (m *mockCharacterRepo) ListFriends(_ uint32) ([]FriendListEntry, error) { return nil, nil }
+func (m *mockCharacterRepo) GetUserID(_ uint32) (uint32, error)              { return 1, nil }
+func (m *mockCharacterRepo) UpdateLastLogin(_ uint32, _ int64) error         { return nil }
+func (m *mockCharacterRepo) UpdateTimePlayed(_ uint32, _ int) error          { return nil }
+func (m *mockCharacterRepo) GetCharIDsByUserID(_ uint32) ([]uint32, error)   { return nil, nil }
 func (m *mockCharacterRepo) SaveBool(_ uint32, col string, v bool) error {
 	m.bools[col] = v
 	return nil
@@ -681,6 +683,14 @@ func (m *mockGuildRepo) SetAllianceRecruiting(_ uint32, recruiting bool) error {
 	m.allianceRecruitingSet = &recruiting
 	return m.setAllianceRecruitErr
 }
+
+func (m *mockGuildRepo) ApplyToAlliance(_, _, _ uint32) error { return nil }
+
+func (m *mockGuildRepo) DecideAllianceApplication(_, _, _, _ uint32, _ bool) error { return nil }
+
+func (m *mockGuildRepo) GetPendingAllianceID(_ uint32) (uint32, error) { return 0, nil }
+
+func (m *mockGuildRepo) ListAllianceApplicants(_ uint32) ([]Guild, error) { return nil, nil }
 
 func (m *mockGuildRepo) RemoveGuildFromAlliance(allyID, guildID, sub1, sub2 uint32) error {
 	m.removedAllyArgs = []uint32{allyID, guildID, sub1, sub2}

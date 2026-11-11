@@ -100,6 +100,8 @@ func handleMsgMhfRegistGuildTresure(s *Session, p mhfpacket.MHFPacket) {
 	}
 	if err := s.server.guildRepo.CreateHuntForGuild(membership.GuildID, s.charID, destination, level, huntData.Data(), catsUsed); err != nil {
 		s.logger.Error("Failed to register guild treasure hunt", zap.Error(err))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }

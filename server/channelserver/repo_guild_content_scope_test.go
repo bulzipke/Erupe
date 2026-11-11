@@ -92,3 +92,52 @@ func TestGuildContentMutationsRejectAnotherGuild(t *testing.T) {
 		t.Fatal("updated another guild's weekly bonus")
 	}
 }
+
+func TestGuildContentMutationsAcceptOwnGuild(t *testing.T) {
+	db := SetupTestDB(t)
+	defer TeardownTestDB(t, db)
+
+	userID := CreateTestUser(t, db, "guild_content_owner")
+	charID := CreateTestCharacter(t, db, userID, "ContentOwner")
+	guildID := CreateTestGuild(t, db, charID, "GuildContent")
+	repo := NewGuildRepository(db)
+
+	if err := repo.CreateAllianceForMember("ContentAlliance", guildID, charID); err != nil {
+		t.Fatalf("create alliance: %v", err)
+	}
+	if err := repo.CreateAllianceForMember("DuplicateAlliance", guildID, charID); err == nil {
+		t.Fatal("created a second alliance for the same guild")
+	}
+	guild, err := repo.GetByID(guildID)
+	if err != nil || guild == nil || guild.AllianceID == 0 {
+		t.Fatalf("load guild with alliance: %+v, %v", guild, err)
+	}
+	alliance, err := repo.GetAllianceByID(guild.AllianceID)
+	if err != nil || alliance == nil || alliance.ParentGuildID != guildID || alliance.SubGuild1ID != 0 || alliance.SubGuild2ID != 0 {
+		t.Fatalf("load alliance: %+v, %v", alliance, err)
+	}
+
+	if err := repo.CreateHuntForGuild(guildID, charID, 1, 2, []byte{1}, ""); err != nil {
+		t.Fatalf("create hunt: %v", err)
+	}
+	hunt, err := repo.GetPendingHunt(charID)
+	if err != nil || hunt == nil || hunt.HostID != charID {
+		t.Fatalf("load pending hunt: %+v, %v", hunt, err)
+	}
+	if err := repo.AcquireHuntForGuild(guildID, hunt.HuntID, charID); err != nil {
+		t.Fatalf("acquire hunt: %v", err)
+	}
+	if err := repo.RegisterHuntReportForGuild(guildID, hunt.HuntID, charID); err != nil {
+		t.Fatalf("register hunt report: %v", err)
+	}
+	if err := repo.CollectHuntForGuild(guildID, hunt.HuntID, charID); err != nil {
+		t.Fatalf("collect hunt: %v", err)
+	}
+	if err := repo.ClaimHuntRewardForGuild(guildID, hunt.HuntID, charID); err != nil {
+		t.Fatalf("claim hunt reward: %v", err)
+	}
+	hunts, err := repo.ListGuildHunts(guildID, charID)
+	if err != nil || len(hunts) != 1 || !hunts[0].Collected || !hunts[0].Claimed {
+		t.Fatalf("load collected hunt: %+v, %v", hunts, err)
+	}
+}

@@ -1,11 +1,13 @@
 package channelserver
 
 import (
-	"erupe-ce/common/byteframe"
-	ps "erupe-ce/common/pascalstring"
+	"errors"
 	"time"
 
+	"erupe-ce/common/byteframe"
+	ps "erupe-ce/common/pascalstring"
 	"erupe-ce/network/mhfpacket"
+
 	"go.uber.org/zap"
 )
 
@@ -26,6 +28,17 @@ type GuildAlliance struct {
 	SubGuild2   Guild
 }
 
+func (a *GuildAlliance) guildCount() uint8 {
+	count := uint8(1)
+	if a.SubGuild1ID > 0 {
+		count++
+	}
+	if a.SubGuild2ID > 0 {
+		count++
+	}
+	return count
+}
+
 func handleMsgMhfCreateJoint(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfCreateJoint)
 	if !s.validateNameInput("guild_alliance", pkt.Name) {
@@ -33,7 +46,7 @@ func handleMsgMhfCreateJoint(s *Session, p mhfpacket.MHFPacket) {
 		return
 	}
 	membership, err := s.server.guildRepo.GetCharacterMembership(s.charID)
-	if err != nil || membership == nil || membership.CharID != s.charID || membership.IsApplicant ||
+	if err != nil || membership == nil || membership.CharID != s.charID || membership.IsApplicant || !membership.IsLeader ||
 		membership.GuildID != pkt.GuildID {
 		if err != nil {
 			s.logger.Error("Failed to get guild membership for alliance creation", zap.Error(err))
@@ -72,6 +85,24 @@ func handleMsgMhfOperateJoint(s *Session, p mhfpacket.MHFPacket) {
 	}
 
 	switch pkt.Action {
+	case mhfpacket.OPERATE_JOINT_APPLY:
+		if guild.Rank(s.server.erupeConfig.RealClientMode) == 0 {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+		ackAllianceOperation(s, pkt, s.server.guildRepo.ApplyToAlliance(alliance.ID, guild.ID, s.charID))
+	case mhfpacket.OPERATE_JOINT_ACCEPT, mhfpacket.OPERATE_JOINT_REJECT:
+		if pkt.Data1 == nil {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+		applicantGuildID := pkt.Data1.ReadUint32()
+		if pkt.Data1.Err() != nil || applicantGuildID == 0 {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+		accept := pkt.Action == mhfpacket.OPERATE_JOINT_ACCEPT
+		ackAllianceOperation(s, pkt, s.server.guildRepo.DecideAllianceApplication(alliance.ID, guild.ID, applicantGuildID, s.charID, accept))
 	case mhfpacket.OPERATE_JOINT_DISBAND:
 		if guild.LeaderCharID == s.charID && alliance.ParentGuildID == guild.ID {
 			if err := s.server.guildRepo.DeleteAlliance(alliance.ID); err != nil {
@@ -90,12 +121,7 @@ func handleMsgMhfOperateJoint(s *Session, p mhfpacket.MHFPacket) {
 		membership, memberErr := s.server.guildRepo.GetCharacterMembership(s.charID)
 		if memberErr == nil && membership != nil && membership.CharID == s.charID && !membership.IsApplicant &&
 			membership.IsLeader && membership.GuildID == guild.ID && guild.LeaderCharID == s.charID {
-			if err := s.server.guildRepo.LeaveAlliance(alliance.ID, membership.GuildID, s.charID); err != nil {
-				s.logger.Error("Failed to remove guild from alliance", zap.Error(err))
-			}
-			// NOTE: Alliance join requests are not yet implemented (no DB table exists),
-			// so there are no pending applications to clean up on leave.
-			doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+			ackAllianceOperation(s, pkt, s.server.guildRepo.LeaveAlliance(alliance.ID, membership.GuildID, s.charID))
 		} else {
 			s.logger.Warn(
 				"Non-owner of guild attempted alliance leave",
@@ -103,21 +129,10 @@ func handleMsgMhfOperateJoint(s *Session, p mhfpacket.MHFPacket) {
 			)
 			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		}
-	case mhfpacket.OPERATE_JOINT_ALLOW:
+	case mhfpacket.OPERATE_JOINT_ALLOW, mhfpacket.OPERATE_JOINT_DENY:
 		if guild.LeaderCharID == s.charID && alliance.ParentGuildID == guild.ID {
-			if err := s.server.guildRepo.SetAllianceRecruiting(alliance.ID, true); err != nil {
-				s.logger.Error("Failed to allow alliance applications", zap.Error(err))
-			}
-			doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
-		} else {
-			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
-		}
-	case mhfpacket.OPERATE_JOINT_DENY:
-		if guild.LeaderCharID == s.charID && alliance.ParentGuildID == guild.ID {
-			if err := s.server.guildRepo.SetAllianceRecruiting(alliance.ID, false); err != nil {
-				s.logger.Error("Failed to deny alliance applications", zap.Error(err))
-			}
-			doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+			recruiting := pkt.Action == mhfpacket.OPERATE_JOINT_ALLOW
+			ackAllianceOperation(s, pkt, s.server.guildRepo.SetAllianceRecruiting(alliance.ID, recruiting))
 		} else {
 			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		}
@@ -140,8 +155,19 @@ func handleMsgMhfOperateJoint(s *Session, p mhfpacket.MHFPacket) {
 		}
 	default:
 		s.logger.Error("unhandled operate joint action", zap.Uint8("action", uint8(pkt.Action)))
-		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 	}
+}
+
+func ackAllianceOperation(s *Session, pkt *mhfpacket.MsgMhfOperateJoint, err error) {
+	if err == nil {
+		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+		return
+	}
+	if !errors.Is(err, errGuildScopedMutationRejected) {
+		s.logger.Error("Alliance operation failed", zap.Error(err), zap.Uint8("action", uint8(pkt.Action)))
+	}
+	doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 }
 
 func handleMsgMhfInfoJoint(s *Session, p mhfpacket.MHFPacket) {
@@ -155,17 +181,10 @@ func handleMsgMhfInfoJoint(s *Session, p mhfpacket.MHFPacket) {
 	bf.WriteUint32(alliance.ID)
 	bf.WriteUint32(uint32(alliance.CreatedAt.Unix()))
 	bf.WriteUint16(alliance.TotalMembers)
-	bf.WriteUint16(0x0000) // Unk
+	bf.WriteUint8(0)
+	bf.WriteBool(!alliance.Recruiting)
 	ps.Uint16(bf, alliance.Name, true)
-	if alliance.SubGuild1ID > 0 {
-		if alliance.SubGuild2ID > 0 {
-			bf.WriteUint8(3)
-		} else {
-			bf.WriteUint8(2)
-		}
-	} else {
-		bf.WriteUint8(1)
-	}
+	bf.WriteUint8(alliance.guildCount())
 	bf.WriteUint32(alliance.ParentGuildID)
 	bf.WriteUint32(alliance.ParentGuild.LeaderCharID)
 	bf.WriteUint16(alliance.ParentGuild.Rank(s.server.erupeConfig.RealClientMode))

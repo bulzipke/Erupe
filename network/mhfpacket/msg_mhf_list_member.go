@@ -10,9 +10,12 @@ import (
 
 // MsgMhfListMember represents the MSG_MHF_LIST_MEMBER
 type MsgMhfListMember struct {
-	AckHandle uint32
-	Unk0      uint8 // Hardcoded 01 in the JP client.
+	AckHandle      uint32
+	Unk0           uint8 // Hardcoded 01 in the JP client.
+	IncludeFriends bool  // Opt-in marker from the vorbis friend-list hook.
 }
+
+const listMemberFriendsMarker = 0x46
 
 // Opcode returns the ID associated with this packet type.
 func (m *MsgMhfListMember) Opcode() network.PacketID {
@@ -23,8 +26,9 @@ func (m *MsgMhfListMember) Opcode() network.PacketID {
 func (m *MsgMhfListMember) Parse(bf *byteframe.ByteFrame, ctx *clientctx.ClientContext) error {
 	m.AckHandle = bf.ReadUint32()
 	m.Unk0 = bf.ReadUint8()
-	bf.ReadUint8() // Zeroed
-	return nil
+	marker := bf.ReadUint8()
+	m.IncludeFriends = m.Unk0 == 1 && marker == listMemberFriendsMarker
+	return bf.Err()
 }
 
 // Build builds a binary packet from the current data.

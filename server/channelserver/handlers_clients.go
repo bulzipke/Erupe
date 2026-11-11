@@ -1,6 +1,8 @@
 package channelserver
 
 import (
+	"io"
+
 	"erupe-ce/common/byteframe"
 	"erupe-ce/common/stringsupport"
 	"erupe-ce/network/mhfpacket"
@@ -77,6 +79,23 @@ func handleMsgMhfListMember(s *Session, p mhfpacket.MHFPacket) {
 	}
 	_, _ = resp.Seek(0, 0)
 	resp.WriteUint32(count)
+
+	// Preserve the entire native blacklist response. Updated vorbis builds
+	// opt in to a versioned trailer on the same authenticated login request.
+	if pkt.IncludeFriends && s.charID != 0 {
+		friends, err := s.server.charRepo.ListFriends(s.charID)
+		if err != nil {
+			s.logger.Warn("Failed to load friends list", zap.Error(err))
+		} else {
+			_, _ = resp.Seek(0, io.SeekEnd)
+			resp.WriteBytes([]byte("FRL1"))
+			resp.WriteUint32(uint32(len(friends)))
+			for _, friend := range friends {
+				resp.WriteUint32(friend.ID)
+				resp.WriteBytes(stringsupport.PaddedString(friend.Name, 16, true))
+			}
+		}
+	}
 	doAckBufSucceed(s, pkt.AckHandle, resp.Data())
 }
 

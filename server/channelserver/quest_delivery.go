@@ -285,5 +285,10 @@ func (s *Session) deliveryFileAllowed(filename string, now time.Time) bool {
 	// A normal quest filename is decimal ID plus d/n and a variant number.
 	// Scenario and other file formats retain their existing dedicated handlers.
 	qid, ok := deliveryQuestIDFromFilename(strings.TrimSpace(filename))
-	return !ok || s.allowsQuestDelivery(qid, now)
+	if !ok || s.allowsQuestDelivery(qid, now) {
+		return true
+	}
+	departure := s.questDeliveryDeparture.Load()
+	return departure != nil && departure.receipt != nil &&
+		s.server.questDelivery.AllowsCaravan(qid, departure.questID, departure.receipt.caravanCourseID)
 }

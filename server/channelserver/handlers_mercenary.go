@@ -451,9 +451,9 @@ type Airou struct {
 
 func getGuildAirouList(s *Session) []Airou {
 	var guildCats []Airou
-	bannedCats := make(map[uint32]int)
+	bannedCats := make(map[uint32]struct{})
 	guild, err := s.server.guildRepo.GetByCharID(s.charID)
-	if err != nil {
+	if err != nil || guild == nil {
 		return guildCats
 	}
 	usages, err := s.server.mercenaryRepo.GetGuildHuntCatsUsed(s.charID)
@@ -462,10 +462,12 @@ func getGuildAirouList(s *Session) []Airou {
 		return guildCats
 	}
 
+	now := TimeAdjusted()
+	cooldown := time.Duration(s.server.erupeConfig.GameplayOptions.TreasureHuntPartnyaCooldown) * time.Second
 	for _, usage := range usages {
-		if usage.Start.Add(time.Second * time.Duration(s.server.erupeConfig.GameplayOptions.TreasureHuntPartnyaCooldown)).Before(TimeAdjusted()) {
-			for i, j := range stringsupport.CSVElems(usage.CatsUsed) {
-				bannedCats[uint32(j)] = i
+		if now.Before(usage.Start.Add(cooldown)) {
+			for _, id := range stringsupport.CSVElems(usage.CatsUsed) {
+				bannedCats[uint32(id)] = struct{}{}
 			}
 		}
 	}

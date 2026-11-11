@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"erupe-ce/common/stringsupport"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -79,7 +80,50 @@ func (r *APICharacterRepository) GetForUser(ctx context.Context, userID uint32) 
 	if err != nil {
 		return nil, err
 	}
+	if len(characters) == 0 {
+		return characters, nil
+	}
+	if err := r.loadLauncherFriends(ctx, userID, characters); err != nil {
+		return nil, err
+	}
 	return characters, nil
+}
+
+func (r *APICharacterRepository) loadLauncherFriends(ctx context.Context, userID uint32, characters []Character) error {
+	const maxLauncherFriends = 50
+	byID := make(map[uint32]*Character, len(characters))
+	for i := range characters {
+		byID[characters[i].ID] = &characters[i]
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT owner.id, friend.id, friend.name
+		FROM characters owner
+		CROSS JOIN LATERAL unnest(string_to_array(owner.friends, ',')) WITH ORDINALITY AS entry(value, position)
+		JOIN characters friend ON friend.id = CASE
+			WHEN btrim(entry.value) ~ '^[0-9]{1,10}$' THEN btrim(entry.value)::bigint END
+		WHERE owner.user_id = $1 AND NOT owner.deleted AND NOT owner.is_new_character
+		  AND NOT friend.deleted AND NOT friend.is_new_character AND friend.id <> owner.id
+		GROUP BY owner.id, friend.id, friend.name
+		ORDER BY owner.id, MIN(entry.position)`, userID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var ownerID uint32
+		var friend LauncherFriend
+		var name string
+		if err := rows.Scan(&ownerID, &friend.ID, &name); err != nil {
+			return err
+		}
+		character := byID[ownerID]
+		if character == nil || len(character.Friends) >= maxLauncherFriends {
+			continue
+		}
+		copy(friend.EncodedName[:], stringsupport.PaddedString(name, uint(len(friend.EncodedName)), true))
+		character.Friends = append(character.Friends, friend)
+	}
+	return rows.Err()
 }
 
 func (r *APICharacterRepository) ExportSave(ctx context.Context, userID, charID uint32) (map[string]interface{}, error) {

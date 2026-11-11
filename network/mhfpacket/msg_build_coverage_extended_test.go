@@ -326,7 +326,6 @@ func TestParseCoverage_NotImplemented_Extended(t *testing.T) {
 		{"MsgMhfEnumerateTitle", &MsgMhfEnumerateTitle{}},
 		{"MsgMhfEnumerateUnionItem", &MsgMhfEnumerateUnionItem{}},
 		{"MsgMhfCreateJoint", &MsgMhfCreateJoint{}},
-		{"MsgMhfOperateJoint", &MsgMhfOperateJoint{}},
 		{"MsgMhfEnumerateGuildItem", &MsgMhfEnumerateGuildItem{}},
 		{"MsgMhfOperationInvGuild", &MsgMhfOperationInvGuild{}},
 		{"MsgMhfStampcardPrize", &MsgMhfStampcardPrize{}},

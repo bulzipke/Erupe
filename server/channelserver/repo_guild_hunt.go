@@ -74,7 +74,7 @@ func (r *GuildRepository) CreateHuntForGuild(guildID, hostID, destination, level
 	}
 	return requireGuildScopedMutation(r.db.Exec(`
 		INSERT INTO guild_hunts (guild_id, host_id, destination, level, hunt_data, cats_used)
-		SELECT $1, $2, $3, $4, $5, $6
+		SELECT $1::integer, $2::integer, $3, $4, $5, $6
 		WHERE EXISTS (
 			SELECT 1
 			FROM guild_characters gc
@@ -182,7 +182,7 @@ func (r *GuildRepository) ClaimHuntReward(huntID, charID uint32) error {
 func (r *GuildRepository) ClaimHuntRewardForGuild(guildID, huntID, charID uint32) error {
 	return requireGuildScopedMutation(r.db.Exec(`
 		INSERT INTO guild_hunts_claimed (hunt_id, character_id)
-		SELECT $1, $3
+		SELECT $1, $3::integer
 		WHERE EXISTS (
 			SELECT 1
 			FROM guild_hunts gh

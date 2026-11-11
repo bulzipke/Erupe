@@ -103,12 +103,18 @@ type scheduleJSON struct {
 }
 
 type questJSON struct {
-	QuestID      int      `json:"quest_id"`
-	Profiles     []string `json:"profiles"`
-	Schedule     string   `json:"schedule"`
-	Disabled     bool     `json:"disabled"`
-	Title        string   `json:"title"`
-	Requirements []string `json:"requirements"`
+	QuestID      int           `json:"quest_id"`
+	Profiles     []string      `json:"profiles"`
+	Schedule     string        `json:"schedule"`
+	Disabled     bool          `json:"disabled"`
+	Title        string        `json:"title"`
+	Requirements []string      `json:"requirements"`
+	Caravan      *caravanQuest `json:"caravan"`
+}
+
+type caravanQuest struct {
+	CourseID     uint16 `json:"course_id"`
+	StartQuestID uint16 `json:"start_quest_id"`
 }
 
 type scheduleMode uint8
@@ -133,6 +139,7 @@ type quest struct {
 	disabled     bool
 	title        string
 	requirements []string
+	caravan      caravanQuest
 }
 
 // Parse decodes one JSON document and validates its complete reference graph.
@@ -232,6 +239,14 @@ func Parse(data []byte) (*Catalog, error) {
 			disabled:     raw.Disabled,
 			title:        raw.Title,
 			requirements: append([]string(nil), raw.Requirements...),
+		}
+		if raw.Caravan != nil {
+			if !raw.Disabled || raw.Caravan.CourseID == 0 || raw.Caravan.StartQuestID == 0 {
+				return nil, fmt.Errorf("quest %d: caravan reuse requires a disabled quest and nonzero course and start quest IDs", raw.QuestID)
+			}
+			q := c.quests[raw.QuestID]
+			q.caravan = *raw.Caravan
+			c.quests[raw.QuestID] = q
 		}
 		c.questIDs = append(c.questIDs, raw.QuestID)
 	}
@@ -390,6 +405,15 @@ func (c *Catalog) Allows(questID int, worldName string, channelNumber int, now t
 		}
 	}
 	return true, false
+}
+
+// AllowsCaravan checks explicit reuse of a retired quest by a native Caravan
+// course. The ordinary publication and listing decision still treats it as disabled.
+func (c *Catalog) AllowsCaravan(questID int, startQuestID, courseID uint16) bool {
+	if c == nil || courseID == 0 {
+		return false
+	}
+	return c.quests[questID].caravan == (caravanQuest{CourseID: courseID, StartQuestID: startQuestID})
 }
 
 func matches(p Profile, world string, channel int) bool {

@@ -124,6 +124,29 @@ func (r *CharacterRepository) GetName(charID uint32) (string, error) {
 	return name, err
 }
 
+type FriendListEntry struct {
+	ID   uint32 `db:"id"`
+	Name string `db:"name"`
+}
+
+// ListFriends resolves one character's stored IDs in registration order.
+func (r *CharacterRepository) ListFriends(charID uint32) ([]FriendListEntry, error) {
+	var friends []FriendListEntry
+	err := r.db.Select(&friends, `
+		SELECT friend.id, friend.name
+		FROM characters owner
+		CROSS JOIN LATERAL unnest(string_to_array(owner.friends, ',')) WITH ORDINALITY AS entry(value, position)
+		JOIN characters friend ON friend.id = CASE
+			WHEN btrim(entry.value) ~ '^[0-9]{1,10}$' THEN btrim(entry.value)::bigint END
+		WHERE owner.id = $1 AND NOT owner.deleted
+		  AND NOT friend.deleted AND NOT friend.is_new_character AND friend.id <> owner.id
+		GROUP BY friend.id, friend.name
+		ORDER BY MIN(entry.position)
+		LIMIT 50
+	`, charID)
+	return friends, err
+}
+
 // GetUserID returns the owning user_id for a character.
 func (r *CharacterRepository) GetUserID(charID uint32) (uint32, error) {
 	var userID uint32

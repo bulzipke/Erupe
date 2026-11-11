@@ -1,6 +1,7 @@
 package mhfpacket
 
 import (
+	"errors"
 	"io"
 	"testing"
 
@@ -365,6 +366,14 @@ func TestMsgMhfOperateJointOpcode(t *testing.T) {
 	pkt := &MsgMhfOperateJoint{}
 	if pkt.Opcode() != network.MSG_MHF_OPERATE_JOINT {
 		t.Errorf("Opcode() = %s, want MSG_MHF_OPERATE_JOINT", pkt.Opcode())
+	}
+}
+
+func TestMsgMhfOperateJointTruncated(t *testing.T) {
+	pkt := &MsgMhfOperateJoint{}
+	bf := byteframe.NewByteFrameFromBytes(make([]byte, 17))
+	if err := pkt.Parse(bf, nil); !errors.Is(err, byteframe.ErrReadOverflow) {
+		t.Fatalf("truncated alliance operation error = %v", err)
 	}
 }
 

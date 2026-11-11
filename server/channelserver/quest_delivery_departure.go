@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"time"
 
+	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
 )
 
@@ -27,7 +28,22 @@ type questDeliveryReceipt struct {
 	returnEligibility       *returnQuestEligibilitySnapshot
 	admittedAt              time.Time
 	questID                 uint16
+	caravanCourseID         uint16
 	accessSnapshot          *QuestAccessSnapshot
+}
+
+func (s *Session) nativeCaravanCourse(setup []byte) uint16 {
+	// The validated ZZ setup carries category 20 at 0x2a and the native
+	// course number at 0x56. Ordinary quest setup uses other categories.
+	const categoryOffset, courseOffset = 0x2a, 0x56
+	if len(setup) <= courseOffset+1 || setup[categoryOffset] != 20 || s.server.erupeConfig.RealClientMode != cfg.ZZ {
+		return 0
+	}
+	return binary.LittleEndian.Uint16(setup[courseOffset:])
+}
+
+func (s *Session) allowsQuestDeparture(questID, caravanCourseID uint16, now time.Time) bool {
+	return s.allowsQuestDelivery(int(questID), now) || s.server.questDelivery.AllowsCaravan(int(questID), questID, caravanCourseID)
 }
 
 type questDeliveryDepartureRejection struct {
@@ -64,11 +80,15 @@ func (s *Session) admitQuestDeliveryWithReturnLocked(stage *Stage, alreadyClient
 	}
 	var questID uint16
 	var nativeIntrusionResultID uint16
+	var caravanCourseID uint16
 	if setup, exists := stage.rawBinaryData[stageBinaryKey{1, 3}]; exists {
 		var decoded bool
 		questID, _, _, decoded = decodeQuestRunSetupFromStageBinary(stage.id, 1, 3, setup)
 		nativeIntrusionResultID = s.nativeIntrusionResultFromSetup(stage.id, setup)
-		if policies && (!decoded || !s.allowsQuestDelivery(int(questID), now) || !s.allowsQuestAccessSnapshot(access, int(questID), now)) || decoded && !s.allowsReturnQuestSnapshot(preparedReturn, int(questID), now) {
+		if decoded {
+			caravanCourseID = s.nativeCaravanCourse(setup)
+		}
+		if policies && (!decoded || !s.allowsQuestDeparture(questID, caravanCourseID, now) || !s.allowsQuestAccessSnapshot(access, int(questID), now)) || decoded && !s.allowsReturnQuestSnapshot(preparedReturn, int(questID), now) {
 			return false
 		}
 	}
@@ -79,7 +99,7 @@ func (s *Session) admitQuestDeliveryWithReturnLocked(stage *Stage, alreadyClient
 		s.questDeliveryDeparture.Store(nil)
 		return true
 	}
-	receipt := &questDeliveryReceipt{admittedAt: now, questID: questID, accessSnapshot: access, returnEligibility: preparedReturn, nativeIntrusionResultID: nativeIntrusionResultID}
+	receipt := &questDeliveryReceipt{admittedAt: now, questID: questID, accessSnapshot: access, returnEligibility: preparedReturn, nativeIntrusionResultID: nativeIntrusionResultID, caravanCourseID: caravanCourseID}
 	departure := &questDeliveryDeparture{stage: stage, admittedAt: now, questID: questID, receipt: receipt, accessSnapshot: access, returnEligibility: preparedReturn}
 	s.questDeliveryDeparture.Store(departure)
 	s.questDeliveryReceipt.Store(receipt)
@@ -102,10 +122,12 @@ func (s *Session) validateQuestDeliverySetupLocked(stage *Stage, pkt *mhfpacket.
 	if !s.questEntryPoliciesEnabled() && (!decoded || !isReturnWorldQuest(int(questID))) {
 		return true, nil
 	}
+	var caravanCourseID uint16
 	if decoded {
+		caravanCourseID = s.nativeCaravanCourse(pkt.RawDataPayload)
 		if existing, ok := stage.rawBinaryData[stageBinaryKey{1, 3}]; ok && len(stage.clients) != 0 {
 			previousID, _, _, valid := decodeQuestRunSetupFromStageBinary(stage.id, 1, 3, existing)
-			if !valid || previousID != questID {
+			if !valid || previousID != questID || s.nativeCaravanCourse(existing) != caravanCourseID {
 				// Replacing a running quest cannot borrow its earlier admission.
 				return false, nil
 			}
@@ -129,13 +151,13 @@ func (s *Session) validateQuestDeliverySetupLocked(stage *Stage, pkt *mhfpacket.
 			// Keep an already validated run intact; discard the bad update.
 			continue
 		}
-		if !decoded || old == nil || old.admittedAt.IsZero() || !participant.allowsQuestDelivery(int(questID), old.admittedAt) || !participant.allowsQuestAccessSnapshot(old.accessSnapshot, int(questID), old.admittedAt) {
+		if !decoded || old == nil || old.admittedAt.IsZero() || !participant.allowsQuestDeparture(questID, caravanCourseID, old.admittedAt) || !participant.allowsQuestAccessSnapshot(old.accessSnapshot, int(questID), old.admittedAt) {
 			rejected = append(rejected, questDeliveryDepartureRejection{participant, old})
 			delete(stage.clients, participant)
 			continue
 		}
 		if old.questID == 0 {
-			receipt := &questDeliveryReceipt{admittedAt: old.admittedAt, questID: questID, accessSnapshot: old.accessSnapshot, returnEligibility: old.returnEligibility, nativeIntrusionResultID: participant.nativeIntrusionResultFromSetup(stage.id, pkt.RawDataPayload)}
+			receipt := &questDeliveryReceipt{admittedAt: old.admittedAt, questID: questID, accessSnapshot: old.accessSnapshot, returnEligibility: old.returnEligibility, nativeIntrusionResultID: participant.nativeIntrusionResultFromSetup(stage.id, pkt.RawDataPayload), caravanCourseID: caravanCourseID}
 			validated := &questDeliveryDeparture{
 				stage: stage, admittedAt: old.admittedAt, questID: questID,
 				receipt: receipt, accessSnapshot: old.accessSnapshot, returnEligibility: old.returnEligibility,
@@ -191,6 +213,9 @@ func (s *Session) allowsQuestDeliveryRecord(data []byte) bool {
 	}
 	managed, _ := s.questDeliveryDecision(int(questID), time.Now())
 	if !managed {
+		return true
+	}
+	if receipt != nil && s.server.questDelivery.AllowsCaravan(int(questID), receipt.questID, receipt.caravanCourseID) {
 		return true
 	}
 	return receipt != nil && (sameQuestDeliveryResultID(receipt.questID, questID) || receipt.nativeIntrusionResultID != 0 && receipt.nativeIntrusionResultID == questID) && s.allowsQuestDelivery(int(questID), receipt.admittedAt)

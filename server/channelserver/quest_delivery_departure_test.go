@@ -2,14 +2,91 @@ package channelserver
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"erupe-ce/common/byteframe"
 	"erupe-ce/common/questdelivery"
 	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
 )
+
+func TestQuestDeliveryCaravanReusesRetiredStages(t *testing.T) {
+	srv := createMockServer()
+	srv.erupeConfig.RealClientMode = cfg.ZZ
+	srv.erupeConfig.BinPath = t.TempDir()
+	quests := filepath.Join(srv.erupeConfig.BinPath, "quests")
+	if err := os.Mkdir(quests, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"26205d0", "26092n0"} {
+		if err := os.WriteFile(filepath.Join(quests, name+".bin"), []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	catalog, err := questdelivery.Parse([]byte(`{
+		"version":"caravan-test",
+		"quests":[
+			{"quest_id":26205,"disabled":true,"caravan":{"course_id":99,"start_quest_id":26205}},
+			{"quest_id":26092,"disabled":true,"caravan":{"course_id":101,"start_quest_id":26402}}
+		]
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.questDelivery = catalog
+	for _, tc := range []struct {
+		name      string
+		start     uint16
+		category  byte
+		course    uint16
+		file      string
+		resultID  uint16
+		wantEnter bool
+		wantFile  bool
+	}{
+		{"retired first stage", 26205, 20, 99, "26205d0", 26205, true, true},
+		{"last leg of six-stage course", 26402, 20, 101, "26092n0", 26092, true, true},
+		{"ordinary retired quest", 26205, 0, 99, "26205d0", 26205, false, false},
+		{"wrong course", 26205, 20, 101, "26205d0", 26205, false, false},
+		{"wrong start", 26401, 20, 101, "26092n0", 26092, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := createMockSession(1, srv)
+			stage := NewStage(deliveryDepartureTestStage)
+			setup := questRunStagePayload(tc.start, 0)
+			setup[0x2a] = tc.category
+			binary.LittleEndian.PutUint16(setup[0x56:], tc.course)
+			stage.rawBinaryData[stageBinaryKey{1, 3}] = setup
+			if got := s.admitQuestDeliveryLocked(stage, false, time.Now()); got != tc.wantEnter {
+				t.Fatalf("stage admission = %v, want %v", got, tc.wantEnter)
+			}
+			handleMsgSysGetFile(s, &mhfpacket.MsgSysGetFile{AckHandle: 4, Filename: tc.file})
+			if len(s.sendPackets) != 1 {
+				t.Fatal("expected one file response")
+			}
+			bf := byteframe.NewByteFrameFromBytes((<-s.sendPackets).data)
+			bf.ReadUint16()
+			bf.ReadUint32()
+			if got := bf.ReadUint8() == 1 && bf.ReadUint8() == 0; got != tc.wantFile {
+				t.Fatalf("file request accepted = %v, want %v", got, tc.wantFile)
+			}
+			result := make([]byte, questIDOffset+2)
+			binary.LittleEndian.PutUint16(result[questIDOffset:], tc.resultID)
+			if got := s.allowsQuestDeliveryRecord(result); got != tc.wantFile {
+				t.Fatalf("result allowed = %v, want %v", got, tc.wantFile)
+			}
+			s.admitQuestDeliveryLocked(NewStage("sl1Ns200p0a0u0"), false, time.Now())
+			if s.deliveryFileAllowed(tc.file, time.Now()) {
+				t.Fatal("retired file remained available after leaving the quest stage")
+			}
+		})
+	}
+}
 
 const deliveryDepartureTestStage = "sl2Qs200p0a1u0"
 

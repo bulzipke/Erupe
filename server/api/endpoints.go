@@ -64,14 +64,21 @@ type User struct {
 
 // Character represents a player character's summary data as returned by the API.
 type Character struct {
-	ID        uint32 `json:"id"`
-	Name      string `json:"name"`
-	IsFemale  bool   `json:"isFemale" db:"is_female"`
-	Weapon    uint32 `json:"weapon" db:"weapon_type"`
-	HR        uint32 `json:"hr" db:"hr"`
-	GR        uint32 `json:"gr"`
-	LastLogin int32  `json:"lastLogin" db:"last_login"`
-	Returning bool   `json:"returning"`
+	ID        uint32           `json:"id"`
+	Name      string           `json:"name"`
+	IsFemale  bool             `json:"isFemale" db:"is_female"`
+	Weapon    uint32           `json:"weapon" db:"weapon_type"`
+	HR        uint32           `json:"hr" db:"hr"`
+	GR        uint32           `json:"gr"`
+	LastLogin int32            `json:"lastLogin" db:"last_login"`
+	Returning bool             `json:"returning"`
+	Friends   []LauncherFriend `json:"friends,omitempty" db:"-"`
+}
+
+// LauncherFriend carries a NUL-terminated name in the game's encoding.
+type LauncherFriend struct {
+	ID          uint32   `json:"id"`
+	EncodedName [16]byte `json:"encodedName"`
 }
 
 // CourseInfo describes an active subscription course for the authenticated user.

@@ -145,8 +145,19 @@ func handleMsgMhfInfoGuild(s *Session, p mhfpacket.MHFPacket) {
 		bf.WriteUint16(guild.RoomRP)
 		bf.WriteUint16(0) // Ignored
 
-		if guild.AllianceID > 0 {
-			alliance, err := s.server.guildRepo.GetAllianceByID(guild.AllianceID)
+		ownGuild := characterGuildData != nil && !characterGuildData.IsApplicant && characterGuildData.GuildID == guild.ID
+		allianceID := guild.AllianceID
+		// The client shows a pending request when an alliance is present but
+		// the player's guild is absent from its membership list.
+		if ownGuild && allianceID == 0 {
+			allianceID, err = s.server.guildRepo.GetPendingAllianceID(guild.ID)
+			if err != nil {
+				s.logger.Error("Failed to get pending alliance", zap.Error(err), zap.Uint32("guildID", guild.ID))
+			}
+		}
+		var alliance *GuildAlliance
+		if allianceID > 0 {
+			alliance, err = s.server.guildRepo.GetAllianceByID(allianceID)
 			if err != nil || alliance == nil {
 				bf.WriteUint32(0) // Error or missing alliance
 			} else {
@@ -154,17 +165,9 @@ func handleMsgMhfInfoGuild(s *Session, p mhfpacket.MHFPacket) {
 				bf.WriteUint32(uint32(alliance.CreatedAt.Unix()))
 				bf.WriteUint16(alliance.TotalMembers)
 				bf.WriteUint8(0) // Ignored
-				bf.WriteUint8(0)
+				bf.WriteBool(!alliance.Recruiting)
 				ps.Uint16(bf, alliance.Name, true)
-				if alliance.SubGuild1ID > 0 {
-					if alliance.SubGuild2ID > 0 {
-						bf.WriteUint8(3)
-					} else {
-						bf.WriteUint8(2)
-					}
-				} else {
-					bf.WriteUint8(1)
-				}
+				bf.WriteUint8(alliance.guildCount())
 				bf.WriteUint32(alliance.ParentGuildID)
 				bf.WriteUint32(0) // Unk1
 				if alliance.ParentGuildID == guild.ID {
@@ -239,25 +242,23 @@ func handleMsgMhfInfoGuild(s *Session, p mhfpacket.MHFPacket) {
 			bf.WriteUint8(info.Unk2)
 		}
 
-		type AllianceInvite struct {
-			GuildID    uint32
-			LeaderID   uint32
-			Unk0       uint16
-			Unk1       uint16
-			Members    uint16
-			GuildName  string
-			LeaderName string
+		var allianceApplicants []Guild
+		if ownGuild && characterGuildData.IsLeader && alliance != nil && alliance.ParentGuildID == guild.ID {
+			allianceApplicants, err = s.server.guildRepo.ListAllianceApplicants(alliance.ID)
+			if err != nil {
+				s.logger.Error("Failed to list alliance applicants", zap.Error(err), zap.Uint32("allianceID", alliance.ID))
+				allianceApplicants = nil
+			}
 		}
-		allianceInvites := []AllianceInvite{}
-		bf.WriteUint8(uint8(len(allianceInvites)))
-		for _, invite := range allianceInvites {
-			bf.WriteUint32(invite.GuildID)
-			bf.WriteUint32(invite.LeaderID)
-			bf.WriteUint16(invite.Unk0)
-			bf.WriteUint16(invite.Unk1)
-			bf.WriteUint16(invite.Members)
-			ps.Uint16(bf, invite.GuildName, true)
-			ps.Uint16(bf, invite.LeaderName, true)
+		bf.WriteUint8(uint8(len(allianceApplicants)))
+		for _, applicant := range allianceApplicants {
+			bf.WriteUint32(applicant.ID)
+			bf.WriteUint32(applicant.LeaderCharID)
+			bf.WriteUint16(0)
+			bf.WriteUint16(applicant.Rank(s.server.erupeConfig.RealClientMode))
+			bf.WriteUint16(applicant.MemberCount)
+			ps.Uint16(bf, applicant.Name, true)
+			ps.Uint16(bf, applicant.LeaderName, true)
 		}
 
 		if guild.Icon != nil {

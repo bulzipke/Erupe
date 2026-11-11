@@ -1,9 +1,10 @@
 package channelserver
 
 import (
+	"context"
+	"database/sql"
+	"errors"
 	"fmt"
-
-	"github.com/jmoiron/sqlx"
 )
 
 const allianceInfoSelectSQL = `
@@ -13,40 +14,33 @@ ga.name,
 created_at,
 ga.recruiting,
 parent_id,
-CASE
-	WHEN sub1_id IS NULL THEN 0
-	ELSE sub1_id
-END,
-CASE
-	WHEN sub2_id IS NULL THEN 0
-	ELSE sub2_id
-END
+COALESCE(sub1_id, 0) AS sub1_id,
+COALESCE(sub2_id, 0) AS sub2_id
 FROM guild_alliances ga
 `
 
 // GetAllianceByID loads alliance data including parent and sub guilds.
 func (r *GuildRepository) GetAllianceByID(allianceID uint32) (*GuildAlliance, error) {
-	rows, err := r.db.Queryx(fmt.Sprintf(`%s WHERE ga.id = $1`, allianceInfoSelectSQL), allianceID)
+	alliance := &GuildAlliance{}
+	err := r.db.Get(alliance, allianceInfoSelectSQL+` WHERE ga.id = $1`, allianceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	if !rows.Next() {
-		return nil, nil
-	}
-	return r.scanAllianceWithGuilds(rows)
+	return r.populateAllianceGuilds(alliance)
 }
 
 // ListAlliances returns all alliances with their guild data populated.
 func (r *GuildRepository) ListAlliances() ([]*GuildAlliance, error) {
-	rows, err := r.db.Queryx(allianceInfoSelectSQL)
-	if err != nil {
+	var rows []*GuildAlliance
+	if err := r.db.Select(&rows, allianceInfoSelectSQL); err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
 	var alliances []*GuildAlliance
-	for rows.Next() {
-		alliance, err := r.scanAllianceWithGuilds(rows)
+	for _, row := range rows {
+		alliance, err := r.populateAllianceGuilds(row)
 		if err != nil {
 			continue
 		}
@@ -61,19 +55,37 @@ func (r *GuildRepository) CreateAlliance(name string, parentGuildID uint32) erro
 	return err
 }
 
-// CreateAllianceForMember creates an alliance only while actorCharID is an
-// actual member of parentGuildID. It intentionally adds no new role policy.
+// CreateAllianceForMember checks the current guild leader and serializes
+// alliance creation so retries cannot leave a guild in multiple alliances.
 func (r *GuildRepository) CreateAllianceForMember(name string, parentGuildID, actorCharID uint32) error {
-	return requireGuildScopedMutation(r.db.Exec(`
+	tx, err := r.db.BeginTxx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`LOCK TABLE guild_alliances IN SHARE ROW EXCLUSIVE MODE`); err != nil {
+		return err
+	}
+	if err := requireGuildScopedMutation(tx.Exec(`
 		INSERT INTO guild_alliances (name, parent_id)
-		SELECT $1, $2
+		SELECT $1::varchar, $2::integer
 		WHERE EXISTS (
 			SELECT 1
 			FROM guild_characters gc
+			JOIN guilds g ON g.id = gc.guild_id AND g.leader_id = gc.character_id
 			WHERE gc.guild_id = $2
 			  AND gc.character_id = $3
 		)
-	`, name, parentGuildID, actorCharID))
+		AND NOT EXISTS (
+			SELECT 1 FROM guild_alliances
+			WHERE name = $1 OR $2 IN (parent_id, sub1_id, sub2_id)
+		)
+		AND NOT EXISTS (SELECT 1 FROM guilds WHERE name = $1)
+		AND NOT EXISTS (SELECT 1 FROM guild_alliance_applications WHERE guild_id = $2)
+	`, name, parentGuildID, actorCharID)); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // DeleteAlliance removes an alliance by ID.
@@ -95,16 +107,12 @@ func (r *GuildRepository) RemoveGuildFromAlliance(allianceID, guildID, subGuild1
 	`, allianceID, guildID))
 }
 
-// LeaveAlliance removes the actor's own guild from a subordinate alliance
-// slot. Both leadership and membership are checked in the same statement.
+// LeaveAlliance withdraws the actor's application or removes the actor's guild
+// from a subordinate slot. The client uses the same action in both cases.
 func (r *GuildRepository) LeaveAlliance(allianceID, guildID, actorCharID uint32) error {
-	return requireGuildScopedMutation(r.db.Exec(`
-		UPDATE guild_alliances ga
-		SET sub1_id = CASE WHEN ga.sub1_id = $2 THEN ga.sub2_id ELSE ga.sub1_id END,
-		    sub2_id = NULL
-		WHERE ga.id = $1
-		  AND (ga.sub1_id = $2 OR ga.sub2_id = $2)
-		  AND EXISTS (
+	var changed bool
+	err := r.db.Get(&changed, `
+		WITH leader AS (
 			SELECT 1
 			FROM guilds g
 			JOIN guild_characters gc
@@ -112,8 +120,25 @@ func (r *GuildRepository) LeaveAlliance(allianceID, guildID, actorCharID uint32)
 			 AND gc.character_id = $3
 			WHERE g.id = $2
 			  AND g.leader_id = $3
-		  )
-	`, allianceID, guildID, actorCharID))
+		), withdrawn AS (
+			DELETE FROM guild_alliance_applications
+			WHERE alliance_id = $1 AND guild_id = $2 AND EXISTS (SELECT 1 FROM leader)
+			RETURNING guild_id
+		), left_alliance AS (
+			UPDATE guild_alliances ga
+			SET sub1_id = CASE WHEN ga.sub1_id = $2 THEN ga.sub2_id ELSE ga.sub1_id END,
+			    sub2_id = NULL
+			WHERE ga.id = $1
+			  AND (ga.sub1_id = $2 OR ga.sub2_id = $2)
+			  AND EXISTS (SELECT 1 FROM leader)
+			RETURNING ga.id
+		)
+		SELECT EXISTS (SELECT 1 FROM withdrawn) OR EXISTS (SELECT 1 FROM left_alliance)
+	`, allianceID, guildID, actorCharID)
+	if err == nil && !changed {
+		return errGuildScopedMutationRejected
+	}
+	return err
 }
 
 // KickGuildFromAlliance removes a subordinate guild only when actorCharID is
@@ -143,13 +168,7 @@ func (r *GuildRepository) SetAllianceRecruiting(allianceID uint32, recruiting bo
 	return err
 }
 
-// scanAllianceWithGuilds scans an alliance row and populates its guild data.
-func (r *GuildRepository) scanAllianceWithGuilds(rows *sqlx.Rows) (*GuildAlliance, error) {
-	alliance := &GuildAlliance{}
-	if err := rows.StructScan(alliance); err != nil {
-		return nil, err
-	}
-
+func (r *GuildRepository) populateAllianceGuilds(alliance *GuildAlliance) (*GuildAlliance, error) {
 	parentGuild, err := r.GetByID(alliance.ParentGuildID)
 	if err != nil {
 		return nil, err

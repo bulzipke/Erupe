@@ -208,10 +208,10 @@ func disbandGuildTx(ctx context.Context, tx *sqlx.Tx, guildID uint32) error {
 		`DELETE FROM guild_applications WHERE guild_id=$1`,
 		`DELETE FROM guild_invites WHERE guild_id=$1`,
 		`DELETE FROM guild_characters WHERE guild_id=$1`,
-		`DELETE FROM guilds WHERE id=$1`,
 		`DELETE FROM guild_alliances WHERE parent_id=$1`,
 		`UPDATE guild_alliances SET sub1_id=sub2_id,sub2_id=NULL WHERE sub1_id=$1`,
 		`UPDATE guild_alliances SET sub2_id=NULL WHERE sub2_id=$1`,
+		`DELETE FROM guilds WHERE id=$1`,
 	} {
 		if _, err := tx.ExecContext(ctx, stmt, guildID); err != nil {
 			return err
