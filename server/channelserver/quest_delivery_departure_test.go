@@ -23,7 +23,7 @@ func TestQuestDeliveryCaravanReusesRetiredStages(t *testing.T) {
 	if err := os.Mkdir(quests, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"26205d0", "26092n0"} {
+	for _, name := range []string{"26205d0", "26092n0", "26167n1"} {
 		if err := os.WriteFile(filepath.Join(quests, name+".bin"), []byte(name), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -32,7 +32,11 @@ func TestQuestDeliveryCaravanReusesRetiredStages(t *testing.T) {
 		"version":"caravan-test",
 		"quests":[
 			{"quest_id":26205,"disabled":true,"caravan":{"course_id":99,"start_quest_id":26205}},
-			{"quest_id":26092,"disabled":true,"caravan":{"course_id":101,"start_quest_id":26402}}
+			{"quest_id":26092,"disabled":true,"caravan":{"course_id":101,"start_quest_id":26402}},
+			{"quest_id":26167,"disabled":true,"caravan_courses":[
+				{"course_id":29,"start_quest_id":26217},
+				{"course_id":97,"start_quest_id":26422}
+			]}
 		]
 	}`))
 	if err != nil {
@@ -51,6 +55,11 @@ func TestQuestDeliveryCaravanReusesRetiredStages(t *testing.T) {
 	}{
 		{"retired first stage", 26205, 20, 99, "26205d0", 26205, true, true},
 		{"last leg of six-stage course", 26402, 20, 101, "26092n0", 26092, true, true},
+		{"next leg of random course 97", 26422, 20, 97, "26167n1", 26167, true, true},
+		{"same leg reused in fixed course 29", 26217, 20, 29, "26167n1", 26167, true, true},
+		{"same start but different random course", 26422, 20, 96, "26167n1", 26167, true, false},
+		{"course 97 with course 29 start", 26217, 20, 97, "26167n1", 26167, true, false},
+		{"non-Caravan setup with course fields", 26422, 25, 97, "26167n1", 26167, true, false},
 		{"ordinary retired quest", 26205, 0, 99, "26205d0", 26205, false, false},
 		{"wrong course", 26205, 20, 101, "26205d0", 26205, false, false},
 		{"wrong start", 26401, 20, 101, "26092n0", 26092, true, false},
@@ -61,7 +70,10 @@ func TestQuestDeliveryCaravanReusesRetiredStages(t *testing.T) {
 			setup := questRunStagePayload(tc.start, 0)
 			setup[0x2a] = tc.category
 			binary.LittleEndian.PutUint16(setup[0x56:], tc.course)
-			stage.rawBinaryData[stageBinaryKey{1, 3}] = setup
+			srv.stages.Store(stage.id, stage)
+			handleMsgSysSetStageBinary(s, &mhfpacket.MsgSysSetStageBinary{
+				StageID: stage.id, BinaryType0: 1, BinaryType1: 3, RawDataPayload: setup,
+			})
 			if got := s.admitQuestDeliveryLocked(stage, false, time.Now()); got != tc.wantEnter {
 				t.Fatalf("stage admission = %v, want %v", got, tc.wantEnter)
 			}

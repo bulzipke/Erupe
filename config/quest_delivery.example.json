@@ -12,6 +12,10 @@
     {"id": "rotation-d", "starts_at": "2026-10-23T12:00:00+09:00", "active_hours": 72, "repeat_hours": 96}
   ],
   "quests": [
-    {"quest_id": 53140, "profiles": ["general"], "schedule": "always"}
+    {"quest_id": 53140, "profiles": ["general"], "schedule": "always"},
+    {"quest_id": 26167, "disabled": true, "caravan_courses": [
+      {"course_id": 29, "start_quest_id": 26217},
+      {"course_id": 97, "start_quest_id": 26422}
+    ]}
   ]
 }

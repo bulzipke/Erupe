@@ -103,13 +103,14 @@ type scheduleJSON struct {
 }
 
 type questJSON struct {
-	QuestID      int           `json:"quest_id"`
-	Profiles     []string      `json:"profiles"`
-	Schedule     string        `json:"schedule"`
-	Disabled     bool          `json:"disabled"`
-	Title        string        `json:"title"`
-	Requirements []string      `json:"requirements"`
-	Caravan      *caravanQuest `json:"caravan"`
+	QuestID        int            `json:"quest_id"`
+	Profiles       []string       `json:"profiles"`
+	Schedule       string         `json:"schedule"`
+	Disabled       bool           `json:"disabled"`
+	Title          string         `json:"title"`
+	Requirements   []string       `json:"requirements"`
+	Caravan        *caravanQuest  `json:"caravan"`
+	CaravanCourses []caravanQuest `json:"caravan_courses"`
 }
 
 type caravanQuest struct {
@@ -139,7 +140,7 @@ type quest struct {
 	disabled     bool
 	title        string
 	requirements []string
-	caravan      caravanQuest
+	caravan      map[caravanQuest]struct{}
 }
 
 // Parse decodes one JSON document and validates its complete reference graph.
@@ -233,20 +234,17 @@ func Parse(data []byte) (*Catalog, error) {
 				return nil, fmt.Errorf("quest %d requirements must be nonempty descriptions of at most %d bytes", raw.QuestID, maxRequirementBytes)
 			}
 		}
+		caravan, err := parseCaravanCourses(raw)
+		if err != nil {
+			return nil, err
+		}
 		c.quests[raw.QuestID] = quest{
 			profiles:     append([]string(nil), raw.Profiles...),
 			schedule:     raw.Schedule,
 			disabled:     raw.Disabled,
 			title:        raw.Title,
 			requirements: append([]string(nil), raw.Requirements...),
-		}
-		if raw.Caravan != nil {
-			if !raw.Disabled || raw.Caravan.CourseID == 0 || raw.Caravan.StartQuestID == 0 {
-				return nil, fmt.Errorf("quest %d: caravan reuse requires a disabled quest and nonzero course and start quest IDs", raw.QuestID)
-			}
-			q := c.quests[raw.QuestID]
-			q.caravan = *raw.Caravan
-			c.quests[raw.QuestID] = q
+			caravan:      caravan,
 		}
 		c.questIDs = append(c.questIDs, raw.QuestID)
 	}
@@ -256,6 +254,33 @@ func Parse(data []byte) (*Catalog, error) {
 		return nil, err
 	}
 	return c, nil
+}
+
+func parseCaravanCourses(q questJSON) (map[caravanQuest]struct{}, error) {
+	courses := q.CaravanCourses
+	if q.Caravan != nil {
+		if len(courses) != 0 {
+			return nil, fmt.Errorf("quest %d: use either caravan or caravan_courses", q.QuestID)
+		}
+		courses = []caravanQuest{*q.Caravan}
+	}
+	if len(courses) == 0 {
+		return nil, nil
+	}
+	if !q.Disabled {
+		return nil, fmt.Errorf("quest %d: caravan reuse requires a disabled quest", q.QuestID)
+	}
+	allowed := make(map[caravanQuest]struct{}, len(courses))
+	for _, course := range courses {
+		if course.CourseID == 0 || course.StartQuestID == 0 {
+			return nil, fmt.Errorf("quest %d: caravan reuse requires nonzero course and start quest IDs", q.QuestID)
+		}
+		if _, duplicate := allowed[course]; duplicate {
+			return nil, fmt.Errorf("quest %d: repeats caravan course %d with start quest %d", q.QuestID, course.CourseID, course.StartQuestID)
+		}
+		allowed[course] = struct{}{}
+	}
+	return allowed, nil
 }
 
 func validID(s string) bool { return s != "" && strings.TrimSpace(s) == s }
@@ -413,7 +438,8 @@ func (c *Catalog) AllowsCaravan(questID int, startQuestID, courseID uint16) bool
 	if c == nil || courseID == 0 {
 		return false
 	}
-	return c.quests[questID].caravan == (caravanQuest{CourseID: courseID, StartQuestID: startQuestID})
+	_, allowed := c.quests[questID].caravan[caravanQuest{CourseID: courseID, StartQuestID: startQuestID}]
+	return allowed
 }
 
 func matches(p Profile, world string, channel int) bool {
