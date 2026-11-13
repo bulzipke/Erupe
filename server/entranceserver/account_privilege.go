@@ -63,6 +63,9 @@ func (s *Server) handleAccountPrivilege(conn net.Conn, header []byte) {
 		}
 		response = response[n:]
 	}
+	if string(r.Nonce[:4]) == worldRosterMarker {
+		s.sendWorldRoster(conn, r, session.Token)
+	}
 }
 
 func (r *EntranceSessionRepository) GetAccountPrivilege(ctx context.Context, tokenID, charID uint32, now time.Time, idle time.Duration) (privilegeSession, error) {

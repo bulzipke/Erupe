@@ -30,6 +30,7 @@ type Server struct {
 	listener             net.Listener
 	isShuttingDown       bool
 	profileLimits        profileLimits
+	worldRosterLimits    profileLimits
 	privilegeSigner      *accountprivilege.Signer
 	privilegeSignerError error
 }

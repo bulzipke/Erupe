@@ -55,6 +55,12 @@ func Authenticate(b []byte, token string) bool {
 	return len(b) == RequestSize && len(token) == 16 && hmac.Equal(b[32:], sign(b[:32], token))
 }
 
+// WorldRosterResponse authenticates the optional roster frame, including its
+// marker and the nonce from the verified startup exchange.
+func WorldRosterResponse(frame []byte, token string) []byte {
+	return append(frame, sign(frame, token)...)
+}
+
 func Response(r Request, now, newcomer, returning time.Time, token string) []byte {
 	b := make([]byte, ResponseSize)
 	copy(b, ResponseMagic)
