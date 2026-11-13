@@ -259,3 +259,55 @@ func TestRepoFestaGetTeamSoulsWithSubmissions(t *testing.T) {
 		t.Errorf("Expected red souls=30, got: %d", redSouls)
 	}
 }
+
+func TestRepoFestaRoundMonopolyAndTally(t *testing.T) {
+	root, db, blueChar, blueGuild := setupFestaRepo(t)
+	redUser := CreateTestUser(t, db, "festa_red")
+	redChar := CreateTestCharacter(t, db, redUser, "FestaRed")
+	redGuild := CreateTestGuild(t, db, redChar, "RedGuild")
+	now := time.Now().UTC().Truncate(time.Second)
+	var previousID, currentID, trialID uint32
+	for _, event := range []struct {
+		when time.Time
+		id   *uint32
+	}{{now.Add(-22 * 24 * time.Hour), &previousID}, {now.Add(-24 * time.Hour), &currentID}} {
+		if err := db.Get(event.id, "INSERT INTO events(event_type,start_time,festa_continuous) VALUES('festa',$1,true) RETURNING id", event.when); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec("INSERT INTO festa_event_lifecycle(event_id) VALUES($1)", currentID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Get(&trialID, "INSERT INTO festa_trials(objective,goal_id,times_req,reward) VALUES(1,27,1,1) RETURNING id"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO festa_registrations(event_id,guild_id,team)
+		VALUES($1,$3,'red'),($2,$3,'red'),($2,$4,'blue')`, previousID, currentID, redGuild, blueGuild); err != nil {
+		t.Fatal(err)
+	}
+	repo := root.ForFestaEvent(currentID).(*FestaRepository)
+	for _, charID := range []uint32{blueChar, redChar} {
+		if err := repo.VoteTrial(charID, trialID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO festa_submissions(event_id,guild_id,character_id,trial_type,souls,timestamp)
+		VALUES($1,$3,$5,1,500,$8),($2,$3,$5,1,50,$7),($2,$4,$6,1,10,$7),($2,$4,$6,2,90,$8)`,
+		previousID, currentID, redGuild, blueGuild, redChar, blueChar, now.Add(-time.Hour), now); err != nil {
+		t.Fatal(err)
+	}
+	blue, red, err := repo.festaTeamTotalsAt(now)
+	if err != nil || blue != 10 || red != 50 {
+		t.Fatalf("cutoff tally = blue %d, red %d, err %v", blue, red, err)
+	}
+	souls, participants, rank, team, err := repo.festaGuildStanding(blueGuild)
+	if err != nil || souls != 100 || participants != 1 || rank != 1 || team != FestivalColorBlue {
+		t.Fatalf("standing = %d, %d, %d, %s, err %v", souls, participants, rank, team, err)
+	}
+	for _, want := range []FestivalColor{FestivalColorNone, FestivalColorRed} {
+		trials, err := repo.GetTrialsWithMonopoly(want != FestivalColorNone)
+		if err != nil || len(trials) != 1 || trials[0].Monopoly != want {
+			t.Fatalf("trial with monopoly %s: %+v, err %v", want, trials, err)
+		}
+	}
+}

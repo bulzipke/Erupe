@@ -2,6 +2,7 @@ package channelserver
 
 import (
 	"database/sql"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -88,35 +89,73 @@ func (r *FestaRepository) GetTeamSouls(team string) (uint32, error) {
 	return souls, err
 }
 
-// GetTrialsWithMonopoly returns all festa trials with their computed monopoly color.
-func (r *FestaRepository) GetTrialsWithMonopoly() ([]FestaTrial, error) {
+// GetTrialsWithMonopoly applies the round's ballots during a monopoly window.
+func (r *FestaRepository) GetTrialsWithMonopoly(monopoly bool) ([]FestaTrial, error) {
 	var trials []FestaTrial
-	rows, err := r.db.Queryx(`SELECT ft.*,
-		COALESCE(CASE
-			WHEN COUNT(gc.id) FILTER (WHERE fr.team = 'blue' AND gc.trial_vote = ft.id) >
-				 COUNT(gc.id) FILTER (WHERE fr.team = 'red' AND gc.trial_vote = ft.id)
-			THEN CAST('blue' AS public.festival_color)
-			WHEN COUNT(gc.id) FILTER (WHERE fr.team = 'red' AND gc.trial_vote = ft.id) >
-				 COUNT(gc.id) FILTER (WHERE fr.team = 'blue' AND gc.trial_vote = ft.id)
-			THEN CAST('red' AS public.festival_color)
-		END, CAST('none' AS public.festival_color)) AS monopoly
-		FROM public.festa_trials ft
-		LEFT JOIN public.guild_characters gc ON ft.id = gc.trial_vote
-		LEFT JOIN public.festa_registrations fr ON gc.guild_id = fr.guild_id
-		AND fr.event_id=COALESCE($1,(SELECT event_id FROM festa_event_lifecycle WHERE singleton),0)
-		GROUP BY ft.id`, r.eventID)
+	err := r.db.Select(&trials, `SELECT id, objective, goal_id, times_req, locale_req, reward, 'none'::festival_color AS monopoly,
+		CASE WHEN objective=5 AND goal_id=53034 THEN 2 ELSE 0 END AS unk
+		FROM festa_trials WHERE objective BETWEEN 1 AND 4 OR (objective=5 AND goal_id=53034)
+		ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		var trial FestaTrial
-		if err := rows.StructScan(&trial); err != nil {
-			continue
+	if r.eventID == nil || !monopoly {
+		return trials, nil
+	}
+	var votes []festaMonopolyVote
+	err = r.db.Select(&votes, `SELECT trial_id, team
+		FROM festa_trial_votes JOIN festa_registrations USING(event_id,guild_id)
+		WHERE event_id=$1 GROUP BY team,trial_id ORDER BY COUNT(*) DESC,trial_id`, r.eventID)
+	if err != nil {
+		return nil, err
+	}
+	var first FestivalColor
+	err = r.db.Get(&first, `WITH previous_round AS (
+		SELECT id FROM events WHERE event_type='festa'
+			AND start_time<(SELECT start_time FROM events WHERE id=$1)
+		ORDER BY start_time DESC,id DESC LIMIT 1
+	), scores AS (
+		SELECT COALESCE(SUM(s.souls) FILTER (WHERE r.team='red'),0) AS red,
+		       COALESCE(SUM(s.souls) FILTER (WHERE r.team='blue'),0) AS blue
+		FROM previous_round p JOIN festa_registrations r ON r.event_id=p.id
+		JOIN festa_submissions s USING(event_id,guild_id)
+	)
+	SELECT CASE WHEN red>blue THEN 'red' ELSE 'blue' END FROM scores`, r.eventID)
+	if err != nil {
+		return nil, err
+	}
+	picks := festaMonopolies(votes, first)
+	for i := range trials {
+		if team, ok := picks[trials[i].ID]; ok {
+			trials[i].Monopoly = team
 		}
-		trials = append(trials, trial)
 	}
 	return trials, nil
+}
+
+// festaTeamTotalsAt reads a single historical tally. Submissions are never
+// moved between rounds, and the timestamp boundary keeps a window stable.
+func (r *FestaRepository) festaTeamTotalsAt(cutoff time.Time) (blue, red uint32, err error) {
+	err = r.db.QueryRow(`SELECT
+		COALESCE(SUM(s.souls) FILTER (WHERE r.team='blue'),0),
+		COALESCE(SUM(s.souls) FILTER (WHERE r.team='red'),0)
+		FROM festa_submissions s JOIN festa_registrations r USING(event_id,guild_id)
+		WHERE s.event_id=$1 AND s.timestamp<$2`, r.eventID, cutoff).Scan(&blue, &red)
+	return
+}
+
+func (r *FestaRepository) festaGuildStanding(guildID uint32) (souls, participants, rank uint32, team FestivalColor, err error) {
+	err = r.db.QueryRow(`WITH guild_scores AS (
+		SELECT guild_id, team, SUM(souls) AS souls,
+			COUNT(DISTINCT character_id) FILTER (WHERE souls>0) AS participants
+		FROM festa_registrations JOIN festa_submissions USING(event_id,guild_id)
+		WHERE event_id=$1 GROUP BY guild_id,team HAVING SUM(souls)>0
+	), standings AS (
+		SELECT *, ROW_NUMBER() OVER (PARTITION BY team ORDER BY souls DESC,guild_id) AS rank FROM guild_scores
+	)
+	SELECT souls, participants, rank, team FROM standings WHERE guild_id=$2`, r.eventID, guildID).
+		Scan(&souls, &participants, &rank, &team)
+	return
 }
 
 // GetTopGuildForTrial returns the top-scoring guild for a given trial type.
@@ -178,6 +217,24 @@ func (r *FestaRepository) HasClaimedMainPrize(charID uint32) bool {
 // VoteTrial sets a character's trial vote.
 func (r *FestaRepository) VoteTrial(charID uint32, trialID uint32) error {
 	return r.writeFesta(1<<1, func(tx *sqlx.Tx) error {
+		if r.eventID != nil {
+			result, err := tx.Exec(`INSERT INTO festa_trial_votes(event_id,guild_id,trial_id)
+				SELECT fr.event_id, fr.guild_id, ft.id
+				FROM festa_registrations fr JOIN events e ON e.id=fr.event_id
+				JOIN guild_characters gc ON gc.guild_id=fr.guild_id AND gc.character_id=$2
+				JOIN guilds g ON g.id=fr.guild_id AND g.leader_id=$2
+				JOIN festa_trials ft ON ft.id=$3 AND ft.objective BETWEEN 1 AND 4
+				WHERE fr.event_id=$1 AND clock_timestamp() < e.start_time + interval '165 hours'
+				ON CONFLICT(event_id,guild_id) DO UPDATE SET trial_id=EXCLUDED.trial_id`, r.eventID, charID, trialID)
+			if err != nil {
+				return err
+			}
+			affected, err := result.RowsAffected()
+			if err == nil && affected == 0 {
+				return sql.ErrNoRows
+			}
+			return err
+		}
 		_, err := tx.Exec(`UPDATE guild_characters SET trial_vote=$1 WHERE character_id=$2`, trialID, charID)
 		return err
 	})
@@ -198,12 +255,29 @@ func (r *FestaRepository) RegisterGuild(guildID uint32, team string) error {
 }
 
 // SubmitSouls records soul submissions for a character within a transaction.
-// All entries are inserted; callers should pre-filter zero values.
+// Zero entries are skipped without changing the native category numbers.
 func (r *FestaRepository) SubmitSouls(charID, guildID uint32, souls []uint16) error {
 	return r.writeFesta(1<<2, func(tx *sqlx.Tx) error {
+		if r.eventID != nil {
+			var registered bool
+			if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM festa_registrations WHERE event_id=$1 AND guild_id=$2)`,
+				r.eventID, guildID).Scan(&registered); err != nil {
+				return err
+			}
+			if !registered {
+				return sql.ErrNoRows
+			}
+		}
+		var submittedAt time.Time
+		if err := tx.QueryRow(`SELECT clock_timestamp()`).Scan(&submittedAt); err != nil {
+			return err
+		}
 		for i, s := range souls {
+			if s == 0 {
+				continue
+			}
 			if _, err := tx.Exec(`INSERT INTO festa_submissions(character_id,guild_id,trial_type,souls,timestamp,event_id)
-				VALUES($1,$2,$3,$4,now(),COALESCE($5,(SELECT event_id FROM festa_event_lifecycle WHERE singleton),0))`, charID, guildID, i, s, r.eventID); err != nil {
+				VALUES($1,$2,$3,$4,$5,COALESCE($6,(SELECT event_id FROM festa_event_lifecycle WHERE singleton),0))`, charID, guildID, i, s, submittedAt, r.eventID); err != nil {
 				return err
 			}
 		}
@@ -234,7 +308,8 @@ func (r *FestaRepository) ListPrizes(charID uint32, prizeType string) ([]Prize, 
 	var prizes []Prize
 	rows, err := r.db.Queryx(
 		`SELECT id, tier, souls_req, item_id, num_item, (SELECT count(*) FROM festa_prizes_accepted fpa WHERE fp.id = fpa.prize_id AND fpa.character_id = $1
-		AND fpa.event_id=COALESCE($3,(SELECT event_id FROM festa_event_lifecycle WHERE singleton),0)) AS claimed FROM festa_prizes fp WHERE type=$2`,
+		AND fpa.event_id=COALESCE($3,(SELECT event_id FROM festa_event_lifecycle WHERE singleton),0)) AS claimed
+		FROM festa_prizes fp WHERE type=$2 ORDER BY souls_req,id`,
 		charID, prizeType, r.eventID,
 	)
 	if err != nil {

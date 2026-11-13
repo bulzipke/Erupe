@@ -1638,7 +1638,7 @@ func (m *mockFestaRepo) InsertEvent(start uint32) error {
 }
 func (m *mockFestaRepo) GetFestaEvents() ([]FestaEvent, error) { return m.events, m.eventsErr }
 func (m *mockFestaRepo) GetTeamSouls(_ string) (uint32, error) { return m.teamSouls, m.teamErr }
-func (m *mockFestaRepo) GetTrialsWithMonopoly() ([]FestaTrial, error) {
+func (m *mockFestaRepo) GetTrialsWithMonopoly(_ bool) ([]FestaTrial, error) {
 	return m.trials, m.trialsErr
 }
 func (m *mockFestaRepo) GetTopGuildForTrial(_ uint16) (FestaGuildRanking, error) {

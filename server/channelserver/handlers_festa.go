@@ -90,7 +90,7 @@ type FestaTrial struct {
 	Locale    uint16        `db:"locale_req"`
 	Reward    uint16        `db:"reward"`
 	Monopoly  FestivalColor `db:"monopoly"`
-	Unk       uint16
+	Unk       uint16        `db:"unk"` // Native team eligibility rule for bonus trials.
 }
 
 // FestaReward represents a festa reward entry.
@@ -144,7 +144,8 @@ func handleMsgMhfInfoFesta(s *Session, p mhfpacket.MHFPacket) {
 		}
 	}
 
-	if timestamps[0] > uint32(TimeAdjusted().Unix()) {
+	now := TimeAdjusted()
+	if timestamps[0] > uint32(now.Unix()) {
 		doAckBufSucceed(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
@@ -157,22 +158,40 @@ func handleMsgMhfInfoFesta(s *Session, p mhfpacket.MHFPacket) {
 	if err != nil {
 		s.logger.Error("Failed to get red souls", zap.Error(err))
 	}
+	gathering := now.Unix() >= int64(timestamps[1]) && now.Unix() < int64(timestamps[2])
+	real, scoped := repo.(*FestaRepository)
+	scoped = scoped && real.eventID != nil
+	var secrets []FestaTrial
+	if scoped && gathering && s.server.erupeConfig.RealClientMode >= cfg.ZZ {
+		cutoff, slot, both := festaSecretWindow(now)
+		if !cutoff.IsZero() && now.Unix() >= int64(timestamps[1])+8*3600 {
+			cutoff = time.Unix(max(cutoff.Unix(), int64(timestamps[1])), 0)
+			blueSouls, redSouls, err = real.festaTeamTotalsAt(cutoff)
+			if err != nil {
+				s.logger.Error("Failed to read festa secret tally", zap.Error(err))
+				doAckBufFail(s, pkt.AckHandle, nil)
+				return
+			}
+			secrets = festaSecretTrials(id, slot, both, blueSouls == redSouls)
+		}
+	}
 
 	bf.WriteUint32(id)
 	for _, timestamp := range timestamps {
 		bf.WriteUint32(timestamp)
 	}
-	bf.WriteUint32(uint32(TimeAdjusted().Unix()))
-	bf.WriteUint8(4)
+	bf.WriteUint32(uint32(now.Unix()))
+	bf.WriteUint8(festaMonopolyCount)
 	ps.Uint8(bf, "", false)
 	bf.WriteUint32(0)
 	bf.WriteUint32(blueSouls)
 	bf.WriteUint32(redSouls)
 
-	trials, err := repo.GetTrialsWithMonopoly()
+	trials, err := repo.GetTrialsWithMonopoly(gathering && festaMonopolyWindow(now))
 	if err != nil {
 		s.logger.Error("Failed to query festa trials", zap.Error(err))
 	}
+	trials = append(trials, secrets...)
 	// em106 (Odibatorasu) is the last monster added in Forward.5; skip trials
 	// referencing monsters or items that don't exist in that version.
 	if s.server.erupeConfig.RealClientMode <= cfg.F5 {
@@ -202,35 +221,7 @@ func handleMsgMhfInfoFesta(s *Session, p mhfpacket.MHFPacket) {
 		}
 	}
 
-	// The Winner and Loser Armor IDs are missing
-	// Fields: {Unk0, Unk1, ItemType, Quantity, ItemID, MinHR, MinSR, MinGR}
-	rewards := []FestaReward{
-		{1, 0, 7, 350, 1520, 0, 0, 0},
-		{1, 0, 7, 1000, 7011, 0, 0, 1},
-		{1, 0, 12, 1000, 0, 0, 0, 0},
-		{1, 0, 13, 0, 0, 0, 0, 0},
-		//{1, 0, 1, 0, 0, 0, 0, 0},
-		{2, 0, 7, 350, 1520, 0, 0, 0},
-		{2, 0, 7, 1000, 7011, 0, 0, 1},
-		{2, 0, 12, 1000, 0, 0, 0, 0},
-		{2, 0, 13, 0, 0, 0, 0, 0},
-		//{2, 0, 4, 0, 0, 0, 0, 0},
-		{3, 0, 7, 350, 1520, 0, 0, 0},
-		{3, 0, 7, 1000, 7011, 0, 0, 1},
-		{3, 0, 12, 1000, 0, 0, 0, 0},
-		{3, 0, 13, 0, 0, 0, 0, 0},
-		//{3, 0, 1, 0, 0, 0, 0, 0},
-		{4, 0, 7, 350, 1520, 0, 0, 0},
-		{4, 0, 7, 1000, 7011, 0, 0, 1},
-		{4, 0, 12, 1000, 0, 0, 0, 0},
-		{4, 0, 13, 0, 0, 0, 0, 0},
-		//{4, 0, 4, 0, 0, 0, 0, 0},
-		{5, 0, 7, 350, 1520, 0, 0, 0},
-		{5, 0, 7, 1000, 7011, 0, 0, 1},
-		{5, 0, 12, 1000, 0, 0, 0, 0},
-		{5, 0, 13, 0, 0, 0, 0, 0},
-		//{5, 0, 1, 0, 0, 0, 0, 0},
-	}
+	rewards := festaMainRewards()
 
 	// Item 7011 does not exist before G1 — filter it to prevent client crashes.
 	if s.server.erupeConfig.RealClientMode <= cfg.F5 {
@@ -259,14 +250,11 @@ func handleMsgMhfInfoFesta(s *Session, p mhfpacket.MHFPacket) {
 		}
 	}
 	if s.server.erupeConfig.RealClientMode <= cfg.G61 {
-		if s.server.erupeConfig.GameplayOptions.MaximumFP > 0xFFFF {
-			s.server.erupeConfig.GameplayOptions.MaximumFP = 0xFFFF
-		}
-		bf.WriteUint16(uint16(s.server.erupeConfig.GameplayOptions.MaximumFP))
+		bf.WriteUint16(uint16(min(s.server.erupeConfig.GameplayOptions.MaximumFP, 0xFFFF)))
 	} else {
 		bf.WriteUint32(s.server.erupeConfig.GameplayOptions.MaximumFP)
 	}
-	bf.WriteUint16(100) // Reward multiplier (%)
+	bf.WriteUint16(festaFPPercent)
 
 	bf.WriteUint16(4)
 	for i := uint16(0); i < 4; i++ {
@@ -292,17 +280,16 @@ func handleMsgMhfInfoFesta(s *Session, p mhfpacket.MHFPacket) {
 		ps.Uint8(bf, ranking.GuildName, true)
 	}
 
-	bf.WriteUint32(0) // Clan goal
+	bf.WriteUint32(festaSoulGoal(1500)) // Clan goal for the personal FP bonus.
 	// Final bonus rates
-	bf.WriteUint32(5000) // 5000+ souls
-	bf.WriteUint32(2000) // 2000-4999 souls
-	bf.WriteUint32(1000) // 1000-1999 souls
-	bf.WriteUint32(100)  // 100-999 souls
-	bf.WriteUint16(300)  // 300% bonus
-	bf.WriteUint16(200)  // 200% bonus
-	bf.WriteUint16(150)  // 150% bonus
-	bf.WriteUint16(100)  // Normal rate
-	bf.WriteUint16(50)   // 50% penalty
+	for _, original := range [...]uint32{5000, 2000, 1000, 100} {
+		bf.WriteUint32(festaSoulGoal(original))
+	}
+	bf.WriteUint16(300) // 300% bonus
+	bf.WriteUint16(200) // 200% bonus
+	bf.WriteUint16(150) // 150% bonus
+	bf.WriteUint16(100) // Normal rate
+	bf.WriteUint16(50)  // 50% penalty
 
 	if s.server.erupeConfig.RealClientMode >= cfg.G52 {
 		ps.Uint16(bf, "", false)
@@ -351,7 +338,8 @@ func handleMsgMhfStateFestaU(s *Session, p mhfpacket.MHFPacket) {
 // state festa (G)uild
 func handleMsgMhfStateFestaG(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfStateFestaG)
-	if _, _, err := s.festaContext(); err != nil {
+	event, repo, err := s.festaContext()
+	if err != nil || (event.Continuous && pkt.FestaID != event.ID) {
 		doAckBufFail(s, pkt.AckHandle, nil)
 		return
 	}
@@ -374,11 +362,41 @@ func handleMsgMhfStateFestaG(s *Session, p mhfpacket.MHFPacket) {
 		doAckBufSucceed(s, pkt.AckHandle, resp.Data())
 		return
 	}
-	resp.WriteUint32(guild.Souls)
-	resp.WriteInt32(1) // unk
-	resp.WriteInt32(1) // unk, rank?
-	resp.WriteInt32(1) // unk
-	resp.WriteInt32(1) // unk
+	souls, participants, rank, result := guild.Souls, uint32(1), uint32(1), uint32(1)
+	fpBonus := uint32(1)
+	if real, ok := repo.(*FestaRepository); ok && real.eventID != nil {
+		var team FestivalColor
+		souls, participants, rank, team, err = real.festaGuildStanding(guild.ID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			s.logger.Error("Failed to read festa guild standing", zap.Error(err))
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
+		result = 0
+		if rank != 0 && event.phase(TimeAdjusted()) == 4 {
+			blue, red, err := real.festaTeamTotalsAt(time.Unix(int64(event.timestamps()[2]), 0))
+			if err != nil {
+				s.logger.Error("Failed to read festa final tally", zap.Error(err))
+				doAckBufFail(s, pkt.AckHandle, nil)
+				return
+			}
+			result = festaRewardResult(team, rank, blue, red)
+			if s.server.erupeConfig.RealClientMode >= cfg.ZZ && result != 0 {
+				personalSouls, err := repo.GetCharSouls(s.charID)
+				if err != nil {
+					s.logger.Error("Failed to read personal festa tally", zap.Error(err))
+					doAckBufFail(s, pkt.AckHandle, nil)
+					return
+				}
+				fpBonus = festaFPBonusPresent | festaPersonalFPBonus(personalSouls, s.server.erupeConfig.GameplayOptions.MaximumFP)
+			}
+		}
+	}
+	resp.WriteUint32(souls)
+	resp.WriteUint32(participants)
+	resp.WriteUint32(rank)
+	resp.WriteUint32(fpBonus)
+	resp.WriteUint32(result)
 	doAckBufSucceed(s, pkt.AckHandle, resp.Data())
 }
 
@@ -424,7 +442,17 @@ func handleMsgMhfEnumerateFestaMember(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfVoteFesta(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfVoteFesta)
-	_, repo, err := s.festaContext()
+	event, repo, err := s.festaContext()
+	if err == nil && event.Continuous && pkt.FestaID != event.ID {
+		err = errFestaRoundChanged
+	}
+	if err == nil && event.Continuous {
+		_, reason, lookupErr := resolveGuildMemberAccess(s, pkt.GuildID)
+		if reason != "" || lookupErr != nil {
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
+		}
+	}
 	if err == nil {
 		err = repo.VoteTrial(s.charID, pkt.TrialID)
 	}
@@ -470,8 +498,8 @@ func handleMsgMhfEntryFesta(s *Session, p mhfpacket.MHFPacket) {
 
 func handleMsgMhfChargeFesta(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfChargeFesta)
-	_, repo, err := s.festaContext()
-	if err != nil {
+	event, repo, err := s.festaContext()
+	if err != nil || (event.Continuous && pkt.FestaID != event.ID) {
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
@@ -574,7 +602,7 @@ func writePrizeList(s *Session, pkt mhfpacket.MHFPacket, ackHandle uint32, prize
 			count++
 			prizeData.WriteUint32(prize.ID)
 			prizeData.WriteUint32(prize.Tier)
-			prizeData.WriteUint32(prize.SoulsReq)
+			prizeData.WriteUint32(festaSoulGoal(prize.SoulsReq))
 			prizeData.WriteUint32(7) // Unk
 			prizeData.WriteUint32(prize.ItemID)
 			prizeData.WriteUint32(prize.NumItem)

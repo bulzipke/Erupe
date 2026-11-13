@@ -392,7 +392,7 @@ type FestaRepo interface {
 	InsertEvent(startTime uint32) error
 	GetFestaEvents() ([]FestaEvent, error)
 	GetTeamSouls(team string) (uint32, error)
-	GetTrialsWithMonopoly() ([]FestaTrial, error)
+	GetTrialsWithMonopoly(monopoly bool) ([]FestaTrial, error)
 	GetTopGuildForTrial(trialType uint16) (FestaGuildRanking, error)
 	GetTopGuildInWindow(start, end uint32) (FestaGuildRanking, error)
 	GetCharSouls(charID uint32) (uint32, error)
