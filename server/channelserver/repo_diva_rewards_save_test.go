@@ -155,8 +155,8 @@ func TestDivaRewardSaveAtomicGPValidationAndRollback(t *testing.T) {
 	if err := db.QueryRow(`SELECT gcp,pact_id FROM characters WHERE id=$1`, charID).Scan(&gcp, &pact); err != nil {
 		t.Fatal(err)
 	}
-	if gcp != 12010 || pact != 99 || !divaSaveTestClaimTime(t, db, gpID).Time.Equal(first.Time) {
-		t.Fatal("GP retry incremented balance or replaced claim timestamp")
+	if gcp != 12010 || pact != 11 || !divaSaveTestClaimTime(t, db, gpID).Time.Equal(first.Time) {
+		t.Fatal("GP retry changed the pact, balance or claim timestamp")
 	}
 	if divaSaveTestClaimTime(t, db, itemID).Valid {
 		t.Fatal("GP save consumed item receipt")

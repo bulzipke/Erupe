@@ -1835,8 +1835,24 @@ type mockMercenaryRepo struct {
 	guildAirouErr error
 }
 
-func (m *mockMercenaryRepo) NextRastaID() (uint32, error) { return m.nextRastaID, m.rastaIDErr }
-func (m *mockMercenaryRepo) NextAirouID() (uint32, error) { return m.nextAirouID, m.airouIDErr }
+func (m *mockMercenaryRepo) RegisterRasta(uint32) (uint32, error) { return m.nextRastaID, m.rastaIDErr }
+func (m *mockMercenaryRepo) NextAirouID() (uint32, error)         { return m.nextAirouID, m.airouIDErr }
+func (m *mockMercenaryRepo) GetMercenaryPact(uint32) (MercenaryLoan, bool, error) {
+	return MercenaryLoan{}, false, nil
+}
+func (m *mockMercenaryRepo) ChangeMercenaryPact(uint32, uint32, uint32, uint32, uint8, time.Time) error {
+	return nil
+}
+func (m *mockMercenaryRepo) GetMercenaryContractLogs(uint32) ([]MercenaryContractLog, error) {
+	return nil, nil
+}
+func (m *mockMercenaryRepo) RecordMercenaryHunts(uint32, uint32, time.Time, time.Time, []int32) error {
+	return nil
+}
+func (m *mockMercenaryRepo) PreviewMercenaryHunts(uint32, time.Time) ([]MercenaryHunt, error) {
+	return nil, nil
+}
+func (m *mockMercenaryRepo) ClaimMercenaryHunts(uint32, time.Time) error { return nil }
 func (m *mockMercenaryRepo) GetMercenaryLoans(_ uint32) ([]MercenaryLoan, error) {
 	return m.loans, m.loansErr
 }

@@ -24,10 +24,11 @@ import (
 )
 
 type packet struct {
-	data        []byte
-	nonBlocking bool
-	sent        chan error      // Optional receipt after the socket write, never a render ACK.
-	sendContext context.Context // Do not emit an expired one-time notice later.
+	data              []byte
+	nonBlocking       bool
+	mercenaryExchange bool
+	sent              chan error      // Optional receipt after the socket write, never a render ACK.
+	sendContext       context.Context // Do not emit an expired one-time notice later.
 }
 
 // Session holds state for the channel server connection.
@@ -38,6 +39,9 @@ type Session struct {
 	rawConn                     net.Conn
 	cryptConn                   network.Conn
 	sendPackets                 chan packet
+	mercenaryConsent            mercenaryConsent   // Guarded by Session.Mutex.
+	mercenaryDeparture          mercenaryDeparture // Guarded by lifecycleMu.
+	pendingMercenaryCompanion   mercenaryCompanion // Guarded by lifecycleMu.
 	clientContext               *clientctx.ClientContext
 	lastPacketMu                sync.RWMutex
 	lastPacket                  time.Time
@@ -334,13 +338,26 @@ func (s *Session) sendLoop() {
 	if loopDelay < time.Millisecond {
 		loopDelay = time.Millisecond
 	}
+	queued := make([]packet, 0, cap(s.sendPackets))
 	for {
 		if s.closed.Load() {
 			return
 		}
-		// Send each packet individually with its own terminator
-		for len(s.sendPackets) > 0 {
-			pkt := <-s.sendPackets
+		// In the Rasta Bar the client handles seat negotiations from a packet
+		// group. Keep that traffic with neighboring updates in the same frame.
+		count := len(s.sendPackets)
+		// Drain the queue snapshot only. Leave newly enqueued work for the next
+		// iteration so continuous traffic cannot starve this frame.
+		for len(queued) < count {
+			queued = append(queued, <-s.sendPackets)
+		}
+		batch := false
+		for _, pkt := range queued {
+			batch = batch || pkt.mercenaryExchange
+		}
+		const maxGroupedPayload = 4094 // Leave room for MSG_SYS_END.
+		for i := 0; i < count; i++ {
+			pkt := queued[i]
 			if pkt.sendContext != nil && pkt.sendContext.Err() != nil {
 				if pkt.sent != nil {
 					pkt.sent <- pkt.sendContext.Err()
@@ -352,10 +369,18 @@ func (s *Session) sendLoop() {
 					s.logger.Debug("Failed to set channel write deadline", zap.Error(err))
 				}
 			}
-			framed := make([]byte, len(pkt.data)+2)
-			copy(framed, pkt.data)
-			framed[len(pkt.data)] = 0x00
-			framed[len(pkt.data)+1] = 0x10
+			framed := append(make([]byte, 0, len(pkt.data)+2), pkt.data...)
+			if batch && pkt.sent == nil && pkt.sendContext == nil {
+				for i+1 < count {
+					next := queued[i+1]
+					if next.sent != nil || next.sendContext != nil || len(framed)+len(next.data) > maxGroupedPayload {
+						break
+					}
+					framed = append(framed, next.data...)
+					i++
+				}
+			}
+			framed = append(framed, 0x00, 0x10)
 			err := s.cryptConn.SendPacket(framed)
 			if pkt.sent != nil {
 				pkt.sent <- err
@@ -367,6 +392,8 @@ func (s *Session) sendLoop() {
 				return
 			}
 		}
+		clear(queued)
+		queued = queued[:0]
 		time.Sleep(loopDelay)
 	}
 }

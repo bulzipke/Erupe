@@ -316,9 +316,14 @@ func (r *CharacterRepository) SaveMercenary(charID uint32, data []byte, rastaID 
 	return nil
 }
 
-// UpdateGCPAndPact updates gcp and pact_id atomically.
+// The native client sends zero in the pact field when escort is disabled.
+// Contract changes are handled separately by the contract opcode.
+const updateMercenaryGCP = `UPDATE characters SET gcp=$1,
+	mercenary_escort=CASE WHEN pact_id>0 AND ($2=0 OR pact_id=$2) THEN $2<>0 ELSE mercenary_escort END WHERE id=$3`
+
+// UpdateGCPAndPact saves the GP balance and the current pact's escort setting.
 func (r *CharacterRepository) UpdateGCPAndPact(charID uint32, gcp uint32, pactID uint32) error {
-	_, err := r.db.Exec("UPDATE characters SET gcp=$1, pact_id=$2 WHERE id=$3", gcp, pactID, charID)
+	_, err := r.db.Exec(updateMercenaryGCP, gcp, pactID, charID)
 	return err
 }
 

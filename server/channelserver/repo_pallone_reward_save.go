@@ -8,7 +8,7 @@ func (r *CharacterRepository) UpdateGCPAndPactWithClientRewards(charID, gcp, pac
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck
-	res, err := tx.Exec(`UPDATE characters SET gcp=$1,pact_id=$2 WHERE id=$3`, gcp, pactID, charID)
+	res, err := tx.Exec(updateMercenaryGCP, gcp, pactID, charID)
 	if err != nil {
 		return err
 	}

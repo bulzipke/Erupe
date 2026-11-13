@@ -263,7 +263,8 @@ func TestPallonePostgresScheduleRolloverSettlesBeforeNextTick(t *testing.T) {
 
 func TestPallonePostgresRewardsFreezeOwnershipAndAtomicSaves(t *testing.T) {
 	r, db, e, now := palloneRepoFixture(t)
-	if _, err := db.Exec(`ALTER TABLE characters ADD COLUMN gcp bigint NOT NULL DEFAULT 100,ADD COLUMN pact_id bigint NOT NULL DEFAULT 0,ADD COLUMN savedata bytea`); err != nil {
+	if _, err := db.Exec(`ALTER TABLE characters ADD COLUMN gcp bigint NOT NULL DEFAULT 100,ADD COLUMN pact_id bigint NOT NULL DEFAULT 0,
+		ADD COLUMN mercenary_escort boolean NOT NULL DEFAULT true,ADD COLUMN savedata bytea`); err != nil {
 		t.Fatal(err)
 	}
 	for i, cid := range []uint32{100, 101} {

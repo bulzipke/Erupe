@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -17,10 +18,12 @@ func NewMercenaryRepository(db *sqlx.DB) *MercenaryRepository {
 	return &MercenaryRepository{db: db}
 }
 
-// NextRastaID returns the next value from the rasta_id_seq sequence.
-func (r *MercenaryRepository) NextRastaID() (uint32, error) {
+// RegisterRasta gives a character a stable ID, including on retry.
+func (r *MercenaryRepository) RegisterRasta(charID uint32) (uint32, error) {
 	var id uint32
-	err := r.db.QueryRow("SELECT nextval('rasta_id_seq')").Scan(&id)
+	err := r.db.QueryRow(`UPDATE characters
+		SET rasta_id=COALESCE(NULLIF(rasta_id,0), nextval('rasta_id_seq'))
+		WHERE id=$1 RETURNING rasta_id`, charID).Scan(&id)
 	return id, err
 }
 
@@ -36,11 +39,27 @@ type MercenaryLoan struct {
 	Name   string
 	CharID uint32
 	PactID int
+	Since  sql.NullTime
+}
+
+func (r *MercenaryRepository) GetMercenaryPact(charID uint32) (MercenaryLoan, bool, error) {
+	var pact MercenaryLoan
+	var escort bool
+	err := r.db.QueryRow(`SELECT owner.name, owner.id, owner.rasta_id, borrower.mercenary_contract_at, borrower.mercenary_escort
+		FROM characters borrower JOIN characters owner ON owner.rasta_id = borrower.pact_id
+		WHERE borrower.id=$1 AND borrower.pact_id>0 AND owner.id<>borrower.id
+		ORDER BY owner.id LIMIT 1`, charID).Scan(&pact.Name, &pact.CharID, &pact.PactID, &pact.Since, &escort)
+	if err == sql.ErrNoRows {
+		err = nil
+	}
+	return pact, escort, err
 }
 
 // GetMercenaryLoans returns characters that have a pact with the given character's rasta_id.
 func (r *MercenaryRepository) GetMercenaryLoans(charID uint32) ([]MercenaryLoan, error) {
-	rows, err := r.db.Query("SELECT name, id, pact_id FROM characters WHERE pact_id=(SELECT rasta_id FROM characters WHERE id=$1)", charID)
+	rows, err := r.db.Query(`SELECT name, id, pact_id, mercenary_contract_at FROM characters
+		WHERE pact_id>0 AND pact_id=(SELECT rasta_id FROM characters WHERE id=$1) AND id<>$1
+		ORDER BY mercenary_contract_at NULLS FIRST, id LIMIT $2`, charID, mercenaryMaxLoans)
 	if err != nil {
 		return nil, fmt.Errorf("query mercenary loans: %w", err)
 	}
@@ -48,7 +67,7 @@ func (r *MercenaryRepository) GetMercenaryLoans(charID uint32) ([]MercenaryLoan,
 	var result []MercenaryLoan
 	for rows.Next() {
 		var l MercenaryLoan
-		if err := rows.Scan(&l.Name, &l.CharID, &l.PactID); err != nil {
+		if err := rows.Scan(&l.Name, &l.CharID, &l.PactID, &l.Since); err != nil {
 			return nil, fmt.Errorf("scan mercenary loan: %w", err)
 		}
 		result = append(result, l)

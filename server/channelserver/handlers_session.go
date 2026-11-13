@@ -790,6 +790,11 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 			questWeaponType = &weaponType
 		}
 		recordedAt := TimeAdjusted()
+		if err := s.recordMercenaryResult(questID, pkt.Data, validRecordTime, recordedAt); err != nil {
+			s.logger.Warn("Failed to record mercenary hunts", zap.Error(err))
+			doAckSimpleFail(s, pkt.AckHandle, nil)
+			return
+		}
 		questName := ""
 		questMetadata := mhfquest.HuntQuestMetadata{RankKind: mhfquest.HuntRankUnknown}
 		metadataLoaded := false
@@ -898,6 +903,7 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 			guardianRunID = s.towerGuardianRunID
 			s.towerGuardianRunID = ""
 			s.towerGuardianQuestID = 0
+			s.mercenaryDeparture = mercenaryDeparture{}
 		}
 		s.lifecycleMu.Unlock()
 		if pkt.Data[questResultCodeOffset] == questResultCodeCleared &&

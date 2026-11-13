@@ -624,16 +624,24 @@ func TestSaveMercenary_ZeroRastaID_PreservesNULL(t *testing.T) {
 func TestUpdateGCPAndPact(t *testing.T) {
 	repo, db, charID := setupCharRepo(t)
 
-	if err := repo.UpdateGCPAndPact(charID, 100, 55); err != nil {
-		t.Fatalf("UpdateGCPAndPact failed: %v", err)
+	if _, err := db.Exec("UPDATE characters SET pact_id=55 WHERE id=$1", charID); err != nil {
+		t.Fatal(err)
 	}
-
-	var gcp, pactID uint32
-	if err := db.QueryRow("SELECT gcp, pact_id FROM characters WHERE id=$1", charID).Scan(&gcp, &pactID); err != nil {
-		t.Fatalf("Verification query failed: %v", err)
-	}
-	if gcp != 100 || pactID != 55 {
-		t.Errorf("Expected gcp=100 pact_id=55, got gcp=%d pact_id=%d", gcp, pactID)
+	for _, step := range []struct {
+		request uint32
+		escort  bool
+	}{{0, false}, {99, false}, {55, true}} {
+		if err := repo.UpdateGCPAndPact(charID, 100, step.request); err != nil {
+			t.Fatal(err)
+		}
+		var gcp, pactID uint32
+		var escort bool
+		if err := db.QueryRow("SELECT gcp, pact_id, mercenary_escort FROM characters WHERE id=$1", charID).Scan(&gcp, &pactID, &escort); err != nil {
+			t.Fatal(err)
+		}
+		if gcp != 100 || pactID != 55 || escort != step.escort {
+			t.Errorf("GP=%d, pact=%d, escort=%t after client sent pact %d", gcp, pactID, escort, step.request)
+		}
 	}
 }
 

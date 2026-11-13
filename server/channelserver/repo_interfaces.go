@@ -603,9 +603,15 @@ type ScenarioRepo interface {
 
 // MercenaryRepo defines the contract for mercenary/rasta data access.
 type MercenaryRepo interface {
-	NextRastaID() (uint32, error)
+	RegisterRasta(charID uint32) (uint32, error)
 	NextAirouID() (uint32, error)
+	GetMercenaryPact(charID uint32) (MercenaryLoan, bool, error)
 	GetMercenaryLoans(charID uint32) ([]MercenaryLoan, error)
+	ChangeMercenaryPact(owner, borrower, actor, rastaID uint32, op uint8, now time.Time) error
+	GetMercenaryContractLogs(charID uint32) ([]MercenaryContractLog, error)
+	RecordMercenaryHunts(borrower, rastaID uint32, startedAt, endedAt time.Time, monsters []int32) error
+	PreviewMercenaryHunts(owner uint32, now time.Time) ([]MercenaryHunt, error)
+	ClaimMercenaryHunts(owner uint32, now time.Time) error
 	GetGuildHuntCatsUsed(charID uint32) ([]GuildHuntCatUsage, error)
 	GetGuildAirou(guildID uint32) ([][]byte, error)
 }

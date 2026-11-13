@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"erupe-ce/common/byteframe"
 	"erupe-ce/common/token"
+	"erupe-ce/network"
 	"erupe-ce/network/binpacket"
 	"erupe-ce/network/mhfpacket"
 	"fmt"
@@ -186,6 +187,12 @@ func handleMsgSysCastBinary(s *Session, p mhfpacket.MHFPacket) {
 			s.server.BroadcastMHF(resp, s)
 		}
 	case BroadcastTypeTargeted:
+		if pkt.MessageType == BinaryMessageTypeData {
+			if exchange := mercenaryExchangeType(realPayload); exchange != 0 {
+				s.forwardMercenaryExchange(msgBinTargeted.TargetCharIDs, resp, exchange)
+				return
+			}
+		}
 		for _, targetID := range (*msgBinTargeted).TargetCharIDs {
 			char := s.server.FindSessionByCharID(targetID)
 
@@ -200,6 +207,34 @@ func handleMsgSysCastBinary(s *Session, p mhfpacket.MHFPacket) {
 			s.stage.BroadcastMHF(resp, s)
 		}
 		s.Unlock()
+	}
+}
+
+func (s *Session) forwardMercenaryExchange(targets []uint32, resp *mhfpacket.MsgSysCastedBinary, exchange byte) {
+	bar := s.mercenaryBar()
+	if bar == nil || len(targets) != 1 || targets[0] == s.charID {
+		return
+	}
+	peer := s.server.FindSessionByCharID(targets[0])
+	if peer == nil || peer.mercenaryBar() != bar {
+		return
+	}
+	bf := byteframe.NewByteFrame()
+	bf.WriteUint16(uint16(network.MSG_SYS_CASTED_BINARY))
+	_ = resp.Build(bf, peer.clientContext)
+	peer.Lock()
+	defer peer.Unlock()
+	if peer.stage != bar || peer.closed.Load() {
+		return
+	}
+	select {
+	case peer.sendPackets <- packet{data: bf.Data(), mercenaryExchange: true}:
+		if exchange == 0x1e {
+			s.noteMercenaryReply(peer, resp.RawDataPayload, TimeAdjusted())
+		}
+		peer.logMessage(uint16(network.MSG_SYS_CASTED_BINARY), bf.Data(), "Server", peer.Name)
+	default:
+		s.logger.Warn("Mercenary exchange queue full")
 	}
 }
 

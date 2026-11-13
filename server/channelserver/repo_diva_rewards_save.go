@@ -70,7 +70,7 @@ func (r *CharacterRepository) UpdateGCPAndPactWithDivaRewards(charID, gcp, pactI
 		return fmt.Errorf("begin diva GP save: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op after commit
-	result, err := tx.Exec("UPDATE characters SET gcp=$1, pact_id=$2 WHERE id=$3", gcp, pactID, charID)
+	result, err := tx.Exec(updateMercenaryGCP, gcp, pactID, charID)
 	if err != nil {
 		return fmt.Errorf("save diva GP balance: %w", err)
 	}

@@ -208,6 +208,9 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 
 	// Save our new stage pointer.
 	s.Lock()
+	if s.stage != stage {
+		s.mercenaryConsent = mercenaryConsent{}
+	}
 	s.stage = stage
 	s.Unlock()
 	var ravienteQuestID uint16
@@ -216,6 +219,7 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	recordWeaponDeparture := false
 	if stageKind(stageID) == "Qs" {
 		if !alreadyClient {
+			s.beginMercenaryDeparture(stage, admittedAt)
 			s.towerGuardianRunID = ""
 			s.palloneDeparture = pallonePlan
 			s.palloneDepartureStarted = admittedAt
@@ -815,6 +819,9 @@ func handleMsgSysSetStageBinary(s *Session, p mhfpacket.MHFPacket) {
 			}
 		}
 		stage.Unlock()
+		if stored && stageKind(pkt.StageID) == "Qs" {
+			s.observeMercenaryDeparture(stage, pkt)
+		}
 		rejectQuestDeliveryDepartures(stage, deliveryRejected)
 		if stored && questSetupDecoded {
 			s.observePalloneStage("stage_setup_accepted", questID, pkt.StageID)

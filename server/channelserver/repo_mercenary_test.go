@@ -17,19 +17,23 @@ func setupMercenaryRepo(t *testing.T) (*MercenaryRepository, *sqlx.DB, uint32, u
 	return repo, db, charID, guildID
 }
 
-func TestRepoMercenaryNextRastaID(t *testing.T) {
-	repo, _, _, _ := setupMercenaryRepo(t)
+func TestRepoMercenaryRegisterRasta(t *testing.T) {
+	repo, db, first, _ := setupMercenaryRepo(t)
+	second := CreateTestCharacter(t, db, CreateTestUser(t, db, "mercenary_second"), "Second")
 
-	id1, err := repo.NextRastaID()
+	id1, err := repo.RegisterRasta(first)
 	if err != nil {
 		t.Fatalf("NextRastaID failed: %v", err)
 	}
-	id2, err := repo.NextRastaID()
+	id2, err := repo.RegisterRasta(second)
 	if err != nil {
 		t.Fatalf("NextRastaID second call failed: %v", err)
 	}
 	if id2 <= id1 {
 		t.Errorf("Expected increasing IDs, got: %d then %d", id1, id2)
+	}
+	if again, err := repo.RegisterRasta(first); err != nil || again != id1 {
+		t.Fatalf("register retry returned %d, %v; want %d", again, err, id1)
 	}
 }
 
