@@ -559,6 +559,64 @@ func TestHandleMsgMhfSaveMercenary_Oversized(t *testing.T) {
 	<-session.sendPackets
 }
 
+type gearProfileTestRepo struct {
+	*mockCharacterRepo
+}
+
+func (r gearProfileTestRepo) SaveMercenary(_ uint32, data []byte, _ uint32) error {
+	r.columns["savemercenary"] = bytes.Clone(data)
+	return nil
+}
+
+func TestMercenaryGearProfileRoundTrip(t *testing.T) {
+	server := createMockServer()
+	server.erupeConfig.RealClientMode = cfg.ZZ
+	charRepo := gearProfileTestRepo{newMockCharacterRepo()}
+	charRepo.ints["rasta_id"] = 52
+	charRepo.ints["gcp"] = 123456
+	server.charRepo = charRepo
+	server.mercenaryRepo = &mockMercenaryRepo{}
+	session := createMockSession(100, server)
+
+	const ackHeader = 10
+	payload := func() []byte {
+		frame := (<-session.sendPackets).data
+		if len(frame) < ackHeader || frame[6] != 1 || frame[7] != 0 ||
+			int(binary.BigEndian.Uint16(frame[8:10])) != len(frame)-ackHeader {
+			t.Fatalf("invalid buffered ACK: %x", frame)
+		}
+		return frame[ackHeader:]
+	}
+	profile := make([]byte, mercenaryNativeSize+mercenaryGearSize)
+	copy(profile[mercenaryNativeSize:], mercenaryGearVersion)
+	profile[mercenaryNativeSize+4] = 0x9c
+	profile[mercenaryNativeSize+7] = 0x12
+	handleMsgMhfSaveMercenary(session, &mhfpacket.MsgMhfSaveMercenary{
+		AckHandle: 1, MercData: profile, GCP: 123456,
+	})
+	<-session.sendPackets
+	if !bytes.Equal(charRepo.columns["savemercenary"], profile) {
+		t.Fatal("saved profile lost the gear suffix")
+	}
+
+	handleMsgMhfReadMercenaryW(session, &mhfpacket.MsgMhfReadMercenaryW{AckHandle: 2})
+	own := payload()
+	const prefix = 3 // lend count, loan count, own profile present
+	gpOffset := prefix + mercenaryNativeSize
+	if len(own) != gpOffset+4+len(mercenaryGearVersion) ||
+		binary.BigEndian.Uint32(own[gpOffset:gpOffset+4]) != 123456 ||
+		string(own[gpOffset+4:]) != mercenaryGearVersion {
+		t.Fatalf("self read changed the GP field or lost capability: %x", own)
+	}
+
+	handleMsgMhfReadMercenaryM(session, &mhfpacket.MsgMhfReadMercenaryM{AckHandle: 3, CharID: 200})
+	other := payload()
+	if len(other) != len(profile) || binary.BigEndian.Uint32(other[:4]) != 52 ||
+		binary.BigEndian.Uint32(other[4:8]) != 200 || !bytes.Equal(other[8:], profile[8:]) {
+		t.Fatalf("loaned profile changed its ID or gear: %x", other)
+	}
+}
+
 func TestHandleMsgMhfReadMercenaryM_EmptyData(t *testing.T) {
 	server := createMockServer()
 	server.charRepo = newMockCharacterRepo()

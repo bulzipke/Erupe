@@ -318,9 +318,16 @@ func handleMsgMhfReadMercenaryW(s *Session, p mhfpacket.MHFPacket) {
 				bf.WriteBool(false)
 			} else {
 				bf.WriteBool(true)
+				if s.server.erupeConfig.RealClientMode == cfg.ZZ {
+					data = nativeMercenaryProfile(data)
+				}
 				bf.WriteBytes(mercenaryProfile(s, s.charID, data))
 			}
 			bf.WriteUint32(uint32(gcp))
+			if s.server.erupeConfig.RealClientMode == cfg.ZZ &&
+				len(bf.Data())+len(mercenaryGearVersion) <= 0x400 {
+				bf.WriteBytes([]byte(mercenaryGearVersion))
+			}
 		}
 	}
 
@@ -336,8 +343,28 @@ func writeMercenaryContractDates(bf *byteframe.ByteFrame, pact MercenaryLoan) {
 	bf.WriteUint32(uint32(since.Add(mercenaryContractLock).Unix()))
 }
 
+const (
+	mercenaryNativeSize  = 0x94
+	mercenaryGearSize    = 0x38
+	mercenaryGearVersion = "RGE1"
+)
+
+func mercenaryHasGear(data []byte) bool {
+	return len(data) == mercenaryNativeSize+mercenaryGearSize &&
+		string(data[mercenaryNativeSize:mercenaryNativeSize+len(mercenaryGearVersion)]) == mercenaryGearVersion
+}
+
+// The self lookup has a fixed-layout GP field immediately after the native
+// profile. Only the counterpart lookup carries gear in the profile payload.
+func nativeMercenaryProfile(data []byte) []byte {
+	if mercenaryHasGear(data) {
+		return data[:mercenaryNativeSize]
+	}
+	return data
+}
+
 func mercenaryProfile(s *Session, charID uint32, data []byte) []byte {
-	if s.server.erupeConfig.RealClientMode != cfg.ZZ || len(data) != 0x94 {
+	if s.server.erupeConfig.RealClientMode != cfg.ZZ || len(nativeMercenaryProfile(data)) != mercenaryNativeSize {
 		return data
 	}
 	rastaID, err := s.server.charRepo.ReadInt(charID, "rasta_id")
