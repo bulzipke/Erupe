@@ -24,11 +24,10 @@ import (
 )
 
 type packet struct {
-	data              []byte
-	nonBlocking       bool
-	mercenaryExchange bool
-	sent              chan error      // Optional receipt after the socket write, never a render ACK.
-	sendContext       context.Context // Do not emit an expired one-time notice later.
+	data        []byte
+	nonBlocking bool
+	sent        chan error      // Optional receipt after the socket write, never a render ACK.
+	sendContext context.Context // Do not emit an expired one-time notice later.
 }
 
 // Session holds state for the channel server connection.
@@ -39,6 +38,7 @@ type Session struct {
 	rawConn                     net.Conn
 	cryptConn                   network.Conn
 	sendPackets                 chan packet
+	mercenaryCasts              mercenaryCastGroup // Owned by the receive loop.
 	mercenaryConsent            mercenaryConsent   // Guarded by Session.Mutex.
 	mercenaryDeparture          mercenaryDeparture // Guarded by lifecycleMu.
 	pendingMercenaryCompanion   mercenaryCompanion // Guarded by lifecycleMu.
@@ -343,21 +343,12 @@ func (s *Session) sendLoop() {
 		if s.closed.Load() {
 			return
 		}
-		// In the Rasta Bar the client handles seat negotiations from a packet
-		// group. Keep that traffic with neighboring updates in the same frame.
+		// Leave newly enqueued work for the next iteration.
 		count := len(s.sendPackets)
-		// Drain the queue snapshot only. Leave newly enqueued work for the next
-		// iteration so continuous traffic cannot starve this frame.
-		for len(queued) < count {
+		for range count {
 			queued = append(queued, <-s.sendPackets)
 		}
-		batch := false
 		for _, pkt := range queued {
-			batch = batch || pkt.mercenaryExchange
-		}
-		const maxGroupedPayload = 4094 // Leave room for MSG_SYS_END.
-		for i := 0; i < count; i++ {
-			pkt := queued[i]
 			if pkt.sendContext != nil && pkt.sendContext.Err() != nil {
 				if pkt.sent != nil {
 					pkt.sent <- pkt.sendContext.Err()
@@ -370,16 +361,6 @@ func (s *Session) sendLoop() {
 				}
 			}
 			framed := append(make([]byte, 0, len(pkt.data)+2), pkt.data...)
-			if batch && pkt.sent == nil && pkt.sendContext == nil {
-				for i+1 < count {
-					next := queued[i+1]
-					if next.sent != nil || next.sendContext != nil || len(framed)+len(next.data) > maxGroupedPayload {
-						break
-					}
-					framed = append(framed, next.data...)
-					i++
-				}
-			}
 			framed = append(framed, 0x00, 0x10)
 			err := s.cryptConn.SendPacket(framed)
 			if pkt.sent != nil {
@@ -467,6 +448,13 @@ const maxPacketGroupDepth = 1024
 // cannot be desynced) or batched behind another packet (depth > 0, the only
 // situation in which server-side framing could misalign its body).
 func (s *Session) handlePacketGroup(pktGroup []byte, depth int) {
+	if depth == 0 {
+		s.mercenaryCasts.receiving = true
+		defer func() {
+			s.flushMercenaryCasts()
+			s.mercenaryCasts.receiving = false
+		}()
+	}
 	if depth >= maxPacketGroupDepth {
 		s.logger.Warn("Packet group exceeds maximum depth",
 			zap.Int("depth", depth),
@@ -499,6 +487,9 @@ func (s *Session) handlePacketGroup(pktGroup []byte, depth int) {
 		}
 	}()
 
+	if opcode != network.MSG_SYS_CAST_BINARY {
+		s.flushMercenaryCasts()
+	}
 	s.logMessage(opcodeUint16, pktGroup, s.Name, "Server")
 
 	if opcode == network.MSG_SYS_LOGOUT {

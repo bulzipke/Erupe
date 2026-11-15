@@ -507,7 +507,7 @@ type mockGuildRepo struct {
 	updateMealArgs []uint32
 
 	// Adventure
-	adventures      []*GuildAdventure
+	adventures      []GuildAdventure
 	listAdvErr      error
 	createAdvErr    error
 	collectAdvID    uint32
@@ -729,7 +729,7 @@ func (m *mockGuildRepo) UpdateMealForGuild(guildID, actorCharID, mealID, newMeal
 	return m.updateMealErr
 }
 
-func (m *mockGuildRepo) ListAdventures(_ uint32) ([]*GuildAdventure, error) {
+func (m *mockGuildRepo) ListVisibleAdventures(_ uint32, _ int64) ([]GuildAdventure, error) {
 	return m.adventures, m.listAdvErr
 }
 

@@ -221,7 +221,7 @@ type GuildRepo interface {
 	DecideAllianceApplication(allianceID, parentGuildID, applicantGuildID, actorCharID uint32, accept bool) error
 	GetPendingAllianceID(guildID uint32) (uint32, error)
 	ListAllianceApplicants(allianceID uint32) ([]Guild, error)
-	ListAdventures(guildID uint32) ([]*GuildAdventure, error)
+	ListVisibleAdventures(charID uint32, now int64) ([]GuildAdventure, error)
 	CreateAdventure(guildID, destination uint32, depart, returnTime int64) error
 	CreateAdventureForGuild(guildID, actorCharID, destination uint32, depart, returnTime int64) error
 	CreateAdventureWithCharge(guildID, destination, charge uint32, depart, returnTime int64) error

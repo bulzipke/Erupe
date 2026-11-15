@@ -49,7 +49,7 @@ func TestMercenaryContractAndMaterialFlow(t *testing.T) {
 		BroadcastType: BroadcastTypeTargeted, MessageType: BinaryMessageTypeData, RawDataPayload: bf.Data(),
 	})
 	forwarded := <-lender.sendPackets
-	if !forwarded.mercenaryExchange || !bytes.Equal(forwarded.data[10:], consent) {
+	if !bytes.Equal(forwarded.data[10:], consent) {
 		t.Fatalf("wrong mercenary reply frame: %x", forwarded.data)
 	}
 	handleMsgMhfContractMercenary(lender, contract)
@@ -135,24 +135,52 @@ func TestMercenaryContractAndMaterialFlow(t *testing.T) {
 }
 
 func TestMercenaryExchangeFrame(t *testing.T) {
+	server := createMockServer()
+	sender := createMockSession(10, server)
+	peer := createMockSession(20, server)
+	outside := createMockSession(30, server)
+	bar := NewStage("sl1Ns211p0a0u0")
+	sender.stage, peer.stage = bar, bar
+	bar.clients[sender], bar.clients[peer] = sender.charID, peer.charID
+	server.sessions[&mockConn{}] = sender
+	server.sessions[&mockConn{}] = peer
+	server.sessions[&mockConn{}] = outside
 	conn := &MockCryptConn{}
-	session := createTestSession(conn)
-	first := []byte{0, 0x1b, 1}
-	exchange := []byte{0, 0x1b, 2}
+	peer.cryptConn = conn
+
+	// The ZZ client announces its seat before the state updates in the same
+	// group. Replay that order so queue timing cannot split these packets.
+	seat := []byte{0, 2, 0x1d, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 2, 0, 0, 0, 0xd3, 0, 0}
+	position := []byte{0x02, 0xfd, 0x21, 0x81, 0x1f}
+	action := []byte{0x01, 0xee, 0x21, 0x53, 0x1f, 0x60, 0, 0, 0x14, 0, 0xf8}
+	buildCast := func(bf *byteframe.ByteFrame, opcode network.PacketID, broadcast, kind byte, payload []byte) {
+		bf.WriteUint16(uint16(opcode))
+		_ = (&mhfpacket.MsgSysCastedBinary{
+			CharID: sender.charID, BroadcastType: broadcast, MessageType: kind, RawDataPayload: payload,
+		}).Build(bf, peer.clientContext)
+	}
+	buildGroup := func(opcode network.PacketID) []byte {
+		bf := byteframe.NewByteFrame()
+		buildCast(bf, opcode, BroadcastTypeStage, BinaryMessageTypeData, seat)
+		buildCast(bf, opcode, BroadcastTypeServer, BinaryMessageTypeState, position)
+		buildCast(bf, opcode, BroadcastTypeServer, BinaryMessageTypeState, action)
+		bf.WriteUint16(uint16(network.MSG_SYS_END))
+		return bf.Data()
+	}
 	separate := []byte{0, 0x1b, 3}
-	sent := make(chan error, 1)
-	session.sendPackets <- packet{data: first}
-	session.sendPackets <- packet{data: exchange, mercenaryExchange: true}
-	session.sendPackets <- packet{data: separate, sent: sent}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		session.sendLoop()
+		peer.sendLoop()
 	}()
 	defer func() {
-		session.closed.Store(true)
+		peer.closed.Store(true)
 		<-done
 	}()
+
+	sender.handlePacketGroup(buildGroup(network.MSG_SYS_CAST_BINARY), 0)
+	sent := make(chan error, 1)
+	peer.sendPackets <- packet{data: separate, sent: sent}
 	select {
 	case err := <-sent:
 		if err != nil {
@@ -161,9 +189,19 @@ func TestMercenaryExchangeFrame(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("packet write did not complete")
 	}
-	want := [][]byte{{0, 0x1b, 1, 0, 0x1b, 2, 0, 0x10}, {0, 0x1b, 3, 0, 0x10}}
+	want := [][]byte{buildGroup(network.MSG_SYS_CASTED_BINARY), {0, 0x1b, 3, 0, 0x10}}
 	if got := conn.GetSentPackets(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("frames = %x, want %x", got, want)
+	}
+	if len(outside.sendPackets) != 2 {
+		t.Fatalf("outside listener got %d packets, want two server state updates", len(outside.sendPackets))
+	}
+	for _, payload := range [][]byte{position, action} {
+		bf := byteframe.NewByteFrame()
+		buildCast(bf, network.MSG_SYS_CASTED_BINARY, BroadcastTypeServer, BinaryMessageTypeState, payload)
+		if got := (<-outside.sendPackets).data; !bytes.Equal(got, bf.Data()) {
+			t.Fatalf("outside listener got %x, want %x", got, bf.Data())
+		}
 	}
 }
 

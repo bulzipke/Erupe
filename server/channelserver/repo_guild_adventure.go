@@ -25,6 +25,37 @@ func (r *GuildRepository) ListAdventures(guildID uint32) ([]*GuildAdventure, err
 	return adventures, nil
 }
 
+// ListVisibleAdventures fills the client's two slots with the current departure
+// and the latest returned adventure this hunter can still collect.
+func (r *GuildRepository) ListVisibleAdventures(charID uint32, now int64) ([]GuildAdventure, error) {
+	var adventures []GuildAdventure
+	err := r.db.Select(&adventures, `
+		SELECT id, destination, charge, depart, "return", collected_by
+		FROM (
+			(
+				SELECT ga.*, 0 AS slot
+				FROM guild_adventures ga
+				JOIN guild_characters gc ON gc.guild_id = ga.guild_id
+				WHERE gc.character_id = $1 AND ga.depart <= $2 AND ga."return" > $2
+				ORDER BY ga.depart DESC, ga.id DESC
+				LIMIT 1
+			)
+			UNION ALL
+			(
+				SELECT ga.*, 1 AS slot
+				FROM guild_adventures ga
+				JOIN guild_characters gc ON gc.guild_id = ga.guild_id
+				WHERE gc.character_id = $1 AND ga."return" <= $2
+				  AND NOT ($1::bigint::text = ANY(string_to_array(ga.collected_by, ',')))
+				ORDER BY ga."return" DESC, ga.id DESC
+				LIMIT 1
+			)
+		) visible
+		ORDER BY slot
+	`, charID, now)
+	return adventures, err
+}
+
 // CreateAdventure inserts a new guild adventure.
 func (r *GuildRepository) CreateAdventure(guildID, destination uint32, depart, returnTime int64) error {
 	_, err := r.db.Exec(

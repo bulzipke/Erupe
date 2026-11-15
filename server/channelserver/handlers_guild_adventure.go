@@ -23,30 +23,22 @@ type GuildAdventure struct {
 
 func handleMsgMhfLoadGuildAdventure(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfLoadGuildAdventure)
-	guild, err := s.server.guildRepo.GetByCharID(s.charID)
-	if err != nil || guild == nil {
-		s.logger.Error("Failed to get guild for character", zap.Error(err))
-		doAckBufSucceed(s, pkt.AckHandle, make([]byte, 1))
-		return
-	}
-	adventures, err := s.server.guildRepo.ListAdventures(guild.ID)
+	adventures, err := s.server.guildRepo.ListVisibleAdventures(s.charID, TimeAdjusted().Unix())
 	if err != nil {
 		s.logger.Error("Failed to get guild adventures from db", zap.Error(err))
-		doAckBufSucceed(s, pkt.AckHandle, make([]byte, 1))
+		doAckBufFail(s, pkt.AckHandle, []byte{0})
 		return
-	}
-	temp := byteframe.NewByteFrame()
-	for _, adventureData := range adventures {
-		temp.WriteUint32(adventureData.ID)
-		temp.WriteUint32(adventureData.Destination)
-		temp.WriteUint32(adventureData.Charge)
-		temp.WriteUint32(adventureData.Depart)
-		temp.WriteUint32(adventureData.Return)
-		temp.WriteBool(stringsupport.CSVContains(adventureData.CollectedBy, int(s.charID)))
 	}
 	bf := byteframe.NewByteFrame()
 	bf.WriteUint8(uint8(len(adventures)))
-	bf.WriteBytes(temp.Data())
+	for _, adventure := range adventures {
+		bf.WriteUint32(adventure.ID)
+		bf.WriteUint32(adventure.Destination)
+		bf.WriteUint32(adventure.Charge)
+		bf.WriteUint32(adventure.Depart)
+		bf.WriteUint32(adventure.Return)
+		bf.WriteBool(stringsupport.CSVContains(adventure.CollectedBy, int(s.charID)))
+	}
 	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
 }
 
@@ -55,11 +47,14 @@ func handleMsgMhfRegistGuildAdventure(s *Session, p mhfpacket.MHFPacket) {
 	membership, err := s.server.guildRepo.GetCharacterMembership(s.charID)
 	if err != nil || membership == nil || membership.CharID != s.charID || membership.IsApplicant {
 		s.logger.Error("Failed to get guild for character", zap.Error(err))
-		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
-	if err := s.server.guildRepo.CreateAdventureForGuild(membership.GuildID, s.charID, pkt.Destination, TimeAdjusted().Unix(), TimeAdjusted().Add(6*time.Hour).Unix()); err != nil {
+	now := TimeAdjusted()
+	if err := s.server.guildRepo.CreateAdventureForGuild(membership.GuildID, s.charID, pkt.Destination, now.Unix(), now.Add(6*time.Hour).Unix()); err != nil {
 		s.logger.Error("Failed to register guild adventure", zap.Error(err))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }
@@ -71,11 +66,13 @@ func handleMsgMhfAcquireGuildAdventure(s *Session, p mhfpacket.MHFPacket) {
 		if err != nil {
 			s.logger.Error("Failed to get guild membership for adventure collection", zap.Error(err))
 		}
-		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
 	if err := s.server.guildRepo.CollectAdventureForGuild(membership.GuildID, pkt.ID, s.charID); err != nil {
 		s.logger.Error("Failed to collect adventure", zap.Error(err))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }
@@ -87,11 +84,13 @@ func handleMsgMhfChargeGuildAdventure(s *Session, p mhfpacket.MHFPacket) {
 		if err != nil {
 			s.logger.Error("Failed to get guild membership for adventure charge", zap.Error(err))
 		}
-		doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
 	if err := s.server.guildRepo.ChargeAdventureForGuild(membership.GuildID, pkt.ID, s.charID, pkt.Amount); err != nil {
 		s.logger.Error("Failed to charge guild adventure", zap.Error(err))
+		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
 }

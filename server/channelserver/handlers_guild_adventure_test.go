@@ -1,9 +1,12 @@
 package channelserver
 
 import (
+	"bytes"
 	"testing"
 
+	"erupe-ce/common/byteframe"
 	cfg "erupe-ce/config"
+	"erupe-ce/network"
 	"erupe-ce/network/mhfpacket"
 )
 
@@ -12,9 +15,8 @@ import (
 func TestLoadGuildAdventure_NoAdventures(t *testing.T) {
 	server := createMockServer()
 	guildMock := &mockGuildRepo{
-		adventures: []*GuildAdventure{},
+		adventures: []GuildAdventure{},
 	}
-	guildMock.guild = &Guild{ID: 10}
 	server.guildRepo = guildMock
 	session := createMockSession(1, server)
 
@@ -32,12 +34,11 @@ func TestLoadGuildAdventure_NoAdventures(t *testing.T) {
 func TestLoadGuildAdventure_WithAdventures(t *testing.T) {
 	server := createMockServer()
 	guildMock := &mockGuildRepo{
-		adventures: []*GuildAdventure{
+		adventures: []GuildAdventure{
 			{ID: 1, Destination: 5, Charge: 0, Depart: 1000, Return: 2000, CollectedBy: ""},
 			{ID: 2, Destination: 8, Charge: 100, Depart: 1000, Return: 2000, CollectedBy: "1"},
 		},
 	}
-	guildMock.guild = &Guild{ID: 10}
 	server.guildRepo = guildMock
 	session := createMockSession(1, server)
 
@@ -47,8 +48,18 @@ func TestLoadGuildAdventure_WithAdventures(t *testing.T) {
 
 	select {
 	case p := <-session.sendPackets:
-		if len(p.data) < 10 {
-			t.Errorf("Response too short for 2 adventures: %d bytes", len(p.data))
+		bf := byteframe.NewByteFrameFromBytes(p.data)
+		ack := &mhfpacket.MsgSysAck{}
+		if bf.ReadUint16() != uint16(network.MSG_SYS_ACK) || ack.Parse(bf, session.clientContext) != nil || bf.Err() != nil {
+			t.Fatalf("Invalid adventure response: %x", p.data)
+		}
+		want := []byte{
+			2,
+			0, 0, 0, 1, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 3, 232, 0, 0, 7, 208, 0,
+			0, 0, 0, 2, 0, 0, 0, 8, 0, 0, 0, 100, 0, 0, 3, 232, 0, 0, 7, 208, 1,
+		}
+		if ack.ErrorCode != 0 || !ack.IsBufferResponse || !bytes.Equal(ack.AckData, want) {
+			t.Fatalf("Adventure response = %x, want %x", ack.AckData, want)
 		}
 	default:
 		t.Error("No response packet queued")
@@ -60,7 +71,6 @@ func TestLoadGuildAdventure_DBError(t *testing.T) {
 	guildMock := &mockGuildRepo{
 		listAdvErr: errNotFound,
 	}
-	guildMock.guild = &Guild{ID: 10}
 	server.guildRepo = guildMock
 	session := createMockSession(1, server)
 

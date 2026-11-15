@@ -148,9 +148,9 @@ func NewStage(ID string) *Stage {
 	return s
 }
 
-// BroadcastMHF queues a MHFPacket to be sent to all sessions in the stage.
-func (s *Stage) BroadcastMHF(pkt mhfpacket.MHFPacket, ignoredSession *Session) {
+func (s *Stage) sessionsExcept(ignoredSession *Session) []*Session {
 	s.RLock()
+	defer s.RUnlock()
 	sessions := make([]*Session, 0, len(s.clients))
 	for session := range s.clients {
 		if session == ignoredSession {
@@ -158,9 +158,12 @@ func (s *Stage) BroadcastMHF(pkt mhfpacket.MHFPacket, ignoredSession *Session) {
 		}
 		sessions = append(sessions, session)
 	}
-	s.RUnlock()
+	return sessions
+}
 
-	for _, session := range sessions {
+// BroadcastMHF queues a MHFPacket to be sent to all sessions in the stage.
+func (s *Stage) BroadcastMHF(pkt mhfpacket.MHFPacket, ignoredSession *Session) {
+	for _, session := range s.sessionsExcept(ignoredSession) {
 		// Make the header
 		bf := byteframe.NewByteFrame()
 		bf.WriteUint16(uint16(pkt.Opcode()))
