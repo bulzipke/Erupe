@@ -19,6 +19,7 @@ import (
 	"erupe-ce/common/clientintegrity"
 	"erupe-ce/common/gametime"
 	"erupe-ce/common/logging"
+	"erupe-ce/common/savejournal"
 	cfg "erupe-ce/config"
 	"erupe-ce/server/api"
 	"erupe-ce/server/channelserver"
@@ -355,6 +356,13 @@ func main() {
 			defer reloadHook.Close()
 		}
 	}
+	// Open the per-save change journal before any channel can accept a save.
+	saveJournal, err := savejournal.Open(config.SaveJournal, config.Logging.Directory)
+	if err != nil {
+		logger.Fatal("SaveJournal configuration", zap.Error(err))
+	}
+	defer func() { _ = saveJournal.Close() }()
+
 	// Now start our server(s).
 
 	// Entrance server.
@@ -460,6 +468,7 @@ func main() {
 				}
 				c := channelserver.NewServer(&channelserver.Config{
 					Integrity:      integrity,
+					SaveJournal:    saveJournal,
 					ID:             uint16(sid),
 					Logger:         logger.Named("channel-" + fmt.Sprint(count)),
 					ErupeConfig:    config,

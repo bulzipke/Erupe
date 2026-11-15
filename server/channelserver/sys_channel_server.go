@@ -15,6 +15,7 @@ import (
 	"erupe-ce/common/byteframe"
 	"erupe-ce/common/decryption"
 	"erupe-ce/common/questdelivery"
+	"erupe-ce/common/savejournal"
 	"erupe-ce/common/stringsupport"
 	cfg "erupe-ce/config"
 	"erupe-ce/network"
@@ -30,6 +31,7 @@ import (
 // Config struct allows configuring the server.
 type Config struct {
 	Integrity      *clientintegrity.Manager
+	SaveJournal    *savejournal.Journal // Shared by every channel; nil disables it.
 	ID             uint16
 	Logger         *zap.Logger
 	DB             *sqlx.DB
@@ -67,7 +69,8 @@ type Config struct {
 // Self-contained stores (userBinary, minidata, questCache) manage their
 // own locks internally and may be acquired at any point.
 type Server struct {
-	integrity *clientintegrity.Manager
+	integrity   *clientintegrity.Manager
+	saveJournal *savejournal.Journal
 	sync.Mutex
 	Registry           ChannelRegistry
 	ID                 uint16
@@ -208,6 +211,7 @@ func (s *Server) configureChannelContent(config *Config) {
 func NewServer(config *Config) *Server {
 	s := &Server{
 		integrity:      config.Integrity,
+		saveJournal:    config.SaveJournal,
 		ID:             config.ID,
 		logger:         config.Logger,
 		db:             config.DB,

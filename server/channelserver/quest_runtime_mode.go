@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"erupe-ce/common/mhfquest"
+	"erupe-ce/common/savejournal"
 
 	"go.uber.org/zap"
 )
@@ -206,7 +207,9 @@ func (s *Session) beginQuestRun() {
 	}
 	s.activeQuestID.Store(uint32(questID))
 	s.activeQuestStart.Store(TimeAdjusted().Unix())
-	s.activeQuestName.Store(questTitleForRecord(s, questID))
+	title := questTitleForRecord(s, questID)
+	s.activeQuestName.Store(title)
+	s.noteSaveActivity(savejournal.Event{Kind: "quest_enter", Quest: questID, Name: title})
 }
 
 // endQuestRun clears the published quest run.

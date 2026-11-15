@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"erupe-ce/common/byteframe"
+	"erupe-ce/common/savejournal"
 	"erupe-ce/common/stringstack"
 	"erupe-ce/network"
 	"erupe-ce/network/clientctx"
@@ -175,6 +176,8 @@ type Session struct {
 	ackStart             map[uint32]time.Time
 	captureConn          *pcap.RecordingConn // non-nil when capture is active
 	captureCleanup       func()              // Called on session close to flush/close capture file
+	// Packets and quest events since this session's previous journaled save.
+	saveActivity savejournal.Activity
 }
 
 // NewSession creates a new Session type.
@@ -491,6 +494,7 @@ func (s *Session) handlePacketGroup(pktGroup []byte, depth int) {
 		s.flushMercenaryCasts()
 	}
 	s.logMessage(opcodeUint16, pktGroup, s.Name, "Server")
+	s.countSaveActivity(opcode)
 
 	if opcode == network.MSG_SYS_LOGOUT {
 		s.markClosed()

@@ -124,6 +124,9 @@ func handleMsgMhfSavedata(s *Session, p mhfpacket.MHFPacket) {
 	prevHouseTier := make([]byte, len(characterSaveData.HouseTier))
 	copy(prevHouseTier, characterSaveData.HouseTier)
 	prevKeyQuestFlags := append([]byte(nil), characterSaveData.KQF...)
+	// Neither update path below writes into this slice: the diff is applied to
+	// a copy and a full blob replaces it, so it stays the pre-save state.
+	prevSave, prevWasNew := characterSaveData.decompSave, characterSaveData.IsNewCharacter
 	prevFirstIntrusionSeen := characterSaveData.firstIntrusionSeen()
 
 	// Var to hold the decompressed savedata for updating the launcher response fields.
@@ -262,6 +265,7 @@ func handleMsgMhfSavedata(s *Session, p mhfpacket.MHFPacket) {
 		return
 	}
 	doAckSimpleSucceed(s, pkt.AckHandle, make([]byte, 4))
+	s.journalClientSave(pkt.SaveType, prevSave, prevWasNew, characterSaveData)
 }
 
 func grpToGR(n int) uint16 {

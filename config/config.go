@@ -10,6 +10,7 @@ import (
 	"erupe-ce/common/mhfcourse"
 	"erupe-ce/common/questdelivery"
 	"erupe-ce/common/questlicense"
+	"erupe-ce/common/savejournal"
 
 	"github.com/spf13/viper"
 )
@@ -144,6 +145,7 @@ type Config struct {
 	Sign             Sign
 	AccountPrivilege AccountPrivilege
 	ClientIntegrity  ClientIntegrity
+	SaveJournal      savejournal.Options
 	API              API
 	Channel          Channel
 	Entrance         Entrance
@@ -759,6 +761,15 @@ func registerDefaults() {
 	viper.SetDefault("ClientIntegrity.IntervalSeconds", 600)
 	viper.SetDefault("ClientIntegrity.TimeoutSeconds", 15)
 
+	// Per-save change journal (savediff.jsonl)
+	saveJournal := savejournal.DefaultOptions()
+	viper.SetDefault("SaveJournal.Enabled", saveJournal.Enabled)
+	viper.SetDefault("SaveJournal.Directory", saveJournal.Directory)
+	viper.SetDefault("SaveJournal.MaxSizeMB", saveJournal.MaxSizeMB)
+	viper.SetDefault("SaveJournal.MaxBackups", saveJournal.MaxBackups)
+	viper.SetDefault("SaveJournal.MaxAgeDays", saveJournal.MaxAgeDays)
+	viper.SetDefault("SaveJournal.Compress", saveJournal.Compress)
+
 	// Security audit log
 	viper.SetDefault("SecurityAudit.RetentionDays", 90)
 
@@ -838,6 +849,9 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 	if err := c.Logging.Validate(); err != nil {
+		return nil, err
+	}
+	if err := c.SaveJournal.Validate(); err != nil {
 		return nil, err
 	}
 

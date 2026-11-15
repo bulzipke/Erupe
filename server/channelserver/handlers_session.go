@@ -9,6 +9,7 @@ import (
 	"erupe-ce/common/mhfmon"
 	"erupe-ce/common/mhfquest"
 	ps "erupe-ce/common/pascalstring"
+	"erupe-ce/common/savejournal"
 	"erupe-ce/common/stringsupport"
 	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
@@ -778,6 +779,7 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 		recordRunMode := decodeQuestRunModeFromRecordLog(pkt.Data)
 		clientSettings := decodeHuntClientSettings(pkt.Data)
 		mainTargetCleared := huntRecordMainTargetCleared(pkt.Data)
+		s.noteSaveActivity(savejournal.Event{Kind: "quest_result", Quest: questID, Frames: elapsedFrames, Cleared: &mainTargetCleared})
 		supportKnown := huntRecordSupportKnown(pkt.Data)
 		validRecordTime := elapsedFrames > 0 && elapsedFrames <= maxRankedQuestDurationFrames
 		hadParty := s.questHadParty.Load()

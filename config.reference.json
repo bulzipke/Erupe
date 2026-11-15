@@ -9,6 +9,14 @@
     "IntervalSeconds": 600,
     "TimeoutSeconds": 15
   },
+  "SaveJournal": {
+    "Enabled": true,
+    "Directory": "",
+    "MaxSizeMB": 50,
+    "MaxBackups": 200,
+    "MaxAgeDays": 180,
+    "Compress": true
+  },
   "Host": "127.0.0.1",
   "BinPath": "bin",
   "Language": "en",
