@@ -1,13 +1,17 @@
 package entranceserver
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/binary"
-	"erupe-ce/common/keyconfigsync"
+	"errors"
 	"io"
 	"net"
 	"time"
+
+	"erupe-ce/common/keyconfigsync"
+	"go.uber.org/zap"
 )
 
 type keyconfigSession struct {
@@ -17,7 +21,7 @@ type keyconfigSession struct {
 type keyconfigRepo interface {
 	KeyconfigSession(context.Context, uint32, uint32, time.Time, time.Duration) (keyconfigSession, error)
 	LoadKeyconfig(context.Context, uint32, uint32) (uint32, []byte, error)
-	SaveKeyconfig(context.Context, uint32, uint32, uint32, []byte) (uint32, bool, error)
+	SaveKeyconfig(context.Context, uint32, uint32, uint32, []byte) (revision uint32, status uint32, err error)
 }
 
 func (s *Server) handleKeyconfig(conn net.Conn, prefix []byte) {
@@ -81,13 +85,13 @@ func (s *Server) handleKeyconfig(conn net.Conn, prefix []byte) {
 		}
 	} else {
 		payload := b[keyconfigsync.HeaderSize+keyconfigsync.MACSize : len(b)-keyconfigsync.MACSize]
-		if !keyconfigsync.ValidProfile(r.Slot, payload) {
+		if !validKeyconfigUpload(r.Slot, payload) {
 			return
 		}
-		var saved bool
-		revision, saved, err = repo.SaveKeyconfig(ctx, session.UserID, r.Slot, r.Revision, payload)
-		if !saved {
-			status = keyconfigsync.Conflict
+		revision, status, err = repo.SaveKeyconfig(ctx, session.UserID, r.Slot, r.Revision, payload)
+		if errors.Is(err, errIniEncoding) {
+			s.logger.Warn("Rejected INI encoding", zap.Uint32("userID", session.UserID), zap.Uint32("revision", revision), zap.Error(err))
+			err = nil
 		}
 	}
 	if err != nil {
@@ -129,12 +133,38 @@ func (r *EntranceSessionRepository) LoadKeyconfig(ctx context.Context, uid, slot
 	return revision, data, err
 }
 
-func (r *EntranceSessionRepository) SaveKeyconfig(ctx context.Context, uid, slot, revision uint32, data []byte) (uint32, bool, error) {
-	if slot >= keyconfigsync.SlotCount || revision >= keyconfigsync.MaxRevision || !keyconfigsync.ValidProfile(slot, data) {
-		return 0, false, nil
+func (r *EntranceSessionRepository) SaveKeyconfig(ctx context.Context, uid, slot, revision uint32, data []byte) (uint32, uint32, error) {
+	if revision >= keyconfigsync.MaxRevision || !validKeyconfigUpload(slot, data) {
+		return 0, keyconfigsync.Conflict, nil
+	}
+	upload := data
+	if slot == keyconfigIniSlot {
+		var candidates map[iniTextKey]string
+		if revision != 0 {
+			candidates = possibleIniReencoding(data)
+		}
+		if mayBeUTF8Ini(data) || len(candidates) >= 2 {
+			var previous []byte
+			if revision != 0 {
+				err := r.db.QueryRowContext(ctx, `SELECT data FROM account_keyconfigs WHERE user_id=$1 AND slot=$2 AND revision=$3`,
+					uid, slot, revision).Scan(&previous)
+				if err == sql.ErrNoRows {
+					return 0, keyconfigsync.Conflict, nil
+				}
+				if err != nil {
+					return 0, keyconfigsync.Unavailable, err
+				}
+			}
+			var err error
+			data, err = normalizeIniUpload(data, previous, candidates)
+			if err != nil {
+				return revision, keyconfigsync.Conflict, err
+			}
+		}
 	}
 	var next uint32
-	// A single statement serializes concurrent inserts/updates for this account.
+	// The write checks the revision again to serialize concurrent saves, including
+	// an update that races with the encoding check above.
 	// Revision zero can only create a missing row. A replay/stale PC cannot update it.
 	var err error
 	if revision == 0 {
@@ -145,7 +175,15 @@ func (r *EntranceSessionRepository) SaveKeyconfig(ctx context.Context, uid, slot
 		 WHERE user_id=$1 AND slot=$2 AND revision=$3 AND revision<2147483646 RETURNING revision`, uid, slot, revision, data).Scan(&next)
 	}
 	if err == sql.ErrNoRows {
-		return 0, false, nil
+		return 0, keyconfigsync.Conflict, nil
 	}
-	return next, err == nil, err
+	if err != nil {
+		return 0, keyconfigsync.Unavailable, err
+	}
+	if !bytes.Equal(upload, data) {
+		// OK tells Vorbis that its uploaded bytes are the new sync baseline.
+		// Conflict instead asks the existing client to fetch the saved revision.
+		return next, keyconfigsync.Conflict, nil
+	}
+	return next, keyconfigsync.OK, nil
 }

@@ -1,17 +1,21 @@
 package entranceserver
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
-	"erupe-ce/common/keyconfigsync"
-	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
 	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"erupe-ce/common/keyconfigsync"
+	cfg "erupe-ce/config"
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
+	"go.uber.org/zap"
 )
 
 func TestKeyconfigPostgres(t *testing.T) {
@@ -87,11 +91,11 @@ func TestKeyconfigPostgres(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				rev, saved, err := r.SaveKeyconfig(ctx, 10, 0, expected, data)
+				rev, status, err := r.SaveKeyconfig(ctx, 10, 0, expected, data)
 				if err != nil {
 					t.Error(err)
 				}
-				if saved {
+				if status == keyconfigsync.OK {
 					wins.Add(1)
 					if rev != expected+1 {
 						t.Error(rev)
@@ -113,7 +117,51 @@ func TestKeyconfigPostgres(t *testing.T) {
 	if _, _, err = r.LoadKeyconfig(ctx, 10, 1); err != sql.ErrNoRows {
 		t.Fatal("slot isolation", err)
 	}
-	if _, ok, err := r.SaveKeyconfig(ctx, 10, 0, keyconfigsync.MaxRevision, data); err != nil || ok {
+	if _, status, err := r.SaveKeyconfig(ctx, 10, 0, keyconfigsync.MaxRevision, data); err != nil || status != keyconfigsync.Conflict {
 		t.Fatal("revision overflow", err)
 	}
+
+	t.Run("INI encoding", func(t *testing.T) {
+		s := NewServer(&Config{Logger: zap.NewNop(), ErupeConfig: &cfg.Config{}, DB: db})
+		check := func(op, revision uint32, payload []byte, status, wantRevision uint32, wantData []byte) {
+			t.Helper()
+			request := keyconfigRequest(123, 456, op, 2, revision, payload)
+			header, err := keyconfigsync.ParseHeader(request[:keyconfigsync.HeaderSize])
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := keyconfigExchange(t, s, request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(response, keyconfigsync.Response(header, status, wantRevision, wantData, "0123456789abcdef")) {
+				t.Fatalf("unexpected signed INI response for operation %d and requested revision %d", op, revision)
+			}
+		}
+		ini := []byte("[VIDEO]\r\nFPS_60=1\r\n[GAMEPAD_PRIORITY]\r\n00=Device\r\n[FIXED_SENTENCE]\r\nCWORDS_00=" + iniKoreanPhrase + "\r\nCWORDS_01=" + iniKoreanName + "\r\n")
+		utf8Ini := bytes.Replace(ini, []byte(iniKoreanPhrase), []byte("하늘이 맑아요"), 1)
+		utf8Ini = bytes.Replace(utf8Ini, []byte(iniKoreanName), []byte("친구 이름"), 1)
+		resetPad := bytes.Replace(ini, []byte("00=Device\r\n"), []byte("\r\n"), 1)
+		damaged := bytes.Replace(resetPad, []byte(iniKoreanPhrase), []byte(iniDamagedPhrase), 1)
+		damaged = bytes.Replace(damaged, []byte(iniKoreanName), []byte(iniDamagedName), 1)
+		edited := bytes.Replace(resetPad, []byte(iniKoreanName), []byte("Custom"), 1)
+		unsupported := []byte("[VIDEO]\r\nFPS_60=1\r\n[FIXED_SENTENCE]\r\nCWORDS_00=😀\r\n")
+		check(keyconfigsync.Save, 0, unsupported, keyconfigsync.Conflict, 0, nil)
+		check(keyconfigsync.Load, 0, nil, keyconfigsync.Absent, 0, nil)
+		check(keyconfigsync.Save, 0, utf8Ini, keyconfigsync.Conflict, 1, nil)
+		check(keyconfigsync.Load, 0, nil, keyconfigsync.OK, 1, ini)
+		check(keyconfigsync.Save, 1, resetPad, keyconfigsync.OK, 2, nil)
+		check(keyconfigsync.Save, 1, damaged, keyconfigsync.Conflict, 0, nil)
+		check(keyconfigsync.Save, 2, damaged, keyconfigsync.Conflict, 2, nil)
+		check(keyconfigsync.Save, 2, unsupported, keyconfigsync.Conflict, 2, nil)
+		check(keyconfigsync.Load, 0, nil, keyconfigsync.OK, 2, resetPad)
+		check(keyconfigsync.Save, 2, edited, keyconfigsync.OK, 3, nil)
+		check(keyconfigsync.Load, 0, nil, keyconfigsync.OK, 3, edited)
+		japaneseUTF8 := []byte("\xef\xbb\xbf[VIDEO]\r\nFPS_60=1\r\n[CHATPHI_123456]\r\nPHINF_NAME_0=ｶ\r\n")
+		japanese := []byte("[VIDEO]\r\nFPS_60=1\r\n[CHATPHI_123456]\r\nPHINF_NAME_0=\xb6\r\n")
+		check(keyconfigsync.Save, 2, japaneseUTF8, keyconfigsync.Conflict, 0, nil)
+		check(keyconfigsync.Save, 3, japaneseUTF8, keyconfigsync.Conflict, 4, nil)
+		check(keyconfigsync.Load, 0, nil, keyconfigsync.OK, 4, japanese)
+		check(keyconfigsync.Save, 4, japanese, keyconfigsync.OK, 5, nil)
+	})
 }

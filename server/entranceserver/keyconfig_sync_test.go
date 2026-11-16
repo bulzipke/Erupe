@@ -41,17 +41,17 @@ func (m *keyconfigMock) LoadKeyconfig(_ context.Context, uid, slot uint32) (uint
 	}
 	return m.revs[key], append([]byte(nil), m.rows[key]...), nil
 }
-func (m *keyconfigMock) SaveKeyconfig(_ context.Context, uid, slot, rev uint32, data []byte) (uint32, bool, error) {
+func (m *keyconfigMock) SaveKeyconfig(_ context.Context, uid, slot, rev uint32, data []byte) (uint32, uint32, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := [2]uint32{uid, slot}
 	if m.revs[key] != rev {
-		return 0, false, nil
+		return 0, keyconfigsync.Conflict, nil
 	}
 	m.revs[key]++
 	m.rows[key] = append([]byte(nil), data...)
 	m.saves++
-	return m.revs[key], true, nil
+	return m.revs[key], keyconfigsync.OK, nil
 }
 func keyconfigRequest(tid, cid, op, slot, rev uint32, data []byte) []byte {
 	b := make([]byte, 112+len(data))

@@ -3,6 +3,7 @@ package entranceserver
 import (
 	"context"
 	"errors"
+	"erupe-ce/common/keyconfigsync"
 	cfg "erupe-ce/config"
 	"go.uber.org/zap"
 	"net"
@@ -27,20 +28,20 @@ func (m *bootstrapMock) LoadKeyconfig(ctx context.Context, uid, slot uint32) (ui
 	return m.keyconfigMock.LoadKeyconfig(ctx, uid, slot)
 }
 
-func (m *bootstrapMock) SaveKeyconfig(ctx context.Context, uid, slot, rev uint32, data []byte) (uint32, bool, error) {
+func (m *bootstrapMock) SaveKeyconfig(ctx context.Context, uid, slot, rev uint32, data []byte) (uint32, uint32, error) {
 	m.attempts.Add(1)
 	if m.mode == "review-queue" {
 		time.Sleep(500 * time.Millisecond)
 	}
 	if m.mode == "reject" || (m.mode == "reject-edit" && rev > 0) {
-		return 0, false, errors.New("bootstrap storage unavailable")
+		return 0, keyconfigsync.Unavailable, errors.New("bootstrap storage unavailable")
 	}
 	if m.mode == "race" || (m.mode == "edit-race" && rev > 0) {
 		// A second PC inserts after the first PC's authenticated absent reply.
-		if _, ok, err := m.keyconfigMock.SaveKeyconfig(ctx, uid, slot, rev, m.winner); err != nil || !ok {
-			return 0, false, errors.New("winner insertion failed")
+		if _, status, err := m.keyconfigMock.SaveKeyconfig(ctx, uid, slot, rev, m.winner); err != nil || status != keyconfigsync.OK {
+			return 0, keyconfigsync.Unavailable, errors.New("winner insertion failed")
 		}
-		return 0, false, nil
+		return 0, keyconfigsync.Conflict, nil
 	}
 	return m.keyconfigMock.SaveKeyconfig(ctx, uid, slot, rev, data)
 }
