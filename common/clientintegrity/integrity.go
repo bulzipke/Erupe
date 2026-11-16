@@ -12,6 +12,8 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +25,59 @@ const HelloSize = 96
 const ChallengeBody = 108
 const ChallengeSize = 174
 const ProofSize = 108
+
+// EnvProofSize is the size of a proof that also carries the client's report
+// about its own PC (Env): the 76 proof bytes, four report bytes, the MAC.
+const EnvProofSize = 112
+
+const (
+	proofMagic    = "ERUINP01"
+	envProofMagic = "ERUINP02"
+	// envOffer is written over the first eight bytes of every challenge nonce.
+	// A client that knows it answers with an env proof. An older client treats
+	// the whole nonce as opaque and answers with a plain proof, and a newer
+	// client answers an older server (whose nonce is random there) the same
+	// way, so either side can be deployed first. The other 24 nonce bytes stay
+	// random.
+	envOffer = "ERUENV02"
+)
+
+// Env is what a client observed about its own PC since its previous proof. It
+// is a report, not a verdict: this package neither checks nor acts on it.
+type Env struct {
+	Debugger bool
+	// Tools is a bit set of known memory editors seen as a process, a window
+	// or a module inside the game; ToolsString names the bits.
+	Tools uint8
+	// Looks is how many times the client looked. Zero means it did not look,
+	// so the report says nothing either way.
+	Looks uint8
+	// Span is the time since this connection's previous proof, which bounds
+	// when the reported things were seen. Zero on the first proof.
+	Span time.Duration
+}
+
+// The client's bit order (integrity_watch.h in the client DLL).
+var envToolNames = [...]string{"ce:p", "ce:w", "ce:m", "am:p", "am:w"}
+
+// ToolsString lists the tools seen, or "-" when there were none.
+func (e Env) ToolsString() string {
+	var names []string
+	for bit := 0; bit < 8; bit++ {
+		if e.Tools&(1<<bit) == 0 {
+			continue
+		}
+		if bit < len(envToolNames) {
+			names = append(names, envToolNames[bit])
+		} else {
+			names = append(names, "bit"+strconv.Itoa(bit))
+		}
+	}
+	if len(names) == 0 {
+		return "-"
+	}
+	return strings.Join(names, ",")
+}
 
 var ErrRejected = errors.New("client integrity rejected")
 
@@ -105,7 +160,14 @@ type Lease struct {
 	sequence uint32
 	closed   bool
 	next     uint64
-	watchers map[uint64]func()
+	watchers map[uint64]watcher
+	env      *Env // the latest report, nil until an env proof arrives
+}
+
+// watcher is one channel connection bound to a lease.
+type watcher struct {
+	disconnect func()
+	env        func(Env) // may be nil
 }
 
 func (l *Lease) fail() {
@@ -121,8 +183,29 @@ func (l *Lease) fail() {
 	l.watchers = nil
 	l.mu.Unlock()
 	l.conn.Close()
-	for _, f := range callbacks {
-		f()
+	for _, w := range callbacks {
+		w.disconnect()
+	}
+}
+
+// report keeps the latest environment report and hands it to every channel
+// connection bound to the lease.
+func (l *Lease) report(e Env) {
+	l.mu.Lock()
+	if l.closed {
+		l.mu.Unlock()
+		return
+	}
+	l.env = &e
+	sinks := make([]func(Env), 0, len(l.watchers))
+	for _, w := range l.watchers {
+		if w.env != nil {
+			sinks = append(sinks, w.env)
+		}
+	}
+	l.mu.Unlock()
+	for _, f := range sinks {
+		f(e)
 	}
 }
 func (l *Lease) advance(seq uint32) {
@@ -140,6 +223,14 @@ func (l *Lease) advance(seq uint32) {
 // connection gets its own watcher: an old channel's teardown cannot detach a
 // newly joined channel or clear a different session's integrity state.
 func (m *Manager) Attach(ctx context.Context, key Key, disconnect func()) (func(), error) {
+	return m.AttachWithEnv(ctx, key, disconnect, nil)
+}
+
+// AttachWithEnv is Attach for a connection that also wants the client's
+// environment reports: report is called with the one carried by the fresh
+// proof this call waited for, and again with every later one. A client that
+// sends plain proofs never triggers it.
+func (m *Manager) AttachWithEnv(ctx context.Context, key Key, disconnect func(), report func(Env)) (func(), error) {
 	m.mu.Lock()
 	l := m.sessions[key]
 	m.mu.Unlock()
@@ -166,8 +257,12 @@ func (m *Manager) Attach(ctx context.Context, key Key, disconnect func()) (func(
 		if l.sequence > seq {
 			l.next++
 			id := l.next
-			l.watchers[id] = disconnect
+			l.watchers[id] = watcher{disconnect, report}
+			latest := l.env
 			l.mu.Unlock()
+			if report != nil && latest != nil {
+				report(*latest)
+			}
 			return func() { l.mu.Lock(); delete(l.watchers, id); l.mu.Unlock() }, nil
 		}
 		changed := l.changed
@@ -219,17 +314,38 @@ func (m *Manager) challenge(h Hello, seq uint32) ([]byte, error) {
 	if _, err := rand.Read(b[44:76]); err != nil {
 		return nil, err
 	}
+	copy(b[44:52], envOffer)
 	copy(b[76:108], h.BuildID[:])
 	return m.signer.SignMessage(b)
 }
 func verifyProof(b, challenge, image []byte, token string) bool {
-	if len(b) != ProofSize || len(challenge) != ChallengeSize || string(b[:8]) != "ERUINP01" || !bytes.Equal(b[8:12], challenge[32:36]) || !hmac.Equal(b[12:44], challenge[44:76]) || !hmac.Equal(b[76:], mac(b[:76], token)) {
+	// The MAC covers everything before it: 76 bytes of a plain proof, 80 of an
+	// env proof.
+	var body int
+	switch {
+	case len(b) == ProofSize && string(b[:8]) == proofMagic:
+		body = 76
+	case len(b) == EnvProofSize && string(b[:8]) == envProofMagic:
+		body = 80
+	default:
+		return false
+	}
+	if len(challenge) != ChallengeSize || !bytes.Equal(b[8:12], challenge[32:36]) || !hmac.Equal(b[12:44], challenge[44:76]) || !hmac.Equal(b[body:], mac(b[:body], token)) {
 		return false
 	}
 	hash := sha256.New()
 	hash.Write(challenge[:ChallengeBody])
 	hash.Write(image)
 	return hmac.Equal(b[44:76], hash.Sum(nil))
+}
+
+// proofEnv returns the report carried by a verified env proof. Byte 76 is
+// reserved.
+func proofEnv(b []byte) (Env, bool) {
+	if len(b) != EnvProofSize {
+		return Env{}, false
+	}
+	return Env{Debugger: b[77] != 0, Tools: b[78], Looks: b[79]}, true
 }
 
 // Serve receives an authenticated hello only. A duplicate cannot replace a
@@ -246,7 +362,7 @@ func (m *Manager) Serve(conn net.Conn, h Hello, token string) error {
 		return ErrRejected
 	}
 	key := SessionKey(h.TokenID, h.CharacterID, token)
-	l := &Lease{conn: conn, done: make(chan struct{}), wake: make(chan struct{}, 1), changed: make(chan struct{}), watchers: make(map[uint64]func())}
+	l := &Lease{conn: conn, done: make(chan struct{}), wake: make(chan struct{}, 1), changed: make(chan struct{}), watchers: make(map[uint64]watcher)}
 	// Reserve even before proof to cap one authenticated stream per session.
 	m.mu.Lock()
 	if m.closed || m.sessions[key] != nil {
@@ -267,8 +383,18 @@ func (m *Manager) Serve(conn net.Conn, h Hello, token string) error {
 	go func() {
 		defer close(readerDone)
 		for {
-			b := make([]byte, ProofSize)
-			_, err := io.ReadFull(conn, b)
+			// The magic decides how long the proof is. Anything unknown is read
+			// as a plain proof and fails verification.
+			b := make([]byte, EnvProofSize)
+			_, err := io.ReadFull(conn, b[:8])
+			size := ProofSize
+			if string(b[:8]) == envProofMagic {
+				size = EnvProofSize
+			}
+			b = b[:size]
+			if err == nil {
+				_, err = io.ReadFull(conn, b[8:])
+			}
 			select {
 			case frames <- frame{b, err}:
 			case <-l.done:
@@ -288,6 +414,7 @@ func (m *Manager) Serve(conn net.Conn, h Hello, token string) error {
 		}
 		m.mu.Unlock()
 	}()
+	var lastProof time.Time
 	for seq := uint32(1); seq != 0; seq++ {
 		if err := conn.SetDeadline(time.Now().Add(m.timeout)); err != nil {
 			return err
@@ -324,6 +451,16 @@ func (m *Manager) Serve(conn net.Conn, h Hello, token string) error {
 		if err = conn.SetDeadline(time.Time{}); err != nil {
 			return err
 		}
+		// Report before advancing, so a channel login waiting on this proof
+		// finds its report already in place.
+		now := time.Now()
+		if env, ok := proofEnv(proof); ok {
+			if !lastProof.IsZero() {
+				env.Span = now.Sub(lastProof)
+			}
+			l.report(env)
+		}
+		lastProof = now
 		l.advance(seq)
 		timer := time.NewTimer(m.interval)
 		select {

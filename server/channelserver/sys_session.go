@@ -161,6 +161,7 @@ type Session struct {
 	activeQuestName      atomic.Value // string
 	integrityMu          sync.Mutex
 	integrityRelease     func()
+	clientEnv            atomic.Uint32 // last recorded client environment report: clientEnvSeen | debugger | tools, 0 until the first
 	closeOnce            sync.Once
 	logoutOnce           sync.Once
 	lifecycleMu          sync.Mutex

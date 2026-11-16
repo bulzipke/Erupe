@@ -395,6 +395,13 @@ type Event struct {
 	Name    string `json:"name,omitempty"`
 	Frames  uint32 `json:"frames,omitempty"`
 	Cleared *bool  `json:"cleared,omitempty"`
+	// Environment fields, set for "env": what the client reported about its
+	// own PC with an integrity proof. Tools lists known memory editors it saw
+	// ("-" when none), Debugger a debugger on the game, and Span how many
+	// seconds back the report reaches (0 on the first report of a connection).
+	Tools    string `json:"tools,omitempty"`
+	Debugger bool   `json:"dbg,omitempty"`
+	Span     int64  `json:"span_s,omitempty"`
 }
 
 // Activity accumulates one session's activity between saves. The zero value
