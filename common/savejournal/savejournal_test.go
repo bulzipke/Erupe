@@ -243,3 +243,69 @@ func TestJournalWritesOneJSONLinePerRecord(t *testing.T) {
 		t.Fatalf("lines = %d, want %d", lines, writers*perWriter)
 	}
 }
+
+func putStack(b []byte, off int, item, quantity uint16) {
+	b[off], b[off+1] = byte(item), byte(item>>8)
+	b[off+2], b[off+3] = byte(quantity), byte(quantity>>8)
+}
+
+func TestStackTotalsReportQuantitiesNotPositions(t *testing.T) {
+	regions := []Region{
+		{Name: "box", Off: 0x100, Len: 6 * 8, Stacks: true},
+		{Name: "pouch", Off: 0x400, Len: 2 * 8, Stacks: true},
+		{Name: "zenny", Off: 0xB0, Len: 4, Numeric: true},
+	}
+	before := blob(4096)
+	putStack(before, 0x100, 7976, 20)  // sold below
+	putStack(before, 0x108, 181, 999)  // moved to another slot below
+	putStack(before, 0x110, 8070, 300) // two stacks of one item
+	putStack(before, 0x118, 8070, 5)
+	putStack(before, 0x400, 8070, 1)
+	after := append([]byte(nil), before...)
+	putStack(after, 0x100, 181, 999)
+	putStack(after, 0x108, 0, 0)
+	putStack(after, 0x118, 8070, 4)
+	putStack(after, 0x120, 13771, 2)
+	putStack(after, 0x400, 8070, 2)
+
+	got := StackTotals(before, after, regions)
+	box, pouch := got["box"], got["pouch"]
+	if len(got) != 2 || len(box) != 3 || len(pouch) != 1 {
+		t.Fatalf("totals = %+v", got)
+	}
+	if box["7976"] != [2]uint32{20, 0} || box["8070"] != [2]uint32{305, 304} || box["13771"] != [2]uint32{0, 2} {
+		t.Fatalf("box totals = %+v", box)
+	}
+	if _, moved := box["181"]; moved {
+		t.Fatal("a stack that only changed its slot was reported")
+	}
+	if pouch["8070"] != [2]uint32{1, 2} {
+		t.Fatalf("pouch totals = %+v", pouch)
+	}
+
+	// Sorting alone changes bytes but no total.
+	sorted := append([]byte(nil), before...)
+	copy(sorted[0x100:0x108], before[0x118:0x120])
+	copy(sorted[0x118:0x120], before[0x100:0x108])
+	if got := StackTotals(before, sorted, regions); got != nil {
+		t.Fatalf("a rearranged box reported %+v", got)
+	}
+	if got := StackTotals(before, append([]byte(nil), before...), regions); got != nil {
+		t.Fatalf("an unchanged box reported %+v", got)
+	}
+}
+
+func TestStackTotalsStayInsideShortBlobs(t *testing.T) {
+	regions := []Region{{Name: "box", Off: 0x100, Len: 4 * 8, Stacks: true}}
+	before := blob(0x100 + 12) // ends inside the second stack
+	putStack(before, 0x100, 5, 9)
+	after := append([]byte(nil), before...)
+	putStack(after, 0x100, 5, 10)
+	after[0x100+8] = 7 // half a stack: not counted, not read past the end
+	if got := StackTotals(before, after, regions); len(got["box"]) != 1 || got["box"]["5"] != [2]uint32{9, 10} {
+		t.Fatalf("totals = %+v", got)
+	}
+	if got := StackTotals(blob(16), blob(16), regions); got != nil {
+		t.Fatalf("a region outside the blob reported %+v", got)
+	}
+}

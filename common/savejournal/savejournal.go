@@ -1,5 +1,6 @@
 // Package savejournal keeps an append-only JSON Lines record of what every
-// client-originated character save changed.
+// character save changed: the ones a client uploads and the ones the server
+// writes itself.
 //
 // A character's savedata is a blob the client uploads and the server stores,
 // so an edited client can upload any state it likes. The journal does not
@@ -9,12 +10,14 @@
 package savejournal
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,8 +30,10 @@ const (
 	// files keep the same stem with a timestamp.
 	FileName = "savediff.jsonl"
 	// RecordVersion is written to every record so a reader can tell layouts
-	// apart after the format changes.
-	RecordVersion = 1
+	// apart after the format changes. Version 2 added server-written saves
+	// (kind "server"), item totals, and stopped counting the packets that
+	// accompany every save.
+	RecordVersion = 2
 	// DefaultByteBudget bounds the old+new bytes one record may carry.
 	DefaultByteBudget = 64 << 10
 
@@ -155,6 +160,72 @@ type Region struct {
 	// Numeric marks a little-endian unsigned value of 1, 2, 4 or 8 bytes,
 	// which is also reported decoded in Record.Fields.
 	Numeric bool
+	// Stacks marks a table of eight-byte item stacks: item id u16, quantity
+	// u16, then four bytes the client leaves zero. The quantity held of each
+	// item is also reported in Record.Items.
+	Stacks bool
+}
+
+// stackSize is the size of one entry of a Stacks region.
+const stackSize = 8
+
+// StackTotals reports, for every Stacks region, the items whose quantity
+// summed over the whole table differs between the blobs, as
+// region name -> item id -> [old, new]. A total ignores where a stack sits,
+// so sorting or rearranging a box reports nothing.
+func StackTotals(oldBlob, newBlob []byte, regions []Region) map[string]map[string][2]uint32 {
+	var out map[string]map[string][2]uint32
+	for _, r := range regions {
+		if !r.Stacks {
+			continue
+		}
+		oldTable, newTable := regionBytes(oldBlob, r), regionBytes(newBlob, r)
+		if bytes.Equal(oldTable, newTable) {
+			continue
+		}
+		before, after := sumStacks(oldTable), sumStacks(newTable)
+		var changed map[string][2]uint32
+		note := func(id uint16) {
+			if before[id] == after[id] {
+				return
+			}
+			if changed == nil {
+				changed = make(map[string][2]uint32)
+			}
+			changed[strconv.Itoa(int(id))] = [2]uint32{before[id], after[id]}
+		}
+		for id := range before {
+			note(id)
+		}
+		for id := range after {
+			note(id)
+		}
+		if changed != nil {
+			if out == nil {
+				out = make(map[string]map[string][2]uint32)
+			}
+			out[r.Name] = changed
+		}
+	}
+	return out
+}
+
+func regionBytes(blob []byte, r Region) []byte {
+	if r.Off < 0 || r.Len <= 0 || r.Off >= len(blob) {
+		return nil
+	}
+	return blob[r.Off:min(r.Off+r.Len, len(blob))]
+}
+
+func sumStacks(table []byte) map[uint16]uint32 {
+	totals := make(map[uint16]uint32)
+	for off := 0; off+stackSize <= len(table); off += stackSize {
+		// Item 0 is an empty stack.
+		if id := uint16(table[off]) | uint16(table[off+1])<<8; id != 0 {
+			totals[id] += uint32(table[off+2]) | uint32(table[off+3])<<8
+		}
+	}
+	return totals
 }
 
 // Range is one contiguous run of changed bytes.
@@ -270,15 +341,17 @@ func readUint(blob []byte, off, size int) (uint64, bool) {
 	return v, true
 }
 
-// Record is one line of the journal: one accepted client save.
+// Record is one line of the journal: one save written to the database.
 type Record struct {
 	V      int    `json:"v"`
 	Time   string `json:"t"` // UTC, RFC 3339 with milliseconds
 	CharID uint32 `json:"char"`
 	UserID uint32 `json:"user,omitempty"`
 	Name   string `json:"name,omitempty"`
-	// Kind is how the client sent the save: "diff" (a patch against its last
-	// upload) or "blob" (the whole savedata).
+	// Kind is where the save came from: "diff" (a client patch against its
+	// last upload), "blob" (the whole savedata from the client) or "server"
+	// (the server changed the stored save itself: logout playtime, a reward
+	// written while the character was away, a repaired blob).
 	Kind string `json:"kind"`
 	// Baseline marks a save with no meaningful predecessor (character
 	// creation). It carries hashes and sizes but no ranges.
@@ -286,20 +359,25 @@ type Record struct {
 	OldLen   int  `json:"old_len"`
 	NewLen   int  `json:"new_len"`
 	// OldSHA256 and NewSHA256 are over the decompressed savedata. A record's
-	// OldSHA256 equals the previous record's NewSHA256 unless the server
-	// itself rewrote the save in between (logout playtime, operator edits).
+	// OldSHA256 equals the character's previous record's NewSHA256 unless the
+	// stored save was changed outside the server (an operator edit, a restored
+	// backup) or a journal write failed.
 	OldSHA256 string `json:"old_sha256,omitempty"`
 	NewSHA256 string `json:"new_sha256"`
 	// Fields holds the named numeric values that changed, as [old, new].
-	Fields    map[string][2]uint64 `json:"fields,omitempty"`
-	Changed   int                  `json:"changed"`
-	Ranges    []Range              `json:"ranges,omitempty"`
-	Truncated bool                 `json:"truncated,omitempty"`
-	Activity  *ActivityRecord      `json:"activity,omitempty"`
+	Fields map[string][2]uint64 `json:"fields,omitempty"`
+	// Items holds, per item table, the items whose total quantity changed,
+	// as table name -> item id -> [old, new].
+	Items     map[string]map[string][2]uint32 `json:"items,omitempty"`
+	Changed   int                             `json:"changed"`
+	Ranges    []Range                         `json:"ranges,omitempty"`
+	Truncated bool                            `json:"truncated,omitempty"`
+	// Activity is absent on "server" records: they do not close the window.
+	Activity *ActivityRecord `json:"activity,omitempty"`
 }
 
-// ActivityRecord is what the session did between the previous journaled save
-// (or its login) and this one.
+// ActivityRecord is what the session did between the previous journaled
+// client save (or its login) and this one.
 type ActivityRecord struct {
 	Seconds int64 `json:"window_s"`
 	// Ops counts received packets by opcode name.

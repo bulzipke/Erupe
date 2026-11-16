@@ -345,6 +345,12 @@ func (save *CharacterSaveData) saveWithRewards(s *Session, divaRewardIDs, starte
 	save.palloneRPEvents = nil
 	s.questLicenseStarterPending.Complete(s.userID, s.charID, params.StarterRewardIDs)
 
+	// A client save is journaled by its handler, which also knows how the
+	// client sent it and what the session did before it.
+	if !clientOriginated {
+		s.journalServerSave(prevCompSave, save.IsNewCharacter, save)
+	}
+
 	return nil
 }
 
