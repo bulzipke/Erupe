@@ -617,6 +617,88 @@ func TestMercenaryGearProfileRoundTrip(t *testing.T) {
 	}
 }
 
+type mercenaryEscortTestRepo struct {
+	mockMercenaryRepo
+	borrowerID uint32
+	pact       MercenaryLoan
+	escort     bool
+}
+
+func (r *mercenaryEscortTestRepo) GetMercenaryPact(charID uint32) (MercenaryLoan, bool, error) {
+	if charID != r.borrowerID {
+		return MercenaryLoan{}, false, nil
+	}
+	return r.pact, r.escort, nil
+}
+
+func TestHandleMsgMhfReadMercenaryM_ContractEscort(t *testing.T) {
+	const borrowerID, lenderID, pactID = 100, 200, 52
+	tests := []struct {
+		name     string
+		mode     cfg.Mode
+		charID   uint32
+		mercID   uint32
+		gear     bool
+		escort   bool
+		lender   byte
+		wantFlag byte
+	}{
+		{"allow on native profile", cfg.ZZ, lenderID, pactID, false, true, 0, 1},
+		{"prohibit on extended profile", cfg.ZZ, lenderID, pactID, true, false, 1, 0},
+		{"look up without contract ID", cfg.ZZ, lenderID, 0, true, true, 0, 0},
+		{"look up with different contract ID", cfg.ZZ, lenderID, 53, false, true, 0, 0},
+		{"look up another lender", cfg.ZZ, 300, pactID, false, true, 0, 0},
+		{"read legacy profile", cfg.Z2, lenderID, pactID, false, true, 0, 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server := createMockServer()
+			server.erupeConfig.RealClientMode = tc.mode
+			server.mercenaryRepo = &mercenaryEscortTestRepo{
+				borrowerID: borrowerID,
+				pact:       MercenaryLoan{CharID: lenderID, PactID: pactID},
+				escort:     tc.escort,
+			}
+			profile := make([]byte, mercenaryNativeSize)
+			profile[8] = tc.lender
+			profile[9] = 0x37
+			if tc.gear {
+				profile = append(profile, make([]byte, mercenaryGearSize)...)
+				copy(profile[mercenaryNativeSize:], mercenaryGearVersion)
+				profile[len(profile)-1] = 0xa5
+			}
+			charRepo := newMockCharacterRepo()
+			charRepo.columns["savemercenary"] = profile
+			charRepo.ints["rasta_id"] = pactID
+			server.charRepo = charRepo
+			session := createMockSession(borrowerID, server)
+
+			want := bytes.Clone(profile)
+			if tc.mode == cfg.ZZ {
+				binary.BigEndian.PutUint32(want[:4], pactID)
+				binary.BigEndian.PutUint32(want[4:8], tc.charID)
+			}
+			want[8] = tc.wantFlag
+			handleMsgMhfReadMercenaryM(session, &mhfpacket.MsgMhfReadMercenaryM{
+				AckHandle: 1, CharID: tc.charID, MercID: tc.mercID,
+			})
+			const ackHeader = 10
+			frame := (<-session.sendPackets).data
+			if len(frame) != ackHeader+len(want) || frame[6] != 1 || frame[7] != 0 ||
+				int(binary.BigEndian.Uint16(frame[8:10])) != len(want) {
+				t.Fatalf("invalid profile ACK: %x", frame)
+			}
+			if got := frame[ackHeader:]; !bytes.Equal(got, want) {
+				t.Fatalf("escort byte = %d, want %d; other profile bytes identical: %t",
+					got[8], want[8], bytes.Equal(got[:8], want[:8]) && bytes.Equal(got[9:], want[9:]))
+			}
+			if profile[8] != tc.lender {
+				t.Fatal("lender's saved profile was modified")
+			}
+		})
+	}
+}
+
 func TestHandleMsgMhfReadMercenaryM_EmptyData(t *testing.T) {
 	server := createMockServer()
 	server.charRepo = newMockCharacterRepo()

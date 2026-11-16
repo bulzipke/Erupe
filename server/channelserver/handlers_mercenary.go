@@ -2,6 +2,7 @@ package channelserver
 
 import (
 	"database/sql"
+	"encoding/binary"
 	"errors"
 	"io"
 	"time"
@@ -344,9 +345,10 @@ func writeMercenaryContractDates(bf *byteframe.ByteFrame, pact MercenaryLoan) {
 }
 
 const (
-	mercenaryNativeSize  = 0x94
-	mercenaryGearSize    = 0x38
-	mercenaryGearVersion = "RGE1"
+	mercenaryEscortOffset = 8
+	mercenaryNativeSize   = 0x94
+	mercenaryGearSize     = 0x38
+	mercenaryGearVersion  = "RGE1"
 )
 
 func mercenaryHasGear(data []byte) bool {
@@ -385,13 +387,34 @@ func handleMsgMhfReadMercenaryM(s *Session, p mhfpacket.MHFPacket) {
 	if err != nil {
 		s.logger.Warn("Failed to load savemercenary for other character", zap.Error(err))
 	}
-	resp := byteframe.NewByteFrame()
 	if len(data) == 0 {
-		resp.WriteBool(false)
-	} else {
-		resp.WriteBytes(mercenaryProfile(s, pkt.CharID, data))
+		doAckBufSucceed(s, pkt.AckHandle, []byte{0})
+		return
 	}
-	doAckBufSucceed(s, pkt.AckHandle, resp.Data())
+
+	profile := mercenaryProfile(s, pkt.CharID, data)
+	if s.server.erupeConfig.RealClientMode == cfg.ZZ && s.server.mercenaryRepo != nil &&
+		pkt.MercID != 0 && pkt.CharID != s.charID &&
+		len(nativeMercenaryProfile(profile)) == mercenaryNativeSize &&
+		binary.BigEndian.Uint32(profile[:4]) == pkt.MercID &&
+		binary.BigEndian.Uint32(profile[4:8]) == pkt.CharID {
+		pact, escort, err := s.server.mercenaryRepo.GetMercenaryPact(s.charID)
+		if err != nil {
+			s.logger.Warn("Failed to read mercenary escort setting", zap.Error(err))
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
+		if pact.PactID == int(pkt.MercID) && pact.CharID == pkt.CharID {
+			// On a cache miss the native client overwrites the contract's
+			// escort byte with this profile byte. Send the borrower's setting.
+			resp := byteframe.NewByteFrame()
+			resp.WriteBytes(profile[:mercenaryEscortOffset])
+			resp.WriteBool(escort)
+			resp.WriteBytes(profile[mercenaryEscortOffset+1:])
+			profile = resp.Data()
+		}
+	}
+	doAckBufSucceed(s, pkt.AckHandle, profile)
 }
 
 func handleMsgMhfContractMercenary(s *Session, p mhfpacket.MHFPacket) {
