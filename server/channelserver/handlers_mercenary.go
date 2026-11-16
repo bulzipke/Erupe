@@ -327,6 +327,9 @@ func handleMsgMhfReadMercenaryW(s *Session, p mhfpacket.MHFPacket) {
 			bf.WriteUint32(uint32(gcp))
 			if s.server.erupeConfig.RealClientMode == cfg.ZZ &&
 				len(bf.Data())+len(mercenaryGearVersion) <= 0x400 {
+				if len(bf.Data())+len(mercenaryGearVersion)+len(mercenaryAppearanceVersion) <= 0x400 {
+					bf.WriteBytes([]byte(mercenaryAppearanceVersion))
+				}
 				bf.WriteBytes([]byte(mercenaryGearVersion))
 			}
 		}
@@ -345,15 +348,26 @@ func writeMercenaryContractDates(bf *byteframe.ByteFrame, pact MercenaryLoan) {
 }
 
 const (
-	mercenaryEscortOffset = 8
-	mercenaryNativeSize   = 0x94
-	mercenaryGearSize     = 0x38
-	mercenaryGearVersion  = "RGE1"
+	mercenaryEscortOffset          = 8
+	mercenaryNativeSize            = 0x94
+	mercenaryGearSize              = 0x38
+	mercenaryGearVersion           = "RGE1"
+	mercenaryAppearanceVersion     = "RAP1"
+	mercenaryAppearanceSize        = 0x10
+	mercenaryProfileWithGear       = mercenaryNativeSize + mercenaryGearSize
+	mercenaryProfileWithAppearance = mercenaryProfileWithGear + mercenaryAppearanceSize
+	// Rasta IDs are positive PostgreSQL int values. ZZ can use the high bit
+	// as a request for the optional appearance suffix.
+	mercenaryAppearanceRequest uint32 = 1 << 31
 )
 
 func mercenaryHasGear(data []byte) bool {
-	return len(data) == mercenaryNativeSize+mercenaryGearSize &&
-		string(data[mercenaryNativeSize:mercenaryNativeSize+len(mercenaryGearVersion)]) == mercenaryGearVersion
+	if len(data) != mercenaryProfileWithGear && len(data) != mercenaryProfileWithAppearance {
+		return false
+	}
+	return string(data[mercenaryNativeSize:mercenaryNativeSize+len(mercenaryGearVersion)]) == mercenaryGearVersion &&
+		(len(data) == mercenaryProfileWithGear ||
+			string(data[mercenaryProfileWithGear:mercenaryProfileWithGear+len(mercenaryAppearanceVersion)]) == mercenaryAppearanceVersion)
 }
 
 // The self lookup has a fixed-layout GP field immediately after the native
@@ -393,10 +407,18 @@ func handleMsgMhfReadMercenaryM(s *Session, p mhfpacket.MHFPacket) {
 	}
 
 	profile := mercenaryProfile(s, pkt.CharID, data)
+	mercID := pkt.MercID
+	if s.server.erupeConfig.RealClientMode == cfg.ZZ {
+		if mercID&mercenaryAppearanceRequest == 0 &&
+			len(profile) == mercenaryProfileWithAppearance && mercenaryHasGear(profile) {
+			profile = profile[:mercenaryProfileWithGear]
+		}
+		mercID &^= mercenaryAppearanceRequest
+	}
 	if s.server.erupeConfig.RealClientMode == cfg.ZZ && s.server.mercenaryRepo != nil &&
-		pkt.MercID != 0 && pkt.CharID != s.charID &&
+		mercID != 0 && pkt.CharID != s.charID &&
 		len(nativeMercenaryProfile(profile)) == mercenaryNativeSize &&
-		binary.BigEndian.Uint32(profile[:4]) == pkt.MercID &&
+		binary.BigEndian.Uint32(profile[:4]) == mercID &&
 		binary.BigEndian.Uint32(profile[4:8]) == pkt.CharID {
 		pact, escort, err := s.server.mercenaryRepo.GetMercenaryPact(s.charID)
 		if err != nil {
@@ -404,7 +426,7 @@ func handleMsgMhfReadMercenaryM(s *Session, p mhfpacket.MHFPacket) {
 			doAckBufFail(s, pkt.AckHandle, nil)
 			return
 		}
-		if pact.PactID == int(pkt.MercID) && pact.CharID == pkt.CharID {
+		if pact.PactID == int(mercID) && pact.CharID == pkt.CharID {
 			// On a cache miss the native client overwrites the contract's
 			// escort byte with this profile byte. Send the borrower's setting.
 			resp := byteframe.NewByteFrame()

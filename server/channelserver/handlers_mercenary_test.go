@@ -587,10 +587,12 @@ func TestMercenaryGearProfileRoundTrip(t *testing.T) {
 		}
 		return frame[ackHeader:]
 	}
-	profile := make([]byte, mercenaryNativeSize+mercenaryGearSize)
+	profile := make([]byte, mercenaryProfileWithAppearance)
 	copy(profile[mercenaryNativeSize:], mercenaryGearVersion)
 	profile[mercenaryNativeSize+4] = 0x9c
 	profile[mercenaryNativeSize+7] = 0x12
+	copy(profile[mercenaryProfileWithGear:], mercenaryAppearanceVersion)
+	binary.LittleEndian.PutUint16(profile[mercenaryProfileWithGear+6:], 11704)
 	handleMsgMhfSaveMercenary(session, &mhfpacket.MsgMhfSaveMercenary{
 		AckHandle: 1, MercData: profile, GCP: 123456,
 	})
@@ -603,17 +605,26 @@ func TestMercenaryGearProfileRoundTrip(t *testing.T) {
 	own := payload()
 	const prefix = 3 // lend count, loan count, own profile present
 	gpOffset := prefix + mercenaryNativeSize
-	if len(own) != gpOffset+4+len(mercenaryGearVersion) ||
+	if len(own) != gpOffset+4+len(mercenaryAppearanceVersion)+len(mercenaryGearVersion) ||
 		binary.BigEndian.Uint32(own[gpOffset:gpOffset+4]) != 123456 ||
-		string(own[gpOffset+4:]) != mercenaryGearVersion {
+		string(own[gpOffset+4:]) != mercenaryAppearanceVersion+mercenaryGearVersion {
 		t.Fatalf("self read changed the GP field or lost capability: %x", own)
 	}
 
-	handleMsgMhfReadMercenaryM(session, &mhfpacket.MsgMhfReadMercenaryM{AckHandle: 3, CharID: 200})
-	other := payload()
-	if len(other) != len(profile) || binary.BigEndian.Uint32(other[:4]) != 52 ||
-		binary.BigEndian.Uint32(other[4:8]) != 200 || !bytes.Equal(other[8:], profile[8:]) {
-		t.Fatalf("loaned profile changed its ID or gear: %x", other)
+	for _, request := range []struct {
+		mercID uint32
+		size   int
+	}{
+		{52, mercenaryProfileWithGear},
+		{52 | mercenaryAppearanceRequest, mercenaryProfileWithAppearance},
+		{mercenaryAppearanceRequest, mercenaryProfileWithAppearance},
+	} {
+		handleMsgMhfReadMercenaryM(session, &mhfpacket.MsgMhfReadMercenaryM{AckHandle: 3, CharID: 200, MercID: request.mercID})
+		other := payload()
+		if len(other) != request.size || binary.BigEndian.Uint32(other[:4]) != 52 ||
+			binary.BigEndian.Uint32(other[4:8]) != 200 || !bytes.Equal(other[8:], profile[8:request.size]) {
+			t.Fatalf("counterpart profile for request %x: %x", request.mercID, other)
+		}
 	}
 }
 
@@ -644,6 +655,7 @@ func TestHandleMsgMhfReadMercenaryM_ContractEscort(t *testing.T) {
 		wantFlag byte
 	}{
 		{"allow on native profile", cfg.ZZ, lenderID, pactID, false, true, 0, 1},
+		{"allow with appearance capability", cfg.ZZ, lenderID, pactID | mercenaryAppearanceRequest, true, true, 0, 1},
 		{"prohibit on extended profile", cfg.ZZ, lenderID, pactID, true, false, 1, 0},
 		{"look up without contract ID", cfg.ZZ, lenderID, 0, true, true, 0, 0},
 		{"look up with different contract ID", cfg.ZZ, lenderID, 53, false, true, 0, 0},
