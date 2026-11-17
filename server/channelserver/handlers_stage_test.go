@@ -1166,6 +1166,81 @@ func TestHandleMsgSysUnlockStage_NoReservation(t *testing.T) {
 	// Should not panic
 }
 
+func TestTavernCreationCancelBeforeReservationAllowsImmediateRetry(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		stageID     string
+		playerCount uint8
+	}{
+		{"social", "sl2Ls210p2a0u0", 4},
+		{"public", "sl2Ls282p7a0u0", 30},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := createMockServer()
+			session := createMockSession(100, server)
+			var previous *Stage
+			for i := 0; i <= maxHostedStagesPerSession; i++ {
+				handleMsgSysCreateStage(session, &mhfpacket.MsgSysCreateStage{
+					AckHandle:   uint32(i + 1),
+					CreateType:  1,
+					PlayerCount: tc.playerCount,
+					StageID:     tc.stageID,
+				})
+				ack := readAck(t, session)
+				if ack.AckHandle != uint32(i+1) || ack.ErrorCode != 0 {
+					t.Fatalf("attempt %d: creation failed: %+v", i+1, ack)
+				}
+				stage, exists := server.stages.Get(tc.stageID)
+				if !exists || stage == previous || stage.maxPlayers != uint16(tc.playerCount) {
+					t.Fatalf("attempt %d: expected a fresh tavern stage", i+1)
+				}
+				if session.reservationStage != nil {
+					t.Fatal("recruitment selection must not require a stage reservation")
+				}
+
+				// The client cancels recruitment selection with UNLOCK_STAGE,
+				// without ever sending RESERVE_STAGE or entering the room.
+				handleMsgSysUnlockStage(session, &mhfpacket.MsgSysUnlockStage{})
+				if _, exists := server.stages.Get(tc.stageID); exists {
+					t.Fatalf("attempt %d: cancelled tavern stage was retained", i+1)
+				}
+				previous = stage
+			}
+		})
+	}
+}
+
+func TestTavernCreationCancelPreservesOccupiedReservedAndOtherHostedStages(t *testing.T) {
+	server := createMockServer()
+	host := createMockSession(100, server)
+	other := createMockSession(200, server)
+	occupied := NewStage("sl2Ls210p1a0u0")
+	occupied.host = host
+	occupied.clients[host] = host.charID
+	host.stage = occupied
+	reserved := NewStage("sl2Ls210p2a0u0")
+	reserved.host = host
+	reserved.reservedClientSlots[other.charID] = false
+	otherHosted := NewStage("sl2Ls282p1a0u0")
+	otherHosted.host = other
+	for _, stage := range []*Stage{occupied, reserved, otherHosted} {
+		server.stages.Store(stage.id, stage)
+	}
+
+	handleMsgSysUnlockStage(host, &mhfpacket.MsgSysUnlockStage{})
+	for _, stage := range []*Stage{occupied, reserved, otherHosted} {
+		if !server.stages.IsCurrent(stage.id, stage) {
+			t.Errorf("cancelling recruitment removed protected stage %q", stage.id)
+		}
+	}
+	if host.stage != occupied || occupied.clients[host] != host.charID {
+		t.Error("cancelling recruitment changed current stage membership")
+	}
+	if _, exists := reserved.reservedClientSlots[other.charID]; !exists {
+		t.Error("cancelling recruitment removed another hunter's reservation")
+	}
+}
+
 // Tests consolidated from handlers_coverage3_test.go
 
 func TestEmptyHandlers_StageGo(t *testing.T) {

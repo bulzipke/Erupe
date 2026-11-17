@@ -653,6 +653,10 @@ func handleMsgSysUnlockStage(s *Session, p mhfpacket.MHFPacket) {
 		}
 	}
 
+	// Recruitment selection can be cancelled after CREATE_STAGE but before
+	// RESERVE_STAGE. Explicit cancellation must remove our empty hosted stages
+	// immediately, even while the general empty-stage sweep's grace is active.
+	destructEmptyHostedStages(s)
 	destructEmptyStages(s)
 }
 
