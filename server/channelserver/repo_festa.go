@@ -2,6 +2,7 @@ package channelserver
 
 import (
 	"database/sql"
+	"slices"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -93,9 +94,10 @@ func (r *FestaRepository) GetTeamSouls(team string) (uint32, error) {
 func (r *FestaRepository) GetTrialsWithMonopoly(monopoly bool) ([]FestaTrial, error) {
 	var trials []FestaTrial
 	err := r.db.Select(&trials, `SELECT id, objective, goal_id, times_req, locale_req, reward, 'none'::festival_color AS monopoly,
-		CASE WHEN objective=5 AND goal_id=53034 THEN 2 ELSE 0 END AS unk
-		FROM festa_trials WHERE objective BETWEEN 1 AND 4 OR (objective=5 AND goal_id=53034)
-		ORDER BY id`)
+		CASE WHEN objective=5 THEN 2 ELSE 0 END AS unk
+		FROM festa_trials WHERE objective BETWEEN 1 AND 4 OR (objective=5 AND (goal_id=53034 OR
+			(goal_id IN(53226,63303) AND EXISTS(SELECT 1 FROM festa_goal_rounds WHERE event_id=$1 AND guild_join_cutoff IS NOT NULL))))
+		ORDER BY id`, r.eventID)
 	if err != nil {
 		return nil, err
 	}
@@ -259,13 +261,12 @@ func (r *FestaRepository) RegisterGuild(guildID uint32, team string) error {
 func (r *FestaRepository) SubmitSouls(charID, guildID uint32, souls []uint16) error {
 	return r.writeFesta(1<<2, func(tx *sqlx.Tx) error {
 		if r.eventID != nil {
-			var registered bool
-			if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM festa_registrations WHERE event_id=$1 AND guild_id=$2)`,
-				r.eventID, guildID).Scan(&registered); err != nil {
+			var memberID uint32
+			if err := tx.QueryRow(`SELECT m.character_id FROM guild_characters m
+				JOIN festa_registrations r ON r.guild_id=m.guild_id
+				WHERE r.event_id=$1 AND r.guild_id=$2 AND m.character_id=$3 FOR SHARE OF m`,
+				r.eventID, guildID, charID).Scan(&memberID); err != nil {
 				return err
-			}
-			if !registered {
-				return sql.ErrNoRows
 			}
 		}
 		var submittedAt time.Time
@@ -329,7 +330,25 @@ func (r *FestaRepository) ListPrizes(charID uint32, prizeType string) ([]Prize, 
 			return nil, err
 		}
 	}
-	return r.listFestaPrizes(r.db, charID, prizeType, state)
+	prizes, err := r.listFestaPrizes(r.db, charID, prizeType, state)
+	if err != nil || prizeType != "guild" || state.soulsPerParticipant == 0 {
+		return prizes, err
+	}
+	eligibility, err := getFestaGuildEligibility(r.db, *r.eventID, state.guildID, charID)
+	if err != nil || !eligibility.locked {
+		return prizes, err
+	}
+	if !eligibility.eligible {
+		return nil, nil
+	}
+	if !eligibility.counted {
+		// The native list has one shared soul threshold and no field for a
+		// personal minimum. Send each tier once that minimum has been met.
+		prizes = slices.DeleteFunc(prizes, func(prize Prize) bool {
+			return !eligibility.personalGoalMet(prize.SoulsReq, state.participants)
+		})
+	}
+	return prizes, nil
 }
 
 func (r *FestaRepository) listFestaPrizes(q sqlx.Queryer, charID uint32, prizeType string, state festaGoalState) ([]Prize, error) {
@@ -347,8 +366,14 @@ func (r *FestaRepository) listFestaPrizes(q sqlx.Queryer, charID uint32, prizeTy
 }
 
 func (r *FestaRepository) checkFestaGoal(tx *sqlx.Tx, prizeID, charID uint32, prizeType string) error {
+	if prizeType == "guild" {
+		var memberID uint32
+		if err := tx.QueryRow(`SELECT character_id FROM guild_characters WHERE character_id=$1 FOR SHARE`, charID).Scan(&memberID); err != nil {
+			return err
+		}
+	}
 	state, err := getFestaGoalState(tx, *r.eventID, charID)
-	if err != nil || !state.scaled {
+	if err != nil || state.soulsPerParticipant == 0 {
 		return err
 	}
 	prizes, err := r.listFestaPrizes(tx, charID, prizeType, state)
@@ -359,25 +384,48 @@ func (r *FestaRepository) checkFestaGoal(tx *sqlx.Tx, prizeID, charID uint32, pr
 		if prize.ID != prizeID {
 			continue
 		}
-		var personalSouls, guildSouls uint64
-		err = tx.QueryRow(`SELECT
-			COALESCE((SELECT SUM(souls) FROM festa_submissions
-				WHERE event_id=$1 AND character_id=$2),0),
-			COALESCE((SELECT SUM(s.souls) FROM festa_registrations f
-				JOIN festa_submissions s USING(event_id,guild_id)
-				WHERE f.event_id=$1 AND f.guild_id=$3),0)`,
-			r.eventID, charID, state.guildID).Scan(&personalSouls, &guildSouls)
+		if prizeType == "guild" {
+			return r.checkFestaGuildGoal(tx, charID, state, prize.SoulsReq)
+		}
+		var personalSouls uint64
+		err = tx.QueryRow(`SELECT COALESCE(SUM(souls),0) FROM festa_submissions
+			WHERE event_id=$1 AND character_id=$2`, r.eventID, charID).Scan(&personalSouls)
 		if err != nil {
 			return err
 		}
-		goalSouls := personalSouls
-		if prizeType == "guild" {
-			goalSouls = guildSouls
-		}
-		if personalSouls > 0 && goalSouls >= uint64(prize.SoulsReq) {
+		if personalSouls > 0 && personalSouls >= uint64(prize.SoulsReq) {
 			return nil
 		}
 		break
 	}
 	return sql.ErrNoRows
+}
+
+func (r *FestaRepository) checkFestaGuildGoal(tx *sqlx.Tx, charID uint32, state festaGoalState, guildCut uint32) error {
+	eligibility, err := getFestaGuildEligibility(tx, *r.eventID, state.guildID, charID)
+	if err != nil {
+		return err
+	}
+	if (eligibility.locked && !eligibility.eligible) || !eligibility.personalGoalMet(guildCut, state.participants) {
+		return sql.ErrNoRows
+	}
+	var guildSouls uint64
+	err = tx.QueryRow(`SELECT COALESCE(SUM(s.souls),0) FROM festa_registrations f
+		JOIN festa_submissions s USING(event_id,guild_id) WHERE f.event_id=$1 AND f.guild_id=$2`,
+		r.eventID, state.guildID).Scan(&guildSouls)
+	if err != nil {
+		return err
+	}
+	if guildSouls < uint64(guildCut) {
+		return sql.ErrNoRows
+	}
+	if !eligibility.locked {
+		return nil
+	}
+	var receivingCharacter uint32
+	// The unique account row settles concurrent claims from two characters.
+	return tx.QueryRow(`INSERT INTO festa_goal_guild_claimants(event_id,user_id,character_id) VALUES($1,$2,$3)
+		ON CONFLICT(event_id,user_id) DO UPDATE SET character_id=EXCLUDED.character_id
+		WHERE festa_goal_guild_claimants.character_id=EXCLUDED.character_id RETURNING character_id`,
+		r.eventID, eligibility.userID, charID).Scan(&receivingCharacter)
 }
