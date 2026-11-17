@@ -35,7 +35,7 @@ func TestFestaGoalSnapshotAndClaims(t *testing.T) {
 		t.Fatal(err)
 	}
 	exec(string(seed))
-	exec("INSERT INTO festa_trials(objective,goal_id,times_req,reward) VALUES(5,63303,0,99),(5,53226,0,200)")
+	exec("INSERT INTO festa_trials(objective,goal_id,times_req,reward) VALUES(5,63303,0,99),(5,53226,0,200),(5,53034,0,400)")
 
 	now := time.Now().UTC().Truncate(time.Second)
 	currentStart := now.Add(-8 * 24 * time.Hour)
@@ -97,8 +97,9 @@ func TestFestaGoalSnapshotAndClaims(t *testing.T) {
 		repo FestaRepo
 		want map[uint32]uint16
 	}{
-		{legacy, map[uint32]uint16{53034: 400}},
-		{scoped, map[uint32]uint16{53034: 400, 53226: 200, 63303: 99}},
+		{repo, nil},
+		{legacy, map[uint32]uint16{53226: 200, 63303: 99}},
+		{scoped, map[uint32]uint16{53226: 200, 63303: 99}},
 	} {
 		trials, err := round.repo.GetTrialsWithMonopoly(false)
 		if err != nil {

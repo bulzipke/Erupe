@@ -38,7 +38,6 @@ INSERT INTO public.event_quests (max_players, quest_type, quest_id, mark) VALUES
     (4,24,51127,0),
     (4,24,51128,0),
     (4,24,51129,0),
-    (4,26,53034,1),
     (4,18,53140,1),
     (4,18,53187,1),
     (4,18,53201,1),

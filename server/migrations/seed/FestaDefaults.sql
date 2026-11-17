@@ -134,7 +134,6 @@ INSERT INTO public.festa_trials
     (objective, goal_id, times_req, locale_req, reward)
 VALUES
     (1,27,1,0,1),
-    (5,53034,0,0,400),
     (5,22042,0,0,89),
     (5,23397,0,0,89),
     (1,28,1,0,1),

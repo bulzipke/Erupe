@@ -91,3 +91,30 @@ func TestFestaFPCurveMigrationSwitchesOnlyUnopenedMainRewards(t *testing.T) {
 		})
 	}
 }
+
+func TestFestaDailyMossMigrationRetiresOldTicketQuest(t *testing.T) {
+	db := testDB(t)
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE festa_trials(objective integer,goal_id integer,reward integer);
+		CREATE TABLE event_quests(quest_id integer,quest_type integer,active_days integer,inactive_days integer);
+		INSERT INTO festa_trials VALUES(5,53034,400),(5,53226,200),(5,63303,99),(1,27,1);
+		INSERT INTO event_quests VALUES(53034,26,NULL,NULL),(53226,26,0,0),(63303,26,0,0);`); err != nil {
+		t.Fatal(err)
+	}
+	data, err := migrationFS.ReadFile("sql/0116_festa_daily_moss_reward.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(string(data)); err != nil {
+		t.Fatal(err)
+	}
+	var valid bool
+	err = db.Get(&valid, `SELECT
+		(SELECT active_days=1 AND inactive_days=-1 FROM event_quests WHERE quest_id=53034 AND quest_type=26)
+		AND (SELECT count(*)=2 AND bool_and(active_days=0 AND inactive_days=0) FROM event_quests WHERE quest_id IN(53226,63303))
+		AND (SELECT count(*)=4 AND sum(reward)=300 FROM festa_trials)
+		AND (SELECT reward=0 FROM festa_trials WHERE objective=5 AND goal_id=53034)`)
+	if err != nil || !valid {
+		t.Fatalf("old ticket quest was not retired independently of other dailies: %v %v", valid, err)
+	}
+}

@@ -95,8 +95,8 @@ func (r *FestaRepository) GetTrialsWithMonopoly(monopoly bool) ([]FestaTrial, er
 	var trials []FestaTrial
 	err := r.db.Select(&trials, `SELECT id, objective, goal_id, times_req, locale_req, reward, 'none'::festival_color AS monopoly,
 		CASE WHEN objective=5 THEN 2 ELSE 0 END AS unk
-		FROM festa_trials WHERE objective BETWEEN 1 AND 4 OR (objective=5 AND (goal_id=53034 OR
-			(goal_id IN(53226,63303) AND EXISTS(SELECT 1 FROM festa_goal_rounds WHERE event_id=$1 AND guild_join_cutoff IS NOT NULL))))
+		FROM festa_trials WHERE objective BETWEEN 1 AND 4 OR
+			(objective=5 AND $1::integer IS NOT NULL AND goal_id IN(53226,63303))
 		ORDER BY id`, r.eventID)
 	if err != nil {
 		return nil, err
