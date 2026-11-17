@@ -46,6 +46,10 @@ func TestFestaFPCurveMigrationSwitchesOnlyUnopenedMainRewards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	balance, err := migrationFS.ReadFile("sql/0117_festa_personal_reward_balance.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct {
 		name       string
 		hoursOld   int
@@ -87,6 +91,26 @@ func TestFestaFPCurveMigrationSwitchesOnlyUnopenedMainRewards(t *testing.T) {
 				WHERE active.event_id=14 AND previous.event_id=12`).Scan(&active, &previous, &goal, &receipts)
 			if err != nil || active != tc.wantSwitch || previous || goal != 500 || receipts != 1 {
 				t.Fatalf("active FP switch=%t, previous=%t, target=%d, goal receipts=%d: %v", active, previous, goal, receipts, err)
+			}
+			// Simulate the new migration after a previous rollout of the FP curve.
+			if _, err := db.Exec(`UPDATE festa_goal_rounds SET rebalanced_fp=true`); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(string(balance)); err != nil {
+				t.Fatal(err)
+			}
+			wantRate := 500
+			if tc.wantSwitch {
+				wantRate = 150
+			}
+			var preserved bool
+			err = db.Get(&preserved, `SELECT
+				(SELECT fp_above_3500_rate=$1 FROM festa_goal_rounds WHERE event_id=14)
+				AND (SELECT fp_above_3500_rate=500 FROM festa_goal_rounds WHERE event_id=12)
+				AND NOT EXISTS(SELECT 1 FROM festa_goal_rounds WHERE personal_goal_souls IS NOT NULL OR personal_book_multiplier<>1)
+				AND (SELECT count(*)=1 FROM festa_prizes_accepted WHERE event_id=14 AND prize_id=7)`, wantRate)
+			if err != nil || !preserved {
+				t.Fatalf("new FP rate or preservation of published goals was incorrect: %t %v", preserved, err)
 			}
 		})
 	}

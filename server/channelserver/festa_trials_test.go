@@ -19,7 +19,7 @@ func TestFestaPersonalFPBonus(t *testing.T) {
 		{10505, 9999999, 9999999},
 		{^uint32(0), 9999999, 9999999},
 	} {
-		if got := festaPersonalFPBonus(tt.souls, tt.cap, false); got != tt.want {
+		if got := festaPersonalFPBonus(tt.souls, tt.cap, false, 0); got != tt.want {
 			t.Errorf("%d souls with cap %d = %d FP, want %d", tt.souls, tt.cap, got, tt.want)
 		}
 	}
@@ -36,14 +36,17 @@ func TestFestaRebalancedPersonalFPBonus(t *testing.T) {
 		{1001, cap, 16_560},
 		{3499, cap, 103_990},
 		{3500, cap, 104_025},
-		{3501, cap, 104_525},
-		{4000, cap, 354_025},
+		{3501, cap, 104_175},
+		{4000, cap, 179_025},
 		{3500, 100_000, 100_000},
 		{^uint32(0), cap, cap},
 	} {
-		if got := festaPersonalFPBonus(tt.souls, tt.cap, true); got != tt.want {
+		if got := festaPersonalFPBonus(tt.souls, tt.cap, true, 150); got != tt.want {
 			t.Errorf("%d souls with cap %d = %d FP, want %d", tt.souls, tt.cap, got, tt.want)
 		}
+	}
+	if got := festaPersonalFPBonus(3501, cap, true, 500); got != 104_525 {
+		t.Fatalf("published 500-FP rate changed: %d", got)
 	}
 }
 

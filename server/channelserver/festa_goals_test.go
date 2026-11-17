@@ -68,8 +68,8 @@ func TestFestaGoalSnapshotAndClaims(t *testing.T) {
 	submit(previous, guildID, charID, 1, previousGathering)
 	submit(previous, quietGuild, quietID, 0, previousGathering)
 	submit(previous, quietGuild, quietID, 99, previousStart.Add(14*24*time.Hour))
-	submit(current, guildID, charID, 2999, gathering)
-	submit(current, guildID, memberID, 3000, gathering)
+	submit(current, guildID, charID, 1999, gathering)
+	submit(current, guildID, memberID, 4000, gathering)
 	submit(current, quietGuild, quietID, 3000, gathering)
 
 	firstPersonal, err := repo.ForFestaEvent(current).ListPrizes(charID, "personal")
@@ -83,7 +83,7 @@ func TestFestaGoalSnapshotAndClaims(t *testing.T) {
 	}
 	scoped := repo.ForFestaEvent(current)
 	legacy := repo.ForFestaEvent(previous)
-	for _, check := range []struct{ eventID, want uint32 }{{previous, 300}, {current, 86_490}} {
+	for _, check := range []struct{ eventID, want uint32 }{{previous, 300}, {current, 51_490}} {
 		round := repo.ForFestaEvent(check.eventID).(*FestaRepository)
 		if got, err := round.festaPersonalRewardBonus(charID, 9_999_999); err != nil || got != check.want {
 			t.Fatalf("round %d FP bonus = %d, want %d: %v", check.eventID, got, check.want, err)
@@ -124,11 +124,15 @@ func TestFestaGoalSnapshotAndClaims(t *testing.T) {
 	}
 	for i, item := range personal {
 		original := firstPersonal[i]
-		wantCut := uint32(i / 3 * 150)
+		wantCut := uint32(i / 3 * 100)
 		if wantCut == 0 {
 			wantCut = 1
 		}
-		if item.SoulsReq != wantCut || item.ID != original.ID || item.ItemID != original.ItemID || item.NumItem != original.NumItem {
+		wantQuantity := original.NumItem
+		if original.ItemID >= 11381 && original.ItemID <= 11386 {
+			wantQuantity *= 2
+		}
+		if item.SoulsReq != wantCut || item.ID != original.ID || item.ItemID != original.ItemID || item.NumItem != wantQuantity {
 			t.Errorf("personal row %d: got %+v, original %+v, want %d souls", i, item, original, wantCut)
 		}
 	}

@@ -297,6 +297,21 @@ func handleMsgMhfInfoFesta(s *Session, p mhfpacket.MHFPacket) {
 	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
 }
 
+func festaCurrentGuild(s *Session) *Guild {
+	guild, err := s.server.guildRepo.GetByCharID(s.charID)
+	if err != nil || guild == nil {
+		return nil
+	}
+	applicant, err := s.server.guildRepo.HasApplication(guild.ID, s.charID)
+	if err != nil {
+		s.logger.Warn("Failed to check guild application status", zap.Error(err))
+	}
+	if applicant {
+		return nil
+	}
+	return guild
+}
+
 // state festa (U)ser
 func handleMsgMhfStateFestaU(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfStateFestaU)
@@ -305,16 +320,16 @@ func handleMsgMhfStateFestaU(s *Session, p mhfpacket.MHFPacket) {
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
-	guild, err := s.server.guildRepo.GetByCharID(s.charID)
-	applicant := false
-	if guild != nil {
-		var appErr error
-		applicant, appErr = s.server.guildRepo.HasApplication(guild.ID, s.charID)
-		if appErr != nil {
-			s.logger.Warn("Failed to check guild application status", zap.Error(appErr))
+	real, scoped := repo.(*FestaRepository)
+	if scoped && real.eventID != nil && event.phase(TimeAdjusted()) == 4 {
+		if _, err := real.festaMainPrizeGuild(real.db, s.charID); err != nil {
+			if !errors.Is(err, sql.ErrNoRows) {
+				s.logger.Error("Failed to read festa reward guild", zap.Error(err))
+			}
+			doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
+			return
 		}
-	}
-	if err != nil || guild == nil || applicant {
+	} else if festaCurrentGuild(s) == nil {
 		doAckSimpleFail(s, pkt.AckHandle, make([]byte, 4))
 		return
 	}
@@ -343,17 +358,22 @@ func handleMsgMhfStateFestaG(s *Session, p mhfpacket.MHFPacket) {
 		doAckBufFail(s, pkt.AckHandle, nil)
 		return
 	}
-	guild, err := s.server.guildRepo.GetByCharID(s.charID)
-	applicant := false
-	if guild != nil {
-		var appErr error
-		applicant, appErr = s.server.guildRepo.HasApplication(guild.ID, s.charID)
-		if appErr != nil {
-			s.logger.Warn("Failed to check guild application status", zap.Error(appErr))
+	real, scoped := repo.(*FestaRepository)
+	scoped = scoped && real.eventID != nil
+	rewardPhase := scoped && event.phase(TimeAdjusted()) == 4
+	var guildID, souls uint32
+	if rewardPhase {
+		guildID, err = real.festaMainPrizeGuild(real.db, s.charID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			s.logger.Error("Failed to read festa reward guild", zap.Error(err))
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
 		}
+	} else if guild := festaCurrentGuild(s); guild != nil {
+		guildID, souls = guild.ID, guild.Souls
 	}
 	resp := byteframe.NewByteFrame()
-	if err != nil || guild == nil || applicant {
+	if guildID == 0 {
 		resp.WriteUint32(0)
 		resp.WriteInt32(0)
 		resp.WriteInt32(-1)
@@ -362,18 +382,18 @@ func handleMsgMhfStateFestaG(s *Session, p mhfpacket.MHFPacket) {
 		doAckBufSucceed(s, pkt.AckHandle, resp.Data())
 		return
 	}
-	souls, participants, rank, result := guild.Souls, uint32(1), uint32(1), uint32(1)
+	participants, rank, result := uint32(1), uint32(1), uint32(1)
 	fpBonus := uint32(1)
-	if real, ok := repo.(*FestaRepository); ok && real.eventID != nil {
+	if scoped {
 		var team FestivalColor
-		souls, participants, rank, team, err = real.festaGuildStanding(guild.ID)
+		souls, participants, rank, team, err = real.festaGuildStanding(guildID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			s.logger.Error("Failed to read festa guild standing", zap.Error(err))
 			doAckBufFail(s, pkt.AckHandle, nil)
 			return
 		}
 		result = 0
-		if rank != 0 && event.phase(TimeAdjusted()) == 4 {
+		if rank != 0 && rewardPhase {
 			blue, red, err := real.festaTeamTotalsAt(time.Unix(int64(event.timestamps()[2]), 0))
 			if err != nil {
 				s.logger.Error("Failed to read festa final tally", zap.Error(err))

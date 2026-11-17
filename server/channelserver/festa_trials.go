@@ -19,14 +19,14 @@ func festaSoulGoal(original uint32) uint32 {
 // The high bit distinguishes the bonus from the old reserved value (1).
 const festaFPBonusPresent uint32 = 1 << 31
 
-func festaPersonalFPBonus(souls, maxFP uint32, rebalanced bool) uint32 {
+func festaPersonalFPBonus(souls, maxFP uint32, rebalanced bool, above3500Rate uint32) uint32 {
 	lower := uint64(max(0, int64(min(souls, 499))-99))
 	middle := uint64(max(0, int64(min(souls, 1000))-499))
 	var total uint64
 	if rebalanced {
 		higher := uint64(max(0, int64(min(souls, 3500))-1000))
 		extra := uint64(max(0, int64(souls)-3500))
-		total = lower*10 + middle*25 + higher*35 + extra*500
+		total = lower*10 + middle*25 + higher*35 + extra*uint64(above3500Rate)
 	} else {
 		total = lower*300 + middle*750 + uint64(max(0, int64(souls)-1000))*1000
 	}

@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"database/sql"
 	"encoding/binary"
 	"errors"
 	cfg "erupe-ce/config"
@@ -79,8 +80,15 @@ func TestFestaRotationBoundWritesRespectChapterAndReceiptIdentity(t *testing.T) 
 	if err = scoped.ClaimPrize(0, cid); !errors.Is(err, errFestaRoundChanged) {
 		t.Fatalf("main reward accepted before rewards: %v", err)
 	}
-	start := rotationMondayNoon(now).AddDate(0, 0, -14)
+	start := now.Add(-15 * 24 * time.Hour)
 	if _, err = db.Exec(`UPDATE events SET start_time=$1 WHERE id=$2`, start, e.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := scoped.ClaimPrize(0, cid); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("main reward accepted without a contribution: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO festa_submissions(event_id,character_id,guild_id,trial_type,souls,timestamp)
+		VALUES($1,$2,$3,0,10,$4)`, e.ID, cid, gid, start.Add(8*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	var wg sync.WaitGroup
@@ -108,6 +116,60 @@ func TestFestaRotationBoundWritesRespectChapterAndReceiptIdentity(t *testing.T) 
 	}
 	if err = scoped.ClaimPrize(0, cid); !errors.Is(err, errFestaRoundChanged) {
 		t.Fatalf("expired receipt accepted before worker caught up: %v", err)
+	}
+}
+
+func TestFestaMainRewardUsesFirstContributionGuild(t *testing.T) {
+	repo, db, charID, blueGuild := setupFestaRepo(t)
+	redLeader := CreateTestCharacter(t, db, CreateTestUser(t, db, "festa_red"), "FestaRed")
+	redGuild := CreateTestGuild(t, db, redLeader, "FestaRedGuild")
+	start := TimeAdjusted().Add(-15 * 24 * time.Hour)
+	var eventID uint32
+	if err := db.Get(&eventID, `INSERT INTO events(event_type,start_time,festa_continuous) VALUES('festa',$1,true) RETURNING id`, start); err != nil {
+		t.Fatal(err)
+	}
+	db.MustExec(`INSERT INTO festa_event_lifecycle(event_id) VALUES($1)`, eventID)
+	db.MustExec(`INSERT INTO festa_registrations(event_id,guild_id,team) VALUES($1,$2,'blue'),($1,$3,'red')`, eventID, blueGuild, redGuild)
+	db.MustExec(`INSERT INTO festa_submissions(event_id,character_id,guild_id,trial_type,souls,timestamp) VALUES
+		($1,$2,$4,0,0,$5),($1,$2,$3,0,10,$5+interval '1 hour'),
+		($1,$2,$4,0,3491,$5+interval '2 hours'),($1,$6,$4,0,100,$5)`,
+		eventID, charID, blueGuild, redGuild, start.Add(8*24*time.Hour), redLeader)
+	db.MustExec(`UPDATE guild_characters SET guild_id=$1 WHERE character_id=$2`, redGuild, charID)
+	if _, err := repo.EnsureFestaEvent(start.Add(8 * 24 * time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := createMockServer()
+	srv.festaRepo = repo
+	srv.guildRepo = NewGuildRepository(db)
+	srv.erupeConfig.DebugOptions.FestaOverride = -1
+	srv.erupeConfig.RealClientMode = cfg.ZZ
+	srv.erupeConfig.GameplayOptions.MaximumFP = 9_999_999
+	s := createMockSession(charID, srv)
+	assertPreview := func(requestedGuild uint32) {
+		t.Helper()
+		handleMsgMhfStateFestaG(s, &mhfpacket.MsgMhfStateFestaG{FestaID: eventID, GuildID: requestedGuild})
+		_, code, data := parseAckBufData(t, (<-s.sendPackets).data)
+		if code != 0 || len(data) != 20 {
+			t.Fatalf("unexpected guild preview: %d %x", code, data)
+		}
+		for i, want := range []uint32{10, 1, 1, festaFPBonusPresent | 104_175, 3} {
+			if got := binary.BigEndian.Uint32(data[4*i:]); got != want {
+				t.Errorf("guild preview field %d = %d, want %d", i, got, want)
+			}
+		}
+	}
+	assertPreview(redGuild)
+	db.MustExec(`DELETE FROM guild_characters WHERE character_id=$1`, charID)
+	assertPreview(0)
+	handleMsgMhfStateFestaU(s, &mhfpacket.MsgMhfStateFestaU{FestaID: eventID})
+	_, code, data := parseAckBufData(t, (<-s.sendPackets).data)
+	if code != 0 || len(data) != 6 || binary.BigEndian.Uint32(data) != 3501 || data[4] != 1 {
+		t.Fatalf("personal reward preview after leaving the guild: %d %x", code, data)
+	}
+	handleMsgMhfAcquireFesta(s, &mhfpacket.MsgMhfAcquireFesta{FestaID: eventID})
+	if code, _ := parseAckSimpleValue(t, (<-s.sendPackets).data); code != 0 {
+		t.Fatalf("main reward after leaving the guild rejected: %d", code)
 	}
 }
 

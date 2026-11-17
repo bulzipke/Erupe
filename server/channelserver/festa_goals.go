@@ -2,7 +2,12 @@ package channelserver
 
 import "github.com/jmoiron/sqlx"
 
-const festaGoalSoulsPerParticipant = 3000
+const (
+	festaGoalSoulsPerParticipant = 3000
+	festaPersonalGoalSouls       = 2000
+	festaPersonalBookMultiplier  = 2
+	festaFPAbove3500Rate         = 150
+)
 
 // Called under the round lifecycle lock. A single statement snapshots the
 // previous round's contributors against current guild membership.
@@ -12,8 +17,9 @@ func initializeFestaGoals(tx *sqlx.Tx, eventID uint32) error {
 		WHERE p.event_type='festa' AND p.start_time+interval '336 hours'<=active.start_time
 		ORDER BY p.start_time DESC,p.id DESC LIMIT 1
 	), activated AS (
-		INSERT INTO festa_goal_rounds(event_id,previous_event_id,souls_per_participant,guild_join_cutoff,rebalanced_fp)
-		SELECT id,(SELECT id FROM previous_round),$2,start_time+interval '168 hours',true
+		INSERT INTO festa_goal_rounds(event_id,previous_event_id,souls_per_participant,guild_join_cutoff,rebalanced_fp,
+			personal_goal_souls,personal_book_multiplier,fp_above_3500_rate)
+		SELECT id,(SELECT id FROM previous_round),$2,start_time+interval '168 hours',true,$3,$4,$5
 		FROM events WHERE id=$1
 		RETURNING event_id,previous_event_id
 	), participants AS (
@@ -34,24 +40,28 @@ func initializeFestaGoals(tx *sqlx.Tx, eventID uint32) error {
 	)
 	INSERT INTO festa_goal_guild_participants(event_id,guild_id,user_id)
 	SELECT p.event_id,p.guild_id,p.user_id FROM participants p JOIN sizes USING(event_id,guild_id)`,
-		eventID, festaGoalSoulsPerParticipant)
+		eventID, festaGoalSoulsPerParticipant, festaPersonalGoalSouls, festaPersonalBookMultiplier, festaFPAbove3500Rate)
 	return err
 }
 
 type festaGoalState struct {
 	soulsPerParticipant uint32
+	personalGoalSouls   uint32
+	personalBookFactor  uint32
 	guildID             uint32
 	participants        uint32
 }
 
 func getFestaGoalState(q sqlx.Queryer, eventID, charID uint32) (festaGoalState, error) {
 	var state festaGoalState
-	err := q.QueryRowx(`SELECT COALESCE(r.souls_per_participant,0),COALESCE(m.guild_id,0),COALESCE(g.participants,1)
+	err := q.QueryRowx(`SELECT COALESCE(r.souls_per_participant,0),
+		COALESCE(r.personal_goal_souls,r.souls_per_participant,0),COALESCE(r.personal_book_multiplier,1),
+		COALESCE(m.guild_id,0),COALESCE(g.participants,1)
 		FROM (SELECT $1::integer AS event_id) e
 		LEFT JOIN festa_goal_rounds r USING(event_id)
 		LEFT JOIN guild_characters m ON m.character_id=$2
 		LEFT JOIN festa_goal_guild_sizes g ON g.event_id=e.event_id AND g.guild_id=m.guild_id`,
-		eventID, charID).Scan(&state.soulsPerParticipant, &state.guildID, &state.participants)
+		eventID, charID).Scan(&state.soulsPerParticipant, &state.personalGoalSouls, &state.personalBookFactor, &state.guildID, &state.participants)
 	return state, err
 }
 
@@ -125,6 +135,10 @@ func applyFestaGoalCutoffs(prizes []Prize, prizeType string, state festaGoalStat
 	}
 	for i := range prizes {
 		prize := &prizes[i]
+		// 11381–11386 are the three grades of both Ancient Hunting book families.
+		if prize.ItemID >= 11381 && prize.ItemID <= 11386 {
+			prize.NumItem *= state.personalBookFactor
+		}
 		if prize.SoulsReq <= 1 {
 			continue
 		}
@@ -134,7 +148,7 @@ func applyFestaGoalCutoffs(prizes []Prize, prizeType string, state festaGoalStat
 			progress.last = prize.SoulsReq
 			tiers[prize.Tier] = progress
 		}
-		prize.SoulsReq = uint32((uint64(progress.position)*uint64(state.soulsPerParticipant) +
+		prize.SoulsReq = uint32((uint64(progress.position)*uint64(state.personalGoalSouls) +
 			uint64(progress.total) - 1) / uint64(progress.total))
 	}
 }

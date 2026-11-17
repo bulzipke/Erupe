@@ -209,16 +209,30 @@ func (r *FestaRepository) GetCharSouls(charID uint32) (uint32, error) {
 }
 
 func (r *FestaRepository) festaPersonalRewardBonus(charID, maxFP uint32) (uint32, error) {
-	var souls uint32
+	var souls, above3500Rate uint32
 	var rebalanced bool
 	err := r.db.QueryRow(`SELECT
 		COALESCE((SELECT SUM(souls) FROM festa_submissions WHERE event_id=$1 AND character_id=$2),0),
-		COALESCE((SELECT rebalanced_fp FROM festa_goal_rounds WHERE event_id=$1),false)`,
-		r.eventID, charID).Scan(&souls, &rebalanced)
+		COALESCE(g.rebalanced_fp,false),COALESCE(g.fp_above_3500_rate,0)
+		FROM (SELECT $1::integer AS event_id) e LEFT JOIN festa_goal_rounds g USING(event_id)`,
+		r.eventID, charID).Scan(&souls, &rebalanced, &above3500Rate)
 	if err != nil {
 		return 0, err
 	}
-	return festaPersonalFPBonus(souls, maxFP, rebalanced), nil
+	return festaPersonalFPBonus(souls, maxFP, rebalanced, above3500Rate), nil
+}
+
+// Main reward affiliation comes from the first positive submission to a
+// registered guild in the round's gathering window. Membership may change
+// afterwards, but preview and claim continue to use this same history.
+func (r *FestaRepository) festaMainPrizeGuild(q sqlx.Queryer, charID uint32) (uint32, error) {
+	var guildID uint32
+	err := q.QueryRowx(`SELECT s.guild_id FROM festa_submissions s JOIN events e ON e.id=s.event_id
+		WHERE s.event_id=$1 AND s.character_id=$2 AND s.souls>0
+		AND s.timestamp>=e.start_time+interval '168 hours' AND s.timestamp<e.start_time+interval '336 hours'
+		AND EXISTS(SELECT 1 FROM festa_registrations r WHERE r.event_id=s.event_id AND r.guild_id=s.guild_id)
+		ORDER BY s.timestamp,s.guild_id LIMIT 1`, r.eventID, charID).Scan(&guildID)
+	return guildID, err
 }
 
 // HasClaimedMainPrize checks if a character has claimed the main festa prize (prize_id=0).
@@ -319,6 +333,11 @@ func (r *FestaRepository) claimFestaPrize(prizeID, charID uint32, goalType strin
 	return r.writeFesta(phases, func(tx *sqlx.Tx) error {
 		if _, err := tx.Exec(`SELECT pg_advisory_xact_lock(1178940483,$1::integer)`, charID); err != nil {
 			return err
+		}
+		if prizeID == 0 && r.eventID != nil {
+			if _, err := r.festaMainPrizeGuild(tx, charID); err != nil {
+				return err
+			}
 		}
 		if goalType != "" && r.eventID != nil {
 			if err := r.checkFestaGoal(tx, prizeID, charID, goalType); err != nil {
