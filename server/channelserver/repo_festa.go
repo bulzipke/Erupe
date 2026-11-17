@@ -208,6 +208,19 @@ func (r *FestaRepository) GetCharSouls(charID uint32) (uint32, error) {
 	return souls, err
 }
 
+func (r *FestaRepository) festaPersonalRewardBonus(charID, maxFP uint32) (uint32, error) {
+	var souls uint32
+	var rebalanced bool
+	err := r.db.QueryRow(`SELECT
+		COALESCE((SELECT SUM(souls) FROM festa_submissions WHERE event_id=$1 AND character_id=$2),0),
+		COALESCE((SELECT rebalanced_fp FROM festa_goal_rounds WHERE event_id=$1),false)`,
+		r.eventID, charID).Scan(&souls, &rebalanced)
+	if err != nil {
+		return 0, err
+	}
+	return festaPersonalFPBonus(souls, maxFP, rebalanced), nil
+}
+
 // HasClaimedMainPrize checks if a character has claimed the main festa prize (prize_id=0).
 func (r *FestaRepository) HasClaimedMainPrize(charID uint32) bool {
 	var exists uint32

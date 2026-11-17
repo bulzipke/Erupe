@@ -382,13 +382,13 @@ func handleMsgMhfStateFestaG(s *Session, p mhfpacket.MHFPacket) {
 			}
 			result = festaRewardResult(team, rank, blue, red)
 			if s.server.erupeConfig.RealClientMode >= cfg.ZZ && result != 0 {
-				personalSouls, err := repo.GetCharSouls(s.charID)
+				bonus, err := real.festaPersonalRewardBonus(s.charID, s.server.erupeConfig.GameplayOptions.MaximumFP)
 				if err != nil {
-					s.logger.Error("Failed to read personal festa tally", zap.Error(err))
+					s.logger.Error("Failed to calculate personal festa FP bonus", zap.Error(err))
 					doAckBufFail(s, pkt.AckHandle, nil)
 					return
 				}
-				fpBonus = festaFPBonusPresent | festaPersonalFPBonus(personalSouls, s.server.erupeConfig.GameplayOptions.MaximumFP)
+				fpBonus = festaFPBonusPresent | bonus
 			}
 		}
 	}

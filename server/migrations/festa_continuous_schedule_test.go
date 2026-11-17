@@ -40,3 +40,54 @@ func TestFestaContinuousMigrationKeepsActiveChapterAndRecords(t *testing.T) {
 		t.Fatalf("lost active soul phase or records: %v %v", valid, err)
 	}
 }
+
+func TestFestaFPCurveMigrationSwitchesOnlyUnopenedMainRewards(t *testing.T) {
+	data, err := migrationFS.ReadFile("sql/0115_festa_fp_curve.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name       string
+		hoursOld   int
+		mainClaim  bool
+		wantSwitch bool
+	}{
+		{name: "gathering with a goal receipt", hoursOld: 192, wantSwitch: true},
+		{name: "main prize already open", hoursOld: 338},
+		{name: "main prize already claimed", hoursOld: 192, mainClaim: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := testDB(t)
+			defer db.Close()
+			if _, err := db.Exec(`CREATE TABLE events(id integer PRIMARY KEY,start_time timestamptz,festa_continuous boolean);
+			CREATE TABLE festa_event_lifecycle(singleton boolean PRIMARY KEY,event_id integer);
+			CREATE TABLE festa_goal_rounds(event_id integer PRIMARY KEY,souls_per_participant integer);
+			CREATE TABLE festa_prizes_accepted(event_id integer,prize_id integer);
+			INSERT INTO festa_goal_rounds VALUES(12,500),(14,500);
+			INSERT INTO festa_event_lifecycle VALUES(true,14);
+			INSERT INTO festa_prizes_accepted VALUES(14,7);`); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`INSERT INTO events VALUES(14,now()-$1::integer*interval '1 hour',true)`, tc.hoursOld); err != nil {
+				t.Fatal(err)
+			}
+			if tc.mainClaim {
+				if _, err := db.Exec(`INSERT INTO festa_prizes_accepted VALUES(14,0)`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := db.Exec(string(data)); err != nil {
+				t.Fatal(err)
+			}
+			var active, previous bool
+			var goal, receipts int
+			err := db.QueryRow(`SELECT active.rebalanced_fp,previous.rebalanced_fp,active.souls_per_participant,
+				(SELECT count(*) FROM festa_prizes_accepted WHERE event_id=14 AND prize_id=7)
+				FROM festa_goal_rounds active CROSS JOIN festa_goal_rounds previous
+				WHERE active.event_id=14 AND previous.event_id=12`).Scan(&active, &previous, &goal, &receipts)
+			if err != nil || active != tc.wantSwitch || previous || goal != 500 || receipts != 1 {
+				t.Fatalf("active FP switch=%t, previous=%t, target=%d, goal receipts=%d: %v", active, previous, goal, receipts, err)
+			}
+		})
+	}
+}

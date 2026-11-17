@@ -19,7 +19,29 @@ func TestFestaPersonalFPBonus(t *testing.T) {
 		{10505, 9999999, 9999999},
 		{^uint32(0), 9999999, 9999999},
 	} {
-		if got := festaPersonalFPBonus(tt.souls, tt.cap); got != tt.want {
+		if got := festaPersonalFPBonus(tt.souls, tt.cap, false); got != tt.want {
+			t.Errorf("%d souls with cap %d = %d FP, want %d", tt.souls, tt.cap, got, tt.want)
+		}
+	}
+}
+
+func TestFestaRebalancedPersonalFPBonus(t *testing.T) {
+	const cap = 9_999_999
+	for _, tt := range []struct{ souls, cap, want uint32 }{
+		{99, cap, 0},
+		{100, cap, 10},
+		{499, cap, 4_000},
+		{500, cap, 4_025},
+		{1000, cap, 16_525},
+		{1001, cap, 16_560},
+		{3499, cap, 103_990},
+		{3500, cap, 104_025},
+		{3501, cap, 104_525},
+		{4000, cap, 354_025},
+		{3500, 100_000, 100_000},
+		{^uint32(0), cap, cap},
+	} {
+		if got := festaPersonalFPBonus(tt.souls, tt.cap, true); got != tt.want {
 			t.Errorf("%d souls with cap %d = %d FP, want %d", tt.souls, tt.cap, got, tt.want)
 		}
 	}

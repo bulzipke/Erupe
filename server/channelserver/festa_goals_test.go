@@ -65,6 +65,7 @@ func TestFestaGoalSnapshotAndClaims(t *testing.T) {
 	for _, id := range []uint32{charID, altID, memberID, leftID} {
 		submit(previous, guildID, id, 99, previousGathering)
 	}
+	submit(previous, guildID, charID, 1, previousGathering)
 	submit(previous, quietGuild, quietID, 0, previousGathering)
 	submit(previous, quietGuild, quietID, 99, previousStart.Add(14*24*time.Hour))
 	submit(current, guildID, charID, 2999, gathering)
@@ -82,6 +83,12 @@ func TestFestaGoalSnapshotAndClaims(t *testing.T) {
 	}
 	scoped := repo.ForFestaEvent(current)
 	legacy := repo.ForFestaEvent(previous)
+	for _, check := range []struct{ eventID, want uint32 }{{previous, 300}, {current, 86_490}} {
+		round := repo.ForFestaEvent(check.eventID).(*FestaRepository)
+		if got, err := round.festaPersonalRewardBonus(charID, 9_999_999); err != nil || got != check.want {
+			t.Fatalf("round %d FP bonus = %d, want %d: %v", check.eventID, got, check.want, err)
+		}
+	}
 	legacyList, err := legacy.ListPrizes(charID, "personal")
 	if err != nil || len(legacyList) != 63 || legacyList[len(legacyList)-1].SoulsReq != 500 {
 		t.Fatalf("legacy round cut changed: %v %v", legacyList, err)

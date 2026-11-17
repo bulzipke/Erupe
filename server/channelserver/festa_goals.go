@@ -12,8 +12,8 @@ func initializeFestaGoals(tx *sqlx.Tx, eventID uint32) error {
 		WHERE p.event_type='festa' AND p.start_time+interval '336 hours'<=active.start_time
 		ORDER BY p.start_time DESC,p.id DESC LIMIT 1
 	), activated AS (
-		INSERT INTO festa_goal_rounds(event_id,previous_event_id,souls_per_participant,guild_join_cutoff)
-		SELECT id,(SELECT id FROM previous_round),$2,start_time+interval '168 hours'
+		INSERT INTO festa_goal_rounds(event_id,previous_event_id,souls_per_participant,guild_join_cutoff,rebalanced_fp)
+		SELECT id,(SELECT id FROM previous_round),$2,start_time+interval '168 hours',true
 		FROM events WHERE id=$1
 		RETURNING event_id,previous_event_id
 	), participants AS (
