@@ -1656,6 +1656,9 @@ func (m *mockFestaRepo) SubmitSouls(_, _ uint32, souls []uint16) error {
 	return m.submitErr
 }
 func (m *mockFestaRepo) ClaimPrize(_ uint32, _ uint32) error { return nil }
+func (m *mockFestaRepo) ClaimGoalPrize(prizeID, charID uint32, _ string) error {
+	return m.ClaimPrize(prizeID, charID)
+}
 func (m *mockFestaRepo) ListPrizes(_ uint32, _ string) ([]Prize, error) {
 	return m.prizes, m.prizesErr
 }

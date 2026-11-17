@@ -31,8 +31,11 @@ func (r *FestaRepository) EnsureFestaEvent(now time.Time) (FestaEvent, error) {
 		return FestaEvent{}, err
 	}
 	var e FestaEvent
-	err = tx.Get(&e, `SELECT e.id,EXTRACT(epoch FROM e.start_time)::bigint AS start_time,e.festa_continuous
-		FROM festa_event_lifecycle l JOIN events e ON e.id=l.event_id WHERE l.singleton`)
+	var goalsReady bool
+	err = tx.QueryRow(`SELECT e.id,EXTRACT(epoch FROM e.start_time)::bigint,e.festa_continuous,g.event_id IS NOT NULL
+		FROM festa_event_lifecycle l JOIN events e ON e.id=l.event_id
+		LEFT JOIN festa_goal_rounds g ON g.event_id=e.id WHERE l.singleton`).
+		Scan(&e.ID, &e.StartTime, &e.Continuous, &goalsReady)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return e, err
 	}
@@ -50,6 +53,7 @@ func (r *FestaRepository) EnsureFestaEvent(now time.Time) (FestaEvent, error) {
 			return e, err
 		}
 		e.StartTime, e.Continuous = uint32(start.Unix()), true
+		goalsReady = false
 		// Old rounds and their state remain immutable history. Only vote slots
 		// belong to the current guild membership and need clearing at rollover.
 		if _, err = tx.Exec(`UPDATE guild_characters SET trial_vote=NULL`); err != nil {
@@ -57,6 +61,14 @@ func (r *FestaRepository) EnsureFestaEvent(now time.Time) (FestaEvent, error) {
 		}
 		if _, err = tx.Exec(`INSERT INTO festa_event_lifecycle(singleton,event_id) VALUES(true,$1)
 			ON CONFLICT(singleton) DO UPDATE SET event_id=EXCLUDED.event_id`, e.ID); err != nil {
+			return e, err
+		}
+	}
+	phase := e.phase(now)
+	// An in-progress gathering week can adopt the new goals. A reward
+	// week that began under the old rules keeps its original thresholds.
+	if !goalsReady && e.Continuous && (phase == 1 || phase == 2) {
+		if err := initializeFestaGoals(tx, e.ID); err != nil {
 			return e, err
 		}
 	}

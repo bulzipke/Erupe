@@ -8,6 +8,7 @@ import (
 	"erupe-ce/common/byteframe"
 	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
+	"erupe-ce/server/channelserver/compression/nullcomp"
 )
 
 func TestHandleMsgMhfLoadLegendDispatch(t *testing.T) {
@@ -625,6 +626,92 @@ func TestMercenaryGearProfileRoundTrip(t *testing.T) {
 			binary.BigEndian.Uint32(other[4:8]) != 200 || !bytes.Equal(other[8:], profile[8:request.size]) {
 			t.Fatalf("counterpart profile for request %x: %x", request.mercID, other)
 		}
+	}
+}
+
+func TestHandleMsgMhfReadMercenaryM_RestoresRegisteredSigils(t *testing.T) {
+	const owner, rastaID = 200, 52
+	const weaponSlot, sigilSize = 32, 16
+	const gearBox, registeredWeapon = 0x124, 0x1fdd0
+	server := createMockServer()
+	server.erupeConfig.RealClientMode = cfg.ZZ
+	repo := newMockCharacterRepo()
+	repo.ints["rasta_id"] = rastaID
+	server.charRepo = repo
+	session := createMockSession(100, server)
+	session.server.mercenaryRepo = &mockMercenaryRepo{}
+
+	profile := make([]byte, mercenaryNativeSize)
+	binary.BigEndian.PutUint32(profile[:4], rastaID)
+	binary.BigEndian.PutUint32(profile[4:8], owner)
+	copy(profile[0x2c:], []byte{1, 7, 0x0f, 0xb2, 0x64, 0x20, 0, 1, 0, 2, 0, 3, 0x12, 0x34, 0x56, 0x78})
+	repo.columns["savemercenary"] = profile
+	save := make([]byte, 150820)
+	item := []byte{1, 7, 0xb2, 0x0f, 0x20, 0x64, 1, 0, 2, 0, 3, 0, 0x78, 0x56, 0x34, 0x12}
+	copy(save[gearBox:], item) // Identical spare weapon without the registered sigils.
+	copy(save[gearBox+weaponSlot*16:], item)
+	binary.LittleEndian.PutUint16(save[registeredWeapon:], weaponSlot)
+	plate := make([]byte, 140000)
+	var expected [3 * sigilSize]byte
+	for i, values := range [][7]uint16{
+		{1, 1, 1, 9, 9, 11, 0},
+		{1, 1, 1, 6, 11, 8, 0},
+		{1, 1, 1, 7, 9, 11, 0},
+	} {
+		for j, value := range values {
+			binary.BigEndian.PutUint16(plate[(weaponSlot*3+i)*sigilSize+j*2:], value)
+			binary.LittleEndian.PutUint16(expected[i*sigilSize+j*2:], value)
+		}
+	}
+	compress := func(raw []byte) []byte {
+		t.Helper()
+		data, err := nullcomp.Compress(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	repo.columns["savedata"] = compress(save)
+	repo.columns["platedata"] = compress(plate)
+
+	read := func(id uint32) []byte {
+		t.Helper()
+		handleMsgMhfReadMercenaryM(session, &mhfpacket.MsgMhfReadMercenaryM{AckHandle: 7, CharID: owner, MercID: id})
+		frame := (<-session.sendPackets).data
+		if len(frame) < 10 || int(binary.BigEndian.Uint16(frame[8:10])) != len(frame)-10 {
+			t.Fatalf("invalid buffered ACK: %x", frame)
+		}
+		return frame[10:]
+	}
+	accept := uint32(rastaID) | mercenaryAppearanceRequest
+	for _, id := range []uint32{accept, mercenaryAppearanceRequest} {
+		received := read(id)
+		if len(received) != mercenaryProfileWithGear || !mercenaryHasGear(received) ||
+			!bytes.Equal(received[:mercenaryNativeSize], profile) ||
+			!bytes.Equal(received[mercenaryNativeSize+8:], expected[:]) {
+			t.Fatalf("registered sigils missing or changed: %x", received)
+		}
+	}
+	if received := read(rastaID); !bytes.Equal(received, profile) {
+		t.Fatal("gear suffix sent to a client without capability")
+	}
+	if received := read(accept + 1); !bytes.Equal(received, profile) {
+		t.Fatal("sigils joined to a different Rasta profile")
+	}
+	if received := repo.columns["savemercenary"]; !bytes.Equal(received, profile) || len(received) != mercenaryNativeSize {
+		t.Fatal("a profile read rewrote savemercenary")
+	}
+
+	copy(plate[:3*sigilSize], plate[weaponSlot*3*sigilSize:(weaponSlot+1)*3*sigilSize])
+	repo.columns["platedata"] = compress(plate[:weaponSlot*3*sigilSize])
+	if received := read(accept); !bytes.Equal(received, profile) {
+		t.Fatal("truncated plate table attached a different weapon's sigils")
+	}
+	repo.columns["platedata"] = compress(plate)
+	save[gearBox+weaponSlot*16+6] ^= 1
+	repo.columns["savedata"] = compress(save)
+	if received := read(accept); !bytes.Equal(received, profile) {
+		t.Fatal("a saved item with different decorations was treated as the registered weapon")
 	}
 }
 

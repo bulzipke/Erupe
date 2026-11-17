@@ -395,6 +395,89 @@ func mercenaryProfile(s *Session, charID uint32, data []byte) []byte {
 	return bf.Data()
 }
 
+// The equipment menu saves the registered box slot and its metadata with the
+// character. Older Rasta profiles can still lack the separate gear suffix.
+func mercenaryWithSavedSigils(s *Session, owner uint32, profile []byte) []byte {
+	const (
+		registeredWeaponSlot = 0x1fdd0
+		equipmentBoxOffset   = 0x124
+		equipmentBoxSlots    = 4000
+		equipmentSize        = 16
+		profileWeaponOffset  = 0x2c
+		sigilCount           = 3
+		sigilSize            = 16
+		gearSigilsOffset     = mercenaryNativeSize + 8
+	)
+
+	weapon := profile[profileWeaponOffset : profileWeaponOffset+equipmentSize]
+	if weapon[0]&1 == 0 || (weapon[1] != 6 && weapon[1] != 7) || binary.BigEndian.Uint16(weapon[2:]) == 0 {
+		return profile
+	}
+	packedSave, err := s.server.charRepo.LoadColumn(owner, "savedata")
+	if err != nil {
+		return profile
+	}
+	save, err := nullcomp.DecompressWithLimit(packedSave, saveDataMaxDecompressedPayload)
+	if err != nil || len(save) < registeredWeaponSlot+2 {
+		return profile
+	}
+	slot := int(binary.LittleEndian.Uint16(save[registeredWeaponSlot:]))
+	if slot >= equipmentBoxSlots {
+		return profile
+	}
+	offset := equipmentBoxOffset + slot*equipmentSize
+	item := save[offset : offset+equipmentSize]
+	if item[0]&1 == 0 || item[1] != weapon[1] {
+		return profile
+	}
+	// Compare the native registered loadout to the selected item, including its
+	// upgrade and decorations. The profile writes integers in network order.
+	for field := 2; field < 12; field += 2 {
+		if binary.LittleEndian.Uint16(item[field:]) != binary.BigEndian.Uint16(weapon[field:]) {
+			return profile
+		}
+	}
+	if binary.LittleEndian.Uint32(item[12:]) != binary.BigEndian.Uint32(weapon[12:]) {
+		return profile
+	}
+
+	packedPlate, err := s.server.charRepo.LoadColumn(owner, "platedata")
+	if err != nil {
+		return profile
+	}
+	plate, err := nullcomp.DecompressWithLimit(packedPlate, plateDataMaxPayload)
+	offset = slot * sigilCount * sigilSize
+	if err != nil || len(plate) < offset+sigilCount*sigilSize {
+		return profile
+	}
+
+	var sigils [sigilCount * sigilSize]byte
+	hasEffect := false
+	for i := 0; i < sigilCount; i++ {
+		start := i * sigilSize
+		rec := plate[offset+start : offset+start+sigilSize]
+		for field := 0; field < 14; field += 2 {
+			value := binary.BigEndian.Uint16(rec[field:])
+			if field < 6 {
+				if value > 0xff {
+					return profile
+				}
+				hasEffect = hasEffect || value != 0
+			}
+			binary.LittleEndian.PutUint16(sigils[start+field:], value)
+		}
+		copy(sigils[start+14:], rec[14:])
+	}
+	if !hasEffect {
+		return profile
+	}
+	out := make([]byte, mercenaryProfileWithGear)
+	copy(out, profile)
+	copy(out[mercenaryNativeSize:], mercenaryGearVersion)
+	copy(out[gearSigilsOffset:], sigils[:])
+	return out
+}
+
 func handleMsgMhfReadMercenaryM(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfReadMercenaryM)
 	data, err := s.server.charRepo.LoadColumn(pkt.CharID, "savemercenary")
@@ -409,11 +492,17 @@ func handleMsgMhfReadMercenaryM(s *Session, p mhfpacket.MHFPacket) {
 	profile := mercenaryProfile(s, pkt.CharID, data)
 	mercID := pkt.MercID
 	if s.server.erupeConfig.RealClientMode == cfg.ZZ {
-		if mercID&mercenaryAppearanceRequest == 0 &&
-			len(profile) == mercenaryProfileWithAppearance && mercenaryHasGear(profile) {
+		acceptsGear := mercID&mercenaryAppearanceRequest != 0
+		mercID &^= mercenaryAppearanceRequest
+		if acceptsGear && len(profile) == mercenaryNativeSize {
+			id := binary.BigEndian.Uint32(profile[:4])
+			if id != 0 && (mercID == 0 || mercID == id) && binary.BigEndian.Uint32(profile[4:8]) == pkt.CharID {
+				profile = mercenaryWithSavedSigils(s, pkt.CharID, profile)
+			}
+		}
+		if !acceptsGear && len(profile) == mercenaryProfileWithAppearance && mercenaryHasGear(profile) {
 			profile = profile[:mercenaryProfileWithGear]
 		}
-		mercID &^= mercenaryAppearanceRequest
 	}
 	if s.server.erupeConfig.RealClientMode == cfg.ZZ && s.server.mercenaryRepo != nil &&
 		mercID != 0 && pkt.CharID != s.charID &&

@@ -287,6 +287,17 @@ func (r *FestaRepository) SubmitSouls(charID, guildID uint32, souls []uint16) er
 
 // ClaimPrize records that a character has claimed a festa prize.
 func (r *FestaRepository) ClaimPrize(prizeID uint32, charID uint32) error {
+	return r.claimFestaPrize(prizeID, charID, "")
+}
+
+func (r *FestaRepository) ClaimGoalPrize(prizeID, charID uint32, prizeType string) error {
+	if prizeID == 0 || (prizeType != "personal" && prizeType != "guild") {
+		return sql.ErrNoRows
+	}
+	return r.claimFestaPrize(prizeID, charID, prizeType)
+}
+
+func (r *FestaRepository) claimFestaPrize(prizeID, charID uint32, goalType string) error {
 	phases := uint(1<<2 | 1<<4)
 	if prizeID == 0 {
 		phases = 1 << 4
@@ -294,6 +305,11 @@ func (r *FestaRepository) ClaimPrize(prizeID uint32, charID uint32) error {
 	return r.writeFesta(phases, func(tx *sqlx.Tx) error {
 		if _, err := tx.Exec(`SELECT pg_advisory_xact_lock(1178940483,$1::integer)`, charID); err != nil {
 			return err
+		}
+		if goalType != "" && r.eventID != nil {
+			if err := r.checkFestaGoal(tx, prizeID, charID, goalType); err != nil {
+				return err
+			}
 		}
 		_, err := tx.Exec(`INSERT INTO festa_prizes_accepted(prize_id,character_id,event_id)
 			SELECT $1,$2,COALESCE($3,(SELECT event_id FROM festa_event_lifecycle WHERE singleton),0)
@@ -305,26 +321,63 @@ func (r *FestaRepository) ClaimPrize(prizeID uint32, charID uint32) error {
 
 // ListPrizes returns festa prizes of the given type with a claimed flag for the character.
 func (r *FestaRepository) ListPrizes(charID uint32, prizeType string) ([]Prize, error) {
+	var state festaGoalState
+	if r.eventID != nil {
+		var err error
+		state, err = getFestaGoalState(r.db, *r.eventID, charID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return r.listFestaPrizes(r.db, charID, prizeType, state)
+}
+
+func (r *FestaRepository) listFestaPrizes(q sqlx.Queryer, charID uint32, prizeType string, state festaGoalState) ([]Prize, error) {
 	var prizes []Prize
-	rows, err := r.db.Queryx(
+	err := sqlx.Select(q, &prizes,
 		`SELECT id, tier, souls_req, item_id, num_item, (SELECT count(*) FROM festa_prizes_accepted fpa WHERE fp.id = fpa.prize_id AND fpa.character_id = $1
 		AND fpa.event_id=COALESCE($3,(SELECT event_id FROM festa_event_lifecycle WHERE singleton),0)) AS claimed
 		FROM festa_prizes fp WHERE type=$2 ORDER BY souls_req,id`,
 		charID, prizeType, r.eventID,
 	)
-	if err != nil {
-		return nil, err
+	if err == nil {
+		applyFestaGoalCutoffs(prizes, prizeType, state)
 	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		var prize Prize
-		if err := rows.StructScan(&prize); err != nil {
-			continue
-		}
-		prizes = append(prizes, prize)
-	}
-	return prizes, nil
+	return prizes, err
 }
 
-// ensure sql import is used
-var _ = sql.ErrNoRows
+func (r *FestaRepository) checkFestaGoal(tx *sqlx.Tx, prizeID, charID uint32, prizeType string) error {
+	state, err := getFestaGoalState(tx, *r.eventID, charID)
+	if err != nil || !state.scaled {
+		return err
+	}
+	prizes, err := r.listFestaPrizes(tx, charID, prizeType, state)
+	if err != nil {
+		return err
+	}
+	for _, prize := range prizes {
+		if prize.ID != prizeID {
+			continue
+		}
+		var personalSouls, guildSouls uint64
+		err = tx.QueryRow(`SELECT
+			COALESCE((SELECT SUM(souls) FROM festa_submissions
+				WHERE event_id=$1 AND character_id=$2),0),
+			COALESCE((SELECT SUM(s.souls) FROM festa_registrations f
+				JOIN festa_submissions s USING(event_id,guild_id)
+				WHERE f.event_id=$1 AND f.guild_id=$3),0)`,
+			r.eventID, charID, state.guildID).Scan(&personalSouls, &guildSouls)
+		if err != nil {
+			return err
+		}
+		goalSouls := personalSouls
+		if prizeType == "guild" {
+			goalSouls = guildSouls
+		}
+		if personalSouls > 0 && goalSouls >= uint64(prize.SoulsReq) {
+			return nil
+		}
+		break
+	}
+	return sql.ErrNoRows
+}

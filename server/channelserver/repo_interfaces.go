@@ -401,6 +401,7 @@ type FestaRepo interface {
 	RegisterGuild(guildID uint32, team string) error
 	SubmitSouls(charID, guildID uint32, souls []uint16) error
 	ClaimPrize(prizeID uint32, charID uint32) error
+	ClaimGoalPrize(prizeID, charID uint32, prizeType string) error
 	ListPrizes(charID uint32, prizeType string) ([]Prize, error)
 }
 

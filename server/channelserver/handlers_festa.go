@@ -545,7 +545,7 @@ func handleMsgMhfAcquireFestaPersonalPrize(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfAcquireFestaPersonalPrize)
 	repo, err := s.festaPrizeRepo("personal")
 	if err == nil {
-		err = repo.ClaimPrize(pkt.PrizeID, s.charID)
+		err = repo.ClaimGoalPrize(pkt.PrizeID, s.charID, "personal")
 	}
 	if err != nil {
 		s.logger.Error("Failed to accept festa personal prize", zap.Error(err))
@@ -559,7 +559,7 @@ func handleMsgMhfAcquireFestaIntermediatePrize(s *Session, p mhfpacket.MHFPacket
 	pkt := p.(*mhfpacket.MsgMhfAcquireFestaIntermediatePrize)
 	repo, err := s.festaPrizeRepo("guild")
 	if err == nil {
-		err = repo.ClaimPrize(pkt.PrizeID, s.charID)
+		err = repo.ClaimGoalPrize(pkt.PrizeID, s.charID, "guild")
 	}
 	if err != nil {
 		s.logger.Error("Failed to accept festa intermediate prize", zap.Error(err))
@@ -602,7 +602,7 @@ func writePrizeList(s *Session, pkt mhfpacket.MHFPacket, ackHandle uint32, prize
 			count++
 			prizeData.WriteUint32(prize.ID)
 			prizeData.WriteUint32(prize.Tier)
-			prizeData.WriteUint32(festaSoulGoal(prize.SoulsReq))
+			prizeData.WriteUint32(prize.SoulsReq)
 			prizeData.WriteUint32(7) // Unk
 			prizeData.WriteUint32(prize.ItemID)
 			prizeData.WriteUint32(prize.NumItem)

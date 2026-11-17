@@ -22,6 +22,10 @@ func (r *festaClaimAckRepo) ClaimPrize(prizeID, charID uint32) error {
 	return r.claimErr
 }
 
+func (r *festaClaimAckRepo) ClaimGoalPrize(prizeID, charID uint32, _ string) error {
+	return r.ClaimPrize(prizeID, charID)
+}
+
 func TestFestaPrizeClaimAckIntegrity(t *testing.T) {
 	for _, claim := range []struct {
 		name    string
