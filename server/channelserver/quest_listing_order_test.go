@@ -65,9 +65,9 @@ func TestEventQuestOrderInPagesAndClientCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []int{
-		22150, 56159, 56157, 56153, 56152, 56158, 22130,
+		56162, 22068, 22065, 22067, 56161,
 		22094, 22095, 22096, 22097, 22098, 22099, 22101, 22102, 22103, 22104, 22147, 22105, 22106, 22107,
-		56161, 22068, 22065, 22067, 56162,
+		22130, 56158, 56152, 56153, 56157, 56159, 22150,
 	}
 	got := make([]int, 0, len(snapshot.entries))
 	for _, frame := range snapshot.entries {

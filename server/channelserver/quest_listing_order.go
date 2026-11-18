@@ -132,7 +132,7 @@ func questListingName(frame []byte, mode cfg.Mode) (name string, series weaponLi
 	}, rank
 }
 
-// Sort by the displayed name or the shared name of a weapon series. Paging
+// Sort ascending by the displayed name or the shared name of a weapon series. Paging
 // and cache transfer both consume the resulting ordered frames.
 func orderEventQuestListings(listings []eventQuestListing, mode cfg.Mode) [][]byte {
 	type listingOrder struct {
@@ -173,7 +173,13 @@ func orderEventQuestListings(listings []eventQuestListing, mode cfg.Mode) [][]by
 		}
 	}
 	slices.SortStableFunc(ordered, func(a, b listingOrder) int {
-		if byName := bytes.Compare(b.nameKey, a.nameKey); byName != 0 {
+		if a.nameKey == nil && b.nameKey != nil {
+			return 1
+		}
+		if a.nameKey != nil && b.nameKey == nil {
+			return -1
+		}
+		if byName := bytes.Compare(a.nameKey, b.nameKey); byName != 0 {
 			return byName
 		}
 		if byID := cmp.Compare(b.anchorID, a.anchorID); byID != 0 {
