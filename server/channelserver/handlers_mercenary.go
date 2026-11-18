@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"context"
 	"database/sql"
 	"encoding/binary"
 	"errors"
@@ -233,6 +234,15 @@ func handleMsgMhfSaveMercenary(s *Session, p mhfpacket.MHFPacket) {
 		return
 	}
 	dumpSaveData(s, pkt.MercData, "mercenary")
+	// Until the client acknowledges a live credit its absolute uploads still
+	// exclude that credit. Apply the offset to ordinary and event saves alike.
+	if s.mezUnseenGP > 0 {
+		if pkt.GCP > mezWalletCap {
+			doAckSimpleFail(s, pkt.AckHandle, nil)
+			return
+		}
+		pkt.GCP = min(pkt.GCP+uint32(s.mezUnseenGP), uint32(mezWalletCap))
+	}
 	if len(pkt.MercData) >= 4 {
 		var rastaID uint32
 		if s.server.erupeConfig.RealClientMode != cfg.ZZ {
@@ -310,9 +320,32 @@ func handleMsgMhfReadMercenaryW(s *Session, p mhfpacket.MHFPacket) {
 			if dataErr != nil {
 				s.logger.Warn("Failed to load savemercenary", zap.Error(dataErr))
 			}
-			gcp, gcpErr := readCharacterInt(s, "gcp")
+			var gcp int
+			var gcpErr error
+			if !s.mezWalletLoaded && s.server.db != nil && s.userID != 0 && s.server.erupeConfig.RealClientMode == cfg.ZZ {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				var awards []mezAward
+				gcp, awards, gcpErr = s.creditMezWeek(ctx, TimeAdjusted(), mezMaxWeeklyGP)
+				cancel()
+				if gcpErr != nil && gcpErr != errMezWalletFull {
+					s.logger.Warn("MezFes login balance unavailable", zap.Error(gcpErr))
+					doAckBufFail(s, pkt.AckHandle, nil)
+					return
+				}
+				s.mezWalletLoaded = true
+				gcpErr = nil
+				s.mezLoginNotice, _ = mezAwardNotice(awards)
+				defer s.sendMezLoginNotice()
+			} else {
+				gcp, gcpErr = readCharacterInt(s, "gcp")
+				gcp = max(0, gcp-s.mezUnseenGP)
+			}
 			if gcpErr != nil {
 				s.logger.Warn("Failed to read gcp", zap.Error(gcpErr))
+				if s.mezWalletLoaded {
+					doAckBufFail(s, pkt.AckHandle, nil)
+					return
+				}
 			}
 
 			if len(data) == 0 {
@@ -325,6 +358,10 @@ func handleMsgMhfReadMercenaryW(s *Session, p mhfpacket.MHFPacket) {
 				bf.WriteBytes(mercenaryProfile(s, s.charID, data))
 			}
 			bf.WriteUint32(uint32(gcp))
+			// Preserve the native wallet and the existing terminal Rasta markers.
+			if s.mezWalletLoaded && len(bf.Data())+12 <= 0x400 {
+				bf.WriteBytes([]byte("MZW1"))
+			}
 			if s.server.erupeConfig.RealClientMode == cfg.ZZ &&
 				len(bf.Data())+len(mercenaryGearVersion) <= 0x400 {
 				if len(bf.Data())+len(mercenaryGearVersion)+len(mercenaryAppearanceVersion) <= 0x400 {

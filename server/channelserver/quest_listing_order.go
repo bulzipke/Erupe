@@ -9,6 +9,9 @@ import (
 	"strings"
 
 	"erupe-ce/common/stringsupport"
+	cfg "erupe-ce/config"
+	"golang.org/x/text/collate"
+	"golang.org/x/text/language"
 	"golang.org/x/text/width"
 )
 
@@ -37,21 +40,26 @@ var listingWeapons = [...][]string{
 
 var listingTitleVariants = strings.NewReplacer("【", "[", "】", "]", "입수퀘스트", "획득퀘스트")
 
+// A title can start with the category line shown above its actual name.
+func splitQuestListingTitle(title string) (category, name string) {
+	title = strings.TrimSpace(width.Fold.String(title))
+	if rest, ok := strings.CutPrefix(title, "≪"); ok {
+		if header, tail, found := strings.Cut(rest, "≫"); found && strings.TrimSpace(tail) != "" {
+			return header, strings.TrimSpace(tail)
+		}
+	}
+	return "", title
+}
+
 // Only match weapon fields, such as a final [weapon] or "weapon을 체험".
 // A weapon mentioned in an ordinary quest title does not define a series.
-func weaponListingTitle(title string) (series string, weapon int, ok bool) {
-	title = listingTitleVariants.Replace(width.Fold.String(title))
-	header, name := "", title
-	if i := strings.LastIndexByte(title, '\n'); i >= 0 {
-		header, name = title[:i], title[i+1:]
-	}
-	header = strings.Join(strings.Fields(header), "")
-	name = strings.Join(strings.Fields(name), "")
+func weaponListingTitle(header, name string) (seriesName string, weapon int, ok bool) {
+	name = listingTitleVariants.Replace(strings.Join(strings.Fields(name), ""))
 	if i := strings.LastIndexByte(name, '['); i > 0 && strings.HasSuffix(name, "]") {
 		variant := name[i+1 : len(name)-1]
 		for rank, names := range listingWeapons {
 			if slices.Contains(names, variant) {
-				return header + "\n" + name[:i] + "[]", rank, true
+				return name[:i], rank, true
 			}
 		}
 	}
@@ -59,7 +67,10 @@ func weaponListingTitle(title string) (series string, weapon int, ok bool) {
 		if variant, found := strings.CutSuffix(name, suffix); found {
 			for rank, names := range listingWeapons {
 				if slices.Contains(names, variant) {
-					return header + "\nexperience", rank, true
+					if header != "" {
+						return header, rank, true
+					}
+					return strings.TrimLeft(suffix, "을를を"), rank, true
 				}
 			}
 		}
@@ -68,85 +79,104 @@ func weaponListingTitle(title string) (series string, weapon int, ok bool) {
 }
 
 type weaponListingSeries struct {
-	title                           string
+	category, name                  string
 	questType                       byte
 	rank, locale, objectives, entry string
 }
 
-func weaponListingFromFrame(frame []byte) (weaponListingSeries, int) {
-	const headerLen = 22 // ZZ event listing header
-	if len(frame) < headerLen+questBodyLenZZ+questStringTablePadding+2 {
-		return weaponListingSeries{}, 0
+func questListingName(frame []byte, mode cfg.Mode) (name string, series weaponListingSeries, weapon int) {
+	headerLen := 18
+	if mode >= cfg.G2 {
+		headerLen = 22
 	}
-	n := int(binary.BigEndian.Uint16(frame[20:22]))
-	if n < questBodyLenZZ+questStringTablePadding || len(frame) != headerLen+n+2 {
-		return weaponListingSeries{}, 0
+	if len(frame) < headerLen {
+		return "", weaponListingSeries{}, 0
+	}
+	n := int(binary.BigEndian.Uint16(frame[headerLen-2 : headerLen]))
+	if n < questBodyLenS6+questStringTablePadding || len(frame) != headerLen+n+2 {
+		return "", weaponListingSeries{}, 0
 	}
 	body := frame[headerLen : headerLen+n]
 	table := uint64(binary.LittleEndian.Uint32(body[questStringPointerOff:]))
-	if table < questBodyLenZZ || table+questStringTablePadding > uint64(n) {
-		return weaponListingSeries{}, 0
+	if table < questBodyLenS6 || table+questStringTablePadding > uint64(n) {
+		return "", weaponListingSeries{}, 0
 	}
 	start := uint64(binary.LittleEndian.Uint32(body[table:]))
 	if start < table+questStringTablePadding || start >= uint64(n) {
-		return weaponListingSeries{}, 0
+		return "", weaponListingSeries{}, 0
 	}
 	title, _, terminated := bytes.Cut(body[start:], []byte{0})
 	if !terminated {
-		return weaponListingSeries{}, 0
+		return "", weaponListingSeries{}, 0
 	}
-	series, rank, ok := weaponListingTitle(stringsupport.SJISToUTF8Lossy(title))
+	category, name := splitQuestListingTitle(stringsupport.SJISToUTF8Lossy(title))
+	name = strings.Join(strings.Fields(name), " ")
+	if mode != cfg.ZZ {
+		return name, weaponListingSeries{}, 0
+	}
+	seriesName, rank, ok := weaponListingTitle(category, name)
 	if !ok {
 		// An untranslated listing can still carry the original Japanese bytes.
 		jp, _ := stringsupport.SJISToUTF8(title)
-		series, rank, ok = weaponListingTitle(jp)
+		jpCategory, jpName := splitQuestListingTitle(jp)
+		seriesName, rank, ok = weaponListingTitle(jpCategory, jpName)
 		if !ok {
-			return weaponListingSeries{}, 0
+			return name, weaponListingSeries{}, 0
 		}
+		category, name = jpCategory, strings.Join(strings.Fields(jpName), " ")
 	}
-	return weaponListingSeries{
-		title: series, questType: frame[11],
+	return name, weaponListingSeries{
+		category: listingTitleVariants.Replace(strings.Join(strings.Fields(category), "")), name: seriesName, questType: frame[11],
 		rank: string(body[0x08:0x0c]), locale: string(body[0x24:0x28]),
 		objectives: string(body[0x30:0x48]), entry: string(body[0x4c:0x54]),
 	}, rank
 }
 
-// Each series occupies the position of its highest visible quest ID. Sorting
-// once before paging gives native enumeration and cache transfers the same order.
-func orderEventQuestListings(listings []eventQuestListing, groupWeapons bool) [][]byte {
+// Sort by the displayed name or the shared name of a weapon series. Paging
+// and cache transfer both consume the resulting ordered frames.
+func orderEventQuestListings(listings []eventQuestListing, mode cfg.Mode) [][]byte {
 	type listingOrder struct {
 		eventQuestListing
 		series   weaponListingSeries
-		position int
+		nameKey  []byte
+		anchorID int
 		weapon   int
 	}
 	type seriesOrder struct {
-		highest int
-		weapons uint16
+		nameKey  []byte
+		anchorID int
+		weapons  uint16
 	}
+	collator := collate.New(language.Korean, collate.IgnoreCase)
+	var keys collate.Buffer
 	ordered := make([]listingOrder, len(listings))
 	groups := make(map[weaponListingSeries]seriesOrder)
 	for i, listing := range listings {
-		ordered[i] = listingOrder{eventQuestListing: listing, position: listing.questID}
-		if !groupWeapons {
-			continue
+		name, series, weapon := questListingName(listing.data, mode)
+		ordered[i] = listingOrder{eventQuestListing: listing, series: series, anchorID: listing.questID, weapon: weapon}
+		if name != "" {
+			ordered[i].nameKey = collator.KeyFromString(&keys, name)
 		}
-		series, weapon := weaponListingFromFrame(listing.data)
-		if series.title != "" {
-			ordered[i].series, ordered[i].weapon = series, weapon
+		if series.name != "" {
 			group := groups[series]
-			group.highest = max(group.highest, listing.questID)
+			if group.nameKey == nil {
+				group.nameKey = collator.KeyFromString(&keys, series.name)
+			}
+			group.anchorID = max(group.anchorID, listing.questID)
 			group.weapons |= 1 << weapon
 			groups[series] = group
 		}
 	}
 	for i := range ordered {
 		if group := groups[ordered[i].series]; bits.OnesCount16(group.weapons) >= 2 {
-			ordered[i].position = group.highest
+			ordered[i].nameKey, ordered[i].anchorID = group.nameKey, group.anchorID
 		}
 	}
 	slices.SortStableFunc(ordered, func(a, b listingOrder) int {
-		if byID := cmp.Compare(b.position, a.position); byID != 0 {
+		if byName := bytes.Compare(b.nameKey, a.nameKey); byName != 0 {
+			return byName
+		}
+		if byID := cmp.Compare(b.anchorID, a.anchorID); byID != 0 {
 			return byID
 		}
 		if byWeapon := cmp.Compare(a.weapon, b.weapon); byWeapon != 0 {

@@ -278,7 +278,7 @@ func (s *Session) encodeQuestDeliverySnapshotWithReturn(quests []EventQuest, now
 	if validCount > capacity {
 		return nil, fmt.Errorf("quest delivery has %d valid quests, exceeding client capacity %d by %d in world %q channel %d", validCount, capacity, validCount-capacity, s.server.worldName, s.server.channelNumber)
 	}
-	result.entries = orderEventQuestListings(listings, s.server.erupeConfig.RealClientMode == cfg.ZZ)
+	result.entries = orderEventQuestListings(listings, s.server.erupeConfig.RealClientMode)
 	return result, nil
 }
 

@@ -325,6 +325,10 @@ func handleMsgMhfEnumerateItem(s *Session, p mhfpacket.MHFPacket) {
 		return
 	}
 	if pkt.CampaignID&campaignPreviewFlag != 0 {
+		if pkt.CampaignID&0xffff0000 == mezWeeklyRequest && s.charID != 0 && s.userID != 0 {
+			handleMezWeekly(s, pkt)
+			return
+		}
 		if handleQuestLicensePreview(s, pkt) {
 			return
 		}

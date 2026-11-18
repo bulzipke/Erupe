@@ -73,6 +73,12 @@ type Session struct {
 	collabRotationAcquired bool
 	mezFesRotationAcquired bool
 	mezFesMinigame         uint16
+	// Accessed by the ordered session packet handler only.
+	mezWalletLoaded        bool
+	mezUnseenGP            int
+	mezNotice              []string
+	mezChatReady           bool
+	mezLoginNotice         []string
 	logKey                 []byte
 	sessionStart           int64
 	courses                []mhfcourse.Course

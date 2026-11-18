@@ -397,6 +397,9 @@ func (s *Server) Start() error {
 
 	go s.acceptClients()
 	go s.manageSessions()
+	if s.db != nil && s.erupeConfig.RealClientMode == cfg.ZZ {
+		go s.runMezSettlements()
+	}
 	go s.invalidateSessions()
 	go s.raviAutoStart()   // no-op unless GameplayOptions.RaviAutoStartSeconds > 0
 	go s.raviAutoSupport() // no-op unless a Raviente auto-support interval is enabled
