@@ -657,7 +657,7 @@ func TestAllowsTowerQuest_GuardianMilestones(t *testing.T) {
 
 func TestOrderTowerQuests(t *testing.T) {
 	in := []EventQuest{{QuestID: 100}, {QuestID: 21729}, {QuestID: 21732}, {QuestID: 21733}, {QuestID: 21731}, {QuestID: 21746}, {QuestID: 200}}
-	out := orderTowerQuests(in)
+	out := orderTowerQuests(in, func(eq EventQuest) int { return eq.QuestID })
 	got := make([]int, 0, len(out))
 	for _, eq := range out {
 		got = append(got, eq.QuestID)

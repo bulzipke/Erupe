@@ -841,12 +841,12 @@ func getTuneValueRange(start uint16, value uint16) []tuneValue {
 
 // towerQuestOrder is the receptionist order of the tower departures, top to
 // bottom: the higher zone first, each zone's Guardian arena directly above its
-// climb, the prologue last. Everything else keeps its quest_id order.
+// climb, the prologue last. Everything else keeps its current order.
 var towerQuestOrder = []int{21746, 21733, 21731, 21732, 21729}
 
 // orderTowerQuests rearranges the tower departures among the slots they already
 // occupy so the list the receptionist shows follows towerQuestOrder.
-func orderTowerQuests(quests []EventQuest) []EventQuest {
+func orderTowerQuests[T any](quests []T, questID func(T) int) []T {
 	rank := func(id int) int {
 		for i, q := range towerQuestOrder {
 			if q == id {
@@ -855,20 +855,20 @@ func orderTowerQuests(quests []EventQuest) []EventQuest {
 		}
 		return -1
 	}
-	var tower []EventQuest
+	var tower []T
 	for _, eq := range quests {
-		if rank(eq.QuestID) >= 0 {
+		if rank(questID(eq)) >= 0 {
 			tower = append(tower, eq)
 		}
 	}
 	if len(tower) < 2 {
 		return quests
 	}
-	sort.SliceStable(tower, func(a, b int) bool { return rank(tower[a].QuestID) < rank(tower[b].QuestID) })
-	out := make([]EventQuest, 0, len(quests))
+	sort.SliceStable(tower, func(a, b int) bool { return rank(questID(tower[a])) < rank(questID(tower[b])) })
+	out := make([]T, 0, len(quests))
 	next := 0
 	for _, eq := range quests {
-		if rank(eq.QuestID) >= 0 {
+		if rank(questID(eq)) >= 0 {
 			out = append(out, tower[next])
 			next++
 			continue

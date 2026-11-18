@@ -76,7 +76,7 @@ func TestExpandedQuestPagesPreserveEveryIDAndByte(t *testing.T) {
 					}
 					for i := 0; i < int(returned); i++ {
 						got := bf.Data()[2+i*size : 2+(i+1)*size]
-						if !bytes.Equal(got, snapshot.entries[stored+i]) || int(binary.BigEndian.Uint32(got)) != 100000+stored+i {
+						if !bytes.Equal(got, snapshot.entries[stored+i]) || int(binary.BigEndian.Uint32(got)) != 100000+count-1-stored-i {
 							t.Fatal("lost, repeated, reordered or changed entry")
 						}
 					}
@@ -119,7 +119,7 @@ func TestExpandedQuestHandlerFreezesUnmanagedRowsAndFailsOverflow(t *testing.T) 
 		for i := 0; i < returned; i++ {
 			// Parse the existing 22-byte event header and Pascal notes, rather
 			// than assuming the ACK trailer starts immediately after its rows.
-			if frameOffset+22 > len(payload) || binary.BigEndian.Uint32(payload[frameOffset:]) != uint32(stored+i+1) {
+			if frameOffset+22 > len(payload) || binary.BigEndian.Uint32(payload[frameOffset:]) != uint32(1025-stored-i) {
 				t.Fatal("actual ACK lost/reordered event row")
 			}
 			bodyLength := int(binary.BigEndian.Uint16(payload[frameOffset+20:]))

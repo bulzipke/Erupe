@@ -219,7 +219,6 @@ func (s *Session) encodeQuestDeliverySnapshotWithReturn(quests []EventQuest, now
 		quests = s.appendBuiltInCollabQuests(quests)
 	}
 	quests = s.withReturnWorldQuestsAllowed(quests, returnAllowed)
-	quests = orderTowerQuests(quests)
 	result := &questDeliveryListSnapshot{capacity: capacity, contractVersion: questEnumerationContractVersion, evaluatedAt: now}
 	if commonView != nil {
 		result.collabTuneValues = append([]tuneValue(nil), commonView.tunes...)
@@ -228,6 +227,7 @@ func (s *Session) encodeQuestDeliverySnapshotWithReturn(quests []EventQuest, now
 		result.collabTuneValues = s.appendCollabTuneValues(nil)
 	}
 	seen := make(map[int]bool, len(quests))
+	listings := make([]eventQuestListing, 0, min(len(quests), capacity))
 	validCount := 0
 	var towerData *TowerData
 	for _, eq := range quests {
@@ -272,12 +272,13 @@ func (s *Session) encodeQuestDeliverySnapshotWithReturn(quests []EventQuest, now
 		seen[listedID] = true
 		validCount++
 		if validCount <= capacity {
-			result.entries = append(result.entries, data)
+			listings = append(listings, eventQuestListing{questID: eq.QuestID, data: data})
 		}
 	}
 	if validCount > capacity {
 		return nil, fmt.Errorf("quest delivery has %d valid quests, exceeding client capacity %d by %d in world %q channel %d", validCount, capacity, validCount-capacity, s.server.worldName, s.server.channelNumber)
 	}
+	result.entries = orderEventQuestListings(listings, s.server.erupeConfig.RealClientMode == cfg.ZZ)
 	return result, nil
 }
 
