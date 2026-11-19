@@ -509,6 +509,7 @@ type EventRepo interface {
 	InsertLoginBoost(charID uint32, weekReq uint8, expiration, reset time.Time) error
 	UpdateLoginBoost(charID uint32, weekReq uint8, expiration, reset time.Time) error
 	GetEventQuests() ([]EventQuest, error)
+	GetEventQuestKinds(ctx context.Context, questID int) ([]EventQuest, error)
 	UpdateEventQuestStartTimes(updates []EventQuestUpdate) error
 }
 

@@ -38,8 +38,8 @@ quests are added without requiring database rows. Database overrides for these
 IDs follow the same restrictions even when their `collab_scope` is empty.
 
 The `0026_event_quest_collab_scope.sql` migration adds `collab_scope` to
-`event_quests`. Except for the built-in IDs above, an empty scope is a normal
-event quest and is unaffected by the collaboration world restriction.
+`event_quests`. Except for the built-in IDs above, an empty scope leaves the
+quest outside the collaboration roster.
 Tag each collaboration quest after identifying it from your client data:
 
 ```sql
@@ -59,6 +59,20 @@ WHERE quest_id IN (...);
 Only matching scoped quests are included in an eligible world's event-quest
 list. Beyond the built-in IDs above, the server does not guess which unscoped
 quests are collaborations: tag any additional collaboration quests explicitly.
+
+## Collaboration-only event quests
+
+Set `"CollabOnlyEventQuests": true` on the desired `Entrance.Entries[]` world,
+alongside its existing `CollabEvent` setting. It applies to all channels in that
+world, including channels with a `CollabEvent` override. The default is `false`.
+
+The setting excludes non-collaboration HR, G and long-term event quests (types
+18, 28 and 54), including Return quests delivered as G event entries, from
+lists, client-cache responses and direct quest file requests.
+Other quest types and scenario files follow their regular delivery rules. Files
+shared with separate non-event quest definitions or admitted Caravan courses
+remain available. Collaboration selection and schedules follow the existing
+world, channel and quest delivery settings.
 
 ## Evangelion quest delivery
 

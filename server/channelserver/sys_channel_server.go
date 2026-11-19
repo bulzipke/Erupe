@@ -47,6 +47,8 @@ type Config struct {
 	CommonCollab   *CommonCollabRuntimeCohort // Shared startup-only content plan, not player authority.
 	MezFesRotation *MezFesRotation
 	MezFesMinigame uint16
+
+	CollabOnlyEventQuests bool
 }
 
 // Server is a MHF channel server.
@@ -112,6 +114,7 @@ type Server struct {
 	festaService       *FestaService
 	erupeConfig        *cfg.Config
 	collabEvent        string
+	collabOnlyEvents   bool
 	worldType          uint8
 	worldName          string
 	channelNumber      int
@@ -189,6 +192,7 @@ type Server struct {
 // selection independent of database initialization so its inheritance is testable.
 func (s *Server) configureChannelContent(config *Config) {
 	s.worldType, s.collabEvent = config.WorldType, config.CollabEvent
+	s.collabOnlyEvents = config.CollabOnlyEventQuests
 	s.worldName, s.channelNumber = config.WorldName, config.ChannelNumber
 	if config.ErupeConfig != nil {
 		s.questDelivery = config.ErupeConfig.QuestDeliveryCatalog

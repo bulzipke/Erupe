@@ -484,6 +484,8 @@ type EntranceServerInfo struct {
 	// authenticated player and keeps it until every player leaves. An empty
 	// value preserves the legacy global GameplayOptions flags.
 	CollabEvent string
+	// CollabOnlyEventQuests restricts ordinary event quest delivery on every channel in this world.
+	CollabOnlyEventQuests bool
 	// 4096(PC, PS3/PS4)?, 8258(PC, PS3/PS4)?, 8192 == nothing?
 	// THIS ONLY EXISTS IF Binary8Header.type == "SV2", NOT "SVR"!
 	AllowedClientFlags uint32

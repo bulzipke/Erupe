@@ -41,7 +41,7 @@ func TestEntranceChannelContentConfigLoad(t *testing.T) {
 	writeMinimalConfig(t, dir, `{
 		"Host":"127.0.0.1", "Database":{"Password":"test"}, "ClientMode":"ZZ",
 		"Entrance":{"Entries":[
-			{"Name":"Open", "Type":1, "CollabEvent":"random", "Channels":[
+			{"Name":"Open", "Type":1, "CollabEvent":"random", "CollabOnlyEventQuests":true, "Channels":[
 				{"Port":54001, "CollabEvent":"none"},
 				{"Port":54002, "CollabEvent":"kaiji"},
 				{"Port":54003}
@@ -62,6 +62,9 @@ func TestEntranceChannelContentConfigLoad(t *testing.T) {
 		t.Fatalf("entry count = %d, want 2", len(c.Entrance.Entries))
 	}
 	world := c.Entrance.Entries[0]
+	if !world.CollabOnlyEventQuests || c.Entrance.Entries[1].CollabOnlyEventQuests {
+		t.Fatal("collaboration-only event quests must be enabled per world")
+	}
 	for i, want := range []string{"none", "kaiji", "random"} {
 		if got := world.Channels[i].EffectiveCollabEvent(world.CollabEvent); got != want {
 			t.Errorf("channel %d event = %q, want %q", i, got, want)

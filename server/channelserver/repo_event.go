@@ -72,6 +72,14 @@ func (r *EventRepository) GetEventQuests() ([]EventQuest, error) {
 	return result, err
 }
 
+// GetEventQuestKinds returns the delivery categories and scopes for one quest file.
+func (r *EventRepository) GetEventQuestKinds(ctx context.Context, questID int) ([]EventQuest, error) {
+	var result []EventQuest
+	err := r.db.SelectContext(ctx, &result, `SELECT quest_id, quest_type, COALESCE(collab_scope, '') AS collab_scope
+		FROM event_quests WHERE quest_id = $1`, questID)
+	return result, err
+}
+
 // EventQuestUpdate pairs a quest ID with its new start time.
 type EventQuestUpdate struct {
 	ID        uint32

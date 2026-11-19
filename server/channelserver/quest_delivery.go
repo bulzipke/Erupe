@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"path/filepath"
@@ -231,10 +232,13 @@ func (s *Session) encodeQuestDeliverySnapshotWithReturn(quests []EventQuest, now
 	validCount := 0
 	var towerData *TowerData
 	for _, eq := range quests {
+		if !s.allowsEventQuestType(eq) {
+			continue
+		}
 		// Keep DB rows through provider merging so hidden Return quests are
 		// not re-injected. This flag only hides extra ordinary list records;
 		// native receptions, file access and progress retain their row IDs.
-		if s.server.erupeConfig.QuestDelivery.Enabled && s.server.erupeConfig.RealClientMode == cfg.ZZ && eq.ListHidden && (eq.QuestType == 18 || eq.QuestType == 28 || eq.QuestType == 54) {
+		if s.server.erupeConfig.QuestDelivery.Enabled && s.server.erupeConfig.RealClientMode == cfg.ZZ && eq.ListHidden && isOrdinaryEventQuestType(eq.QuestType) {
 			continue
 		}
 		if _, known := commonCollabDefinition(eq.QuestID); known && commonView != nil {
@@ -282,6 +286,10 @@ func (s *Session) encodeQuestDeliverySnapshotWithReturn(quests []EventQuest, now
 	return result, nil
 }
 
+func (s *Session) allowsEventQuestType(eq EventQuest) bool {
+	return !s.server.collabOnlyEvents || !isOrdinaryEventQuestType(eq.QuestType) || collabQuestScope(eq) != ""
+}
+
 func (s *Session) deliveryFileAllowed(filename string, now time.Time) bool {
 	// A normal quest filename is decimal ID plus d/n and a variant number.
 	// Scenario and other file formats retain their existing dedicated handlers.
@@ -289,7 +297,38 @@ func (s *Session) deliveryFileAllowed(filename string, now time.Time) bool {
 	if !ok || s.allowsQuestDelivery(qid, now) {
 		return true
 	}
+	return s.allowsCaravanQuestFile(qid)
+}
+
+func (s *Session) allowsCaravanQuestFile(questID int) bool {
 	departure := s.questDeliveryDeparture.Load()
 	return departure != nil && departure.receipt != nil &&
-		s.server.questDelivery.AllowsCaravan(qid, departure.questID, departure.receipt.caravanCourseID)
+		s.server.questDelivery.AllowsCaravan(questID, departure.questID, departure.receipt.caravanCourseID)
+}
+
+// Check file requests independently of the current list, since clients can
+// still request a quest received on a different world.
+func (s *Session) collabOnlyQuestFileAllowed(ctx context.Context, filename string) (bool, error) {
+	questID, ok := deliveryQuestIDFromFilename(strings.TrimSpace(filename))
+	if !ok || s.allowsCaravanQuestFile(questID) {
+		return true, nil
+	}
+	if _, known := commonCollabDefinition(questID); known && s.server.questDelivery.CommonCollabDeclared() {
+		// The delivery file check already applied the common catalog's pinned metadata.
+		return true, nil
+	}
+	rows, err := s.server.eventRepo.GetEventQuestKinds(ctx, questID)
+	if err != nil {
+		return false, err
+	}
+	if len(rows) == 0 {
+		// Return quests without an override are injected as G event rows.
+		return !isReturnWorldQuest(questID) && s.allowsCollabQuest(EventQuest{QuestID: questID}), nil
+	}
+	for _, eq := range rows {
+		if s.allowsEventQuestType(eq) && s.allowsCollabQuest(eq) {
+			return true, nil
+		}
+	}
+	return false, nil
 }

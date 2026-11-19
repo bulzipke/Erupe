@@ -159,6 +159,19 @@ func handleMsgSysGetFile(s *Session, p mhfpacket.MHFPacket) {
 			return
 		}
 
+		if s.server.collabOnlyEvents {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			allowed, err := s.collabOnlyQuestFileAllowed(ctx, pkt.Filename)
+			cancel()
+			if err != nil {
+				s.logger.Warn("Failed to classify quest file for collaboration-only world", zap.String("filename", pkt.Filename), zap.Error(err))
+			}
+			if !allowed {
+				doAckBufFail(s, pkt.AckHandle, nil)
+				return
+			}
+		}
+
 		var returnEligibility *returnQuestEligibilitySnapshot
 		if returnQuestFilename(requestedFilename) || returnQuestFilename(pkt.Filename) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

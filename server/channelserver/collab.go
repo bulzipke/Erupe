@@ -206,23 +206,23 @@ func (s *Session) allowsCollabQuestWorld() bool {
 	}
 }
 
-// allowsCollabQuest applies both world-type and active-event restrictions.
-// Known built-in IDs remain collaboration quests even if a DB override has
-// an empty scope. Other unscoped quests remain ordinary event quests.
-func (s *Session) allowsCollabQuest(quest EventQuest) bool {
-	scope := quest.CollabScope
-	if scope == "" {
-		for _, builtIn := range builtInCollabQuests {
-			if quest.QuestID == builtIn.questID {
-				scope = builtIn.event
-				break
-			}
+// An unscoped DB override inherits its built-in collaboration's scope.
+func collabQuestScope(quest EventQuest) string {
+	if quest.CollabScope != "" {
+		return quest.CollabScope
+	}
+	for _, builtIn := range builtInCollabQuests {
+		if quest.QuestID == builtIn.questID {
+			return builtIn.event
 		}
 	}
-	if scope == "" {
-		return true
-	}
-	return s.allowsCollabQuestWorld() && s.enabledCollabEvents()[scope]
+	return ""
+}
+
+// allowsCollabQuest applies both world-type and active-event restrictions.
+func (s *Session) allowsCollabQuest(quest EventQuest) bool {
+	scope := collabQuestScope(quest)
+	return scope == "" || s.allowsCollabQuestWorld() && s.enabledCollabEvents()[scope]
 }
 
 // appendBuiltInCollabQuests adds collaboration quests that belong to the

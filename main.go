@@ -482,6 +482,8 @@ func main() {
 					CommonCollab:   commonCollab,
 					MezFesRotation: mezFesRotation,
 					MezFesMinigame: ce.MezFesMinigame,
+
+					CollabOnlyEventQuests: ee.CollabOnlyEventQuests,
 				})
 				if ee.IP == "" {
 					c.IP = config.Host

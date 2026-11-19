@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -1808,6 +1809,15 @@ func (m *mockEventRepo) InsertLoginBoost(_ uint32, _ uint8, _, _ time.Time) erro
 func (m *mockEventRepo) UpdateLoginBoost(_ uint32, _ uint8, _, _ time.Time) error { return nil }
 func (m *mockEventRepo) GetEventQuests() ([]EventQuest, error) {
 	return m.eventQuests, m.eventQuestErr
+}
+func (m *mockEventRepo) GetEventQuestKinds(_ context.Context, questID int) ([]EventQuest, error) {
+	var result []EventQuest
+	for _, eq := range m.eventQuests {
+		if eq.QuestID == questID {
+			result = append(result, eq)
+		}
+	}
+	return result, m.eventQuestErr
 }
 func (m *mockEventRepo) UpdateEventQuestStartTimes(_ []EventQuestUpdate) error { return nil }
 

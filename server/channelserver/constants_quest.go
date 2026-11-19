@@ -27,6 +27,11 @@ func isDivaDefenseQuestType(questType uint8) bool {
 		questType == QuestTypeDivaDefenseC
 }
 
+// The ordinary event receptions use separate HR, G and long-term quest types.
+func isOrdinaryEventQuestType(questType uint8) bool {
+	return questType == 18 || questType == 28 || questType == 54
+}
+
 // Event quest binary frame offsets
 const (
 	questFrameTimeFlagOffset = 25

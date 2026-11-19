@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"reflect"
 	"testing"
@@ -43,17 +44,28 @@ func TestConfiguredWorldCollabPublicationPreservesNPCSelection(t *testing.T) {
 			config := &cfg.Config{}
 			config.QuestDelivery.Enabled = true
 			config.GameplayOptions.EnableKaijiEvent = true
-			s := &Session{server: &Server{worldName: "Common", channelNumber: 1, worldType: test.world, collabEvent: test.event, erupeConfig: config, questDelivery: catalog, commonCollab: cohort}, collabEvent: test.selected}
+			s := &Session{server: &Server{worldName: "Common", channelNumber: 1, worldType: test.world, collabEvent: test.event, erupeConfig: config, questDelivery: catalog, commonCollab: cohort, collabOnlyEvents: true}, collabEvent: test.selected}
 			wantOriginal := s.appendCollabTuneValues(nil)
 			if !reflect.DeepEqual(wantOriginal, test.want) {
 				t.Fatal("bad original-behavior fixture")
 			}
-			view, err := s.commonCollabRuntimeViewAt(time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC))
+			at := time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
+			view, err := s.commonCollabRuntimeViewAt(at)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if len(view.activeIDs) != 13 || !reflect.DeepEqual(view.tunes, wantOriginal) {
 				t.Fatal("NPC selection changed or common quests filtered")
+			}
+			rows := []EventQuest{{ID: 1, QuestID: 50118, QuestType: 18}, {ID: 2, QuestID: 50143, QuestType: 43}}
+			snapshot, err := s.encodeQuestDeliverySnapshotWithReturn(rows, at, false, deliveryTestEncode)
+			if err != nil || len(snapshot.entries) != 14 {
+				t.Fatalf("expected 13 common collab entries and the dedicated quest, got %v", err)
+			}
+			for _, entry := range snapshot.entries {
+				if binary.LittleEndian.Uint32(entry) == 50118 {
+					t.Fatal("collaboration-only filter kept an ordinary event quest")
+				}
 			}
 			for _, definition := range questdelivery.CommonCollabDefinitions() {
 				if !view.activeIDs[definition.QuestID] {
