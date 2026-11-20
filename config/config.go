@@ -484,13 +484,29 @@ type EntranceServerInfo struct {
 	// authenticated player and keeps it until every player leaves. An empty
 	// value preserves the legacy global GameplayOptions flags.
 	CollabEvent string
-	// CollabOnlyEventQuests restricts ordinary event quest delivery on every channel in this world.
+	// CollabOnlyEventQuests reserves this world's event listings for collaboration
+	// quests and limits collaboration quest delivery to worlds with this setting.
 	CollabOnlyEventQuests bool
 	// 4096(PC, PS3/PS4)?, 8258(PC, PS3/PS4)?, 8192 == nothing?
 	// THIS ONLY EXISTS IF Binary8Header.type == "SV2", NOT "SVR"!
 	AllowedClientFlags uint32
 
 	Channels []EntranceChannelInfo
+}
+
+// HasCollabOnlyQuestWorld reports whether any designated world has an enabled channel.
+func (e Entrance) HasCollabOnlyQuestWorld() bool {
+	for _, entry := range e.Entries {
+		if !entry.CollabOnlyEventQuests {
+			continue
+		}
+		for _, channel := range entry.Channels {
+			if channel.IsEnabled() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // IsValidCollabEvent reports whether value is a supported per-world

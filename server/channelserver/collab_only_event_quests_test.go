@@ -3,12 +3,12 @@ package channelserver
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
 	"testing"
 
+	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
 )
 
@@ -23,17 +23,36 @@ func TestCollabOnlyEventQuestsNativeListAndClientCache(t *testing.T) {
 		{ID: 7, QuestID: 50102, QuestType: 28, Flags: -1, CollabScope: collabKaiji},
 		{ID: 8, QuestID: 50103, QuestType: 18, Flags: -1, CollabScope: collabNier},
 	}
-	for _, restricted := range []bool{false, true} {
-		t.Run(fmt.Sprintf("restricted=%t", restricted), func(t *testing.T) {
+	disabled := false
+	for _, tc := range []struct {
+		name              string
+		dedicated         bool
+		dedicatedChannels []cfg.EntranceChannelInfo
+		wantCollab        bool
+	}{
+		{name: "no dedicated world", wantCollab: true},
+		{name: "dedicated world", dedicated: true, dedicatedChannels: []cfg.EntranceChannelInfo{{}}, wantCollab: true},
+		{name: "other world", dedicatedChannels: []cfg.EntranceChannelInfo{{}}},
+		{name: "disabled dedicated channel", dedicatedChannels: []cfg.EntranceChannelInfo{{Enabled: &disabled}}, wantCollab: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			s, _ := questListVisibilitySession(t, rows, `[{"quest_id":50118,"profiles":["normal"],"schedule":"always"}]`)
 			config := s.server.erupeConfig
 			config.QuestDeliveryCatalog = s.server.questDelivery
+			if tc.dedicatedChannels != nil {
+				config.Entrance.Entries = []cfg.EntranceServerInfo{
+					{CollabOnlyEventQuests: true, Channels: tc.dedicatedChannels},
+				}
+			}
 			s.server.configureChannelContent(&Config{
 				ErupeConfig: config, WorldName: "Brave", WorldType: 1, ChannelNumber: 1,
-				CollabEvent: collabKaiji, CollabOnlyEventQuests: restricted,
+				CollabEvent: collabKaiji, CollabOnlyEventQuests: tc.dedicated,
 			})
-			want := map[int]bool{50124: true, 50143: true, 40215: true, 50102: true}
-			if !restricted {
+			want := map[int]bool{50124: true, 50143: true}
+			if tc.wantCollab {
+				want[40215], want[50102] = true, true
+			}
+			if !tc.dedicated {
 				want[50118], want[50128], want[50154] = true, true, true
 			}
 
@@ -79,29 +98,36 @@ func TestCollabOnlyEventQuestsDirectFileRequests(t *testing.T) {
 	}}
 	body := []byte{1, 2, 3}
 	for _, tc := range []struct {
-		file, request string
-		allowed       bool
+		file, request         string
+		dedicated, otherWorld bool
 	}{
-		{"50118d0", "50118d0", false},
-		{"50128d0", "50128x0", false}, // A nonstandard request resolves to the event file.
-		{"50154d0", "50154d0", false},
-		{"23352d0", "23352d0", false}, // Synthetic Return-world G event.
-		{"50143d0", "50143d0", true},
-		{"50102d0", "50102d0", true},
-		{"50103d0", "50103d0", false},
-		{"40215d0", "40215d0", true},
-		{"40217d0", "40217d0", false},
-		{"00001d0", "00001d0", true}, // No event table row for this normal quest.
+		{"50118d0", "50118d0", false, true},
+		{"50128d0", "50128x0", false, true}, // A nonstandard request resolves to the event file.
+		{"50154d0", "50154d0", false, true},
+		{"23352d0", "23352d0", false, true}, // Synthetic Return-world G event.
+		{"50143d0", "50143d0", true, true},
+		{"50102d0", "50102d0", true, false},
+		{"50103d0", "50103d0", false, false},
+		{"40215d0", "40215d0", true, false},
+		{"40217d0", "40217d0", false, false},
+		{"00001d0", "00001d0", true, true}, // No event table row for this normal quest.
 	} {
 		t.Run(tc.request, func(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, tc.file+".bin"), body, 0644); err != nil {
 				t.Fatal(err)
 			}
-			pkt := &mhfpacket.MsgSysGetFile{AckHandle: 42, Filename: tc.request}
-			handleMsgSysGetFile(s, pkt)
-			ack := licenseHandlerAck(t, s)
-			if pkt.Filename != tc.file || (ack.ErrorCode == 0) != tc.allowed || bytes.Equal(ack.AckData, body) != tc.allowed {
-				t.Fatalf("resolved %q, error code %d, data %v, want allowed=%t", pkt.Filename, ack.ErrorCode, ack.AckData, tc.allowed)
+			for _, dedicated := range []bool{true, false} {
+				s.server.collabOnlyEvents, s.server.excludeCollab = dedicated, !dedicated
+				want := tc.otherWorld
+				if dedicated {
+					want = tc.dedicated
+				}
+				pkt := &mhfpacket.MsgSysGetFile{AckHandle: 42, Filename: tc.request}
+				handleMsgSysGetFile(s, pkt)
+				ack := licenseHandlerAck(t, s)
+				if pkt.Filename != tc.file || (ack.ErrorCode == 0) != want || bytes.Equal(ack.AckData, body) != want {
+					t.Errorf("dedicated=%t: resolved %q, error code %d, data %v, want allowed=%t", dedicated, pkt.Filename, ack.ErrorCode, ack.AckData, want)
+				}
 			}
 		})
 	}

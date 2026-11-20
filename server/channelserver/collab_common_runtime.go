@@ -250,15 +250,17 @@ func (s *Session) commonCollabRuntimeViewAt(at time.Time) (*commonCollabRuntimeV
 	}
 	semantic := s.server.commonCollab.semantic.At(at)
 	view := &commonCollabRuntimeView{activeIDs: make(map[int]bool), version: semantic.CatalogVersion(), sourceHash: s.server.commonCollab.sourceHash}
-	for _, id := range semantic.QuestIDs() {
-		view.activeIDs[id] = true
+	if !s.server.excludeCollab {
+		for _, id := range semantic.QuestIDs() {
+			view.activeIDs[id] = true
+		}
 	}
 	for _, tune := range semantic.TuneValues() {
 		view.tunes = append(view.tunes, tuneValue{ID: tune.ID, Value: tune.Value})
 	}
 	if s.server.questDelivery.UsesConfiguredWorldCollabPresentation() {
 		// Preserve the existing selected/random NPC layout and world eligibility.
-		// This does not filter the separately validated common quest IDs.
+		// The quest roster has its own world delivery policy.
 		view.tunes = s.appendCollabTuneValues(nil)
 	}
 	return view, nil

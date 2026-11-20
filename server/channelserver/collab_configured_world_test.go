@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"reflect"
@@ -20,12 +21,12 @@ func TestConfiguredWorldCollabPublicationPreservesNPCSelection(t *testing.T) {
 	for _, definition := range questdelivery.CommonCollabDefinitions() {
 		quests = append(quests, map[string]any{"quest_id": definition.QuestID, "profiles": []string{"common"}, "schedule": "always"})
 	}
-	raw, _ := json.Marshal(map[string]any{"version": "configured-world-runtime-test", "profiles": []any{map[string]any{"id": "common", "worlds": []string{"Common"}}}, "schedules": []any{map[string]any{"id": "always"}}, "quests": quests, "collab_presentation_mode": "configured_world"})
+	raw, _ := json.Marshal(map[string]any{"version": "configured-world-runtime-test", "profiles": []any{map[string]any{"id": "common", "worlds": []string{"Common", "Ordinary"}}}, "schedules": []any{map[string]any{"id": "always"}}, "quests": quests, "collab_presentation_mode": "configured_world"})
 	catalog, err := questdelivery.Parse(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cohort, err := PrepareCommonCollabRuntime(catalog, []questdelivery.PublicationLocation{{World: "Common", Channel: 1}}, nil, configuredWorldQuestSource{})
+	cohort, err := PrepareCommonCollabRuntime(catalog, []questdelivery.PublicationLocation{{World: "Common", Channel: 1}, {World: "Ordinary", Channel: 1}}, nil, configuredWorldQuestSource{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,4 +75,34 @@ func TestConfiguredWorldCollabPublicationPreservesNPCSelection(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("common manifest in an ordinary world", func(t *testing.T) {
+		config := &cfg.Config{QuestDeliveryCatalog: catalog}
+		config.QuestDelivery.Enabled = true
+		config.Entrance.Entries = []cfg.EntranceServerInfo{
+			{Name: "Common", CollabOnlyEventQuests: true, Channels: []cfg.EntranceChannelInfo{{}}},
+			{Name: "Ordinary", Channels: []cfg.EntranceChannelInfo{{}}},
+		}
+		server := &Server{erupeConfig: config}
+		server.configureChannelContent(&Config{
+			ErupeConfig: config, WorldName: "Ordinary", WorldType: 1, ChannelNumber: 1,
+			CollabEvent: collabKaiji, CommonCollab: cohort,
+		})
+		s := &Session{server: server}
+		at := time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
+		if !catalog.AllowsCommonCollab(40215, "Ordinary", 1, at) {
+			t.Fatal("fixture must publish collab quests to both worlds")
+		}
+		rows := []EventQuest{{ID: 1, QuestID: 50118, QuestType: 18}}
+		snapshot, err := s.encodeQuestDeliverySnapshotWithReturn(rows, at, false, deliveryTestEncode)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(snapshot.entries) != 1 || binary.LittleEndian.Uint32(snapshot.entries[0]) != 50118 {
+			t.Fatal("ordinary world must only receive the ordinary event quest")
+		}
+		if allowed, err := s.questFileAllowedInWorld(context.Background(), "40215d0"); err != nil || allowed {
+			t.Fatalf("common collab file allowed=%t, err=%v", allowed, err)
+		}
+	})
 }

@@ -115,6 +115,7 @@ type Server struct {
 	erupeConfig        *cfg.Config
 	collabEvent        string
 	collabOnlyEvents   bool
+	excludeCollab      bool
 	worldType          uint8
 	worldName          string
 	channelNumber      int
@@ -193,6 +194,7 @@ type Server struct {
 func (s *Server) configureChannelContent(config *Config) {
 	s.worldType, s.collabEvent = config.WorldType, config.CollabEvent
 	s.collabOnlyEvents = config.CollabOnlyEventQuests
+	s.excludeCollab = !s.collabOnlyEvents && config.ErupeConfig != nil && config.ErupeConfig.Entrance.HasCollabOnlyQuestWorld()
 	s.worldName, s.channelNumber = config.WorldName, config.ChannelNumber
 	if config.ErupeConfig != nil {
 		s.questDelivery = config.ErupeConfig.QuestDeliveryCatalog

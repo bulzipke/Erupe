@@ -216,7 +216,7 @@ func (s *Session) encodeQuestDeliverySnapshotWithReturn(quests []EventQuest, now
 		if err != nil {
 			return nil, err
 		}
-	} else {
+	} else if !s.server.excludeCollab {
 		quests = s.appendBuiltInCollabQuests(quests)
 	}
 	quests = s.withReturnWorldQuestsAllowed(quests, returnAllowed)
@@ -232,7 +232,7 @@ func (s *Session) encodeQuestDeliverySnapshotWithReturn(quests []EventQuest, now
 	validCount := 0
 	var towerData *TowerData
 	for _, eq := range quests {
-		if !s.allowsEventQuestType(eq) {
+		if !s.allowsEventQuestInWorld(eq) {
 			continue
 		}
 		// Keep DB rows through provider merging so hidden Return quests are
@@ -286,7 +286,10 @@ func (s *Session) encodeQuestDeliverySnapshotWithReturn(quests []EventQuest, now
 	return result, nil
 }
 
-func (s *Session) allowsEventQuestType(eq EventQuest) bool {
+func (s *Session) allowsEventQuestInWorld(eq EventQuest) bool {
+	if s.server.excludeCollab {
+		return collabQuestScope(eq) == ""
+	}
 	return !s.server.collabOnlyEvents || !isOrdinaryEventQuestType(eq.QuestType) || collabQuestScope(eq) != ""
 }
 
@@ -308,13 +311,16 @@ func (s *Session) allowsCaravanQuestFile(questID int) bool {
 
 // Check file requests independently of the current list, since clients can
 // still request a quest received on a different world.
-func (s *Session) collabOnlyQuestFileAllowed(ctx context.Context, filename string) (bool, error) {
+func (s *Session) questFileAllowedInWorld(ctx context.Context, filename string) (bool, error) {
 	questID, ok := deliveryQuestIDFromFilename(strings.TrimSpace(filename))
-	if !ok || s.allowsCaravanQuestFile(questID) {
+	if !ok {
 		return true, nil
 	}
 	if _, known := commonCollabDefinition(questID); known && s.server.questDelivery.CommonCollabDeclared() {
 		// The delivery file check already applied the common catalog's pinned metadata.
+		return !s.server.excludeCollab, nil
+	}
+	if s.server.collabOnlyEvents && s.allowsCaravanQuestFile(questID) {
 		return true, nil
 	}
 	rows, err := s.server.eventRepo.GetEventQuestKinds(ctx, questID)
@@ -323,10 +329,14 @@ func (s *Session) collabOnlyQuestFileAllowed(ctx context.Context, filename strin
 	}
 	if len(rows) == 0 {
 		// Return quests without an override are injected as G event rows.
-		return !isReturnWorldQuest(questID) && s.allowsCollabQuest(EventQuest{QuestID: questID}), nil
+		eq := EventQuest{QuestID: questID}
+		if isReturnWorldQuest(questID) {
+			eq.QuestType = 28
+		}
+		return s.allowsEventQuestInWorld(eq) && s.allowsCollabQuest(eq), nil
 	}
 	for _, eq := range rows {
-		if s.allowsEventQuestType(eq) && s.allowsCollabQuest(eq) {
+		if s.allowsEventQuestInWorld(eq) && s.allowsCollabQuest(eq) {
 			return true, nil
 		}
 	}
