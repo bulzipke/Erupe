@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"math/bits"
 	"slices"
+	"strconv"
 	"strings"
 
 	"erupe-ce/common/stringsupport"
@@ -39,6 +40,29 @@ var listingWeapons = [...][]string{
 }
 
 var listingTitleVariants = strings.NewReplacer("【", "[", "】", "]", "입수퀘스트", "획득퀘스트")
+
+const rankedServerQuestName = "서버 전용 퀘스트"
+const milestoneQuestName = "돌파 기념"
+
+// Numbered event families share one title position, then sort by their number.
+// Match the whole naming pattern so other quests starting with digits stay separate.
+func numberedQuestSeries(title string) (name string, number uint64) {
+	prefix, ok := strings.CutSuffix(title, "위 "+rankedServerQuestName)
+	name = rankedServerQuestName
+	if !ok {
+		var ending string
+		prefix, ending, ok = strings.Cut(title, "만 "+milestoneQuestName)
+		if !ok || (ending != "" && ending != "!" && ending != "이다냥!") {
+			return title, 0
+		}
+		name = milestoneQuestName
+	}
+	number, err := strconv.ParseUint(strings.TrimSpace(prefix), 10, 32)
+	if err != nil || number == 0 {
+		return title, 0
+	}
+	return name, number
+}
 
 // A title can start with the category line shown above its actual name.
 func splitQuestListingTitle(title string) (category, name string) {
@@ -137,23 +161,25 @@ func questListingName(frame []byte, mode cfg.Mode) (name string, series weaponLi
 func orderEventQuestListings(listings []eventQuestListing, mode cfg.Mode) [][]byte {
 	type listingOrder struct {
 		eventQuestListing
-		series   weaponListingSeries
-		nameKey  []byte
-		anchorID int
-		weapon   int
+		series       weaponListingSeries
+		nameKey      []byte
+		anchorID     int
+		weapon       int
+		seriesNumber uint64
 	}
 	type seriesOrder struct {
 		nameKey  []byte
 		anchorID int
 		weapons  uint16
 	}
-	collator := collate.New(language.Korean, collate.IgnoreCase)
+	collator := collate.New(language.Korean, collate.IgnoreCase, collate.Numeric)
 	var keys collate.Buffer
 	ordered := make([]listingOrder, len(listings))
 	groups := make(map[weaponListingSeries]seriesOrder)
 	for i, listing := range listings {
 		name, series, weapon := questListingName(listing.data, mode)
-		ordered[i] = listingOrder{eventQuestListing: listing, series: series, anchorID: listing.questID, weapon: weapon}
+		name, number := numberedQuestSeries(name)
+		ordered[i] = listingOrder{eventQuestListing: listing, series: series, anchorID: listing.questID, weapon: weapon, seriesNumber: number}
 		if name != "" {
 			ordered[i].nameKey = collator.KeyFromString(&keys, name)
 		}
@@ -181,6 +207,9 @@ func orderEventQuestListings(listings []eventQuestListing, mode cfg.Mode) [][]by
 		}
 		if byName := bytes.Compare(a.nameKey, b.nameKey); byName != 0 {
 			return byName
+		}
+		if byNumber := cmp.Compare(a.seriesNumber, b.seriesNumber); byNumber != 0 {
+			return byNumber
 		}
 		if byID := cmp.Compare(b.anchorID, a.anchorID); byID != 0 {
 			return byID
