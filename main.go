@@ -330,6 +330,9 @@ func main() {
 
 	// Validate immutable allowlist and identity key BEFORE opening any listener.
 	var integrity *clientintegrity.Manager
+	if config.ClientIntegrity.ResourceKeyFile != "" && !config.ClientIntegrity.Enabled {
+		logger.Fatal("Resource key delivery requires ClientIntegrity")
+	}
 	if config.ClientIntegrity.Enabled {
 		if !config.Entrance.Enabled || config.DebugOptions.DisableTokenCheck {
 			logger.Fatal("ClientIntegrity requires entrance and authenticated tokens")
@@ -341,6 +344,9 @@ func main() {
 		integrity, e = clientintegrity.Load(config.ClientIntegrity.ManifestFile, signer, time.Duration(config.ClientIntegrity.IntervalSeconds)*time.Second, time.Duration(config.ClientIntegrity.TimeoutSeconds)*time.Second)
 		if e != nil {
 			logger.Fatal("ClientIntegrity configuration", zap.Error(e))
+		}
+		if e = integrity.LoadResourceKey(config.ClientIntegrity.ResourceKeyFile); e != nil {
+			logger.Fatal("ClientIntegrity resource key", zap.Error(e))
 		}
 		defer integrity.Close()
 		reloadHook, e := integrity.StartReloadHook(func(added, total int, err error) {

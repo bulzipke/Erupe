@@ -126,6 +126,7 @@ func (h Hello) Authenticate(token string) bool {
 }
 
 type Manager struct {
+	resourceKey       []byte
 	mu                sync.Mutex
 	signer            *accountprivilege.Signer
 	builds            map[[32]byte][]byte
@@ -315,6 +316,9 @@ func (m *Manager) challenge(h Hello, seq uint32) ([]byte, error) {
 		return nil, err
 	}
 	copy(b[44:52], envOffer)
+	if seq == 1 && len(m.resourceKey) != 0 {
+		copy(b[52:60], resourceOffer)
+	}
 	copy(b[76:108], h.BuildID[:])
 	return m.signer.SignMessage(b)
 }
@@ -327,6 +331,8 @@ func verifyProof(b, challenge, image []byte, token string) bool {
 		body = 76
 	case len(b) == EnvProofSize && string(b[:8]) == envProofMagic:
 		body = 80
+	case len(b) == resourceProofSize && string(b[:8]) == resourceProof:
+		body = resourceProofBody
 	default:
 		return false
 	}
@@ -342,7 +348,7 @@ func verifyProof(b, challenge, image []byte, token string) bool {
 // proofEnv returns the report carried by a verified env proof. Byte 76 is
 // reserved.
 func proofEnv(b []byte) (Env, bool) {
-	if len(b) != EnvProofSize {
+	if len(b) != EnvProofSize && len(b) != resourceProofSize {
 		return Env{}, false
 	}
 	return Env{Debugger: b[77] != 0, Tools: b[78], Looks: b[79]}, true
@@ -385,11 +391,13 @@ func (m *Manager) Serve(conn net.Conn, h Hello, token string) error {
 		for {
 			// The magic decides how long the proof is. Anything unknown is read
 			// as a plain proof and fails verification.
-			b := make([]byte, EnvProofSize)
+			b := make([]byte, resourceProofSize)
 			_, err := io.ReadFull(conn, b[:8])
 			size := ProofSize
 			if string(b[:8]) == envProofMagic {
 				size = EnvProofSize
+			} else if string(b[:8]) == resourceProof {
+				size = resourceProofSize
 			}
 			b = b[:size]
 			if err == nil {
@@ -439,13 +447,23 @@ func (m *Manager) Serve(conn net.Conn, h Hello, token string) error {
 		if !verifyProof(proof, challenge, image, token) {
 			return ErrRejected
 		}
+		var resource []byte
+		if len(proof) == resourceProofSize {
+			if seq != 1 {
+				return ErrRejected
+			}
+			resource, err = m.resourceReply(challenge, proof)
+			if err != nil {
+				return err
+			}
+		}
 		ack := append([]byte(nil), challenge[:ChallengeBody]...)
 		copy(ack, "ERUINA01")
 		ack, err = m.signer.SignMessage(ack)
 		if err != nil {
 			return err
 		}
-		if err = writeFull(conn, ack); err != nil {
+		if err = writeFull(conn, append(ack, resource...)); err != nil {
 			return err
 		}
 		if err = conn.SetDeadline(time.Time{}); err != nil {
