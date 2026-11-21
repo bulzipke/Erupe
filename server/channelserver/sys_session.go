@@ -174,6 +174,8 @@ type Session struct {
 	done                 chan struct{}
 	dailyCoinsDone       chan struct{} // Guarded by Session.Mutex; logout waits for final settlement.
 	dailyCoinsClosedAt   atomic.Int64
+	dailyStampsOnce      sync.Once
+	dailyStampRights     atomic.Uint32
 	cafeBonusDone        chan struct{} // Guarded by Session.Mutex; logout waits for the worker.
 	dashboardNoticesDone chan struct{} // Guarded by Session.Mutex.
 	cafeTimeStart        atomic.Int64  // Unix start of the session time not yet in characters.cafe_time.

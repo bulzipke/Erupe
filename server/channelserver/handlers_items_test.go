@@ -89,111 +89,65 @@ func TestCheckWeeklyStamp_InvalidType(t *testing.T) {
 	}
 }
 
-func TestCheckWeeklyStamp_FirstCheck(t *testing.T) {
-	server := createMockServer()
-	stampMock := &mockStampRepoForItems{
-		checkedErr: errNotFound, // no existing record
-		totals:     [2]uint16{0, 0},
-	}
-	server.stampRepo = stampMock
-	session := createMockSession(1, server)
+func TestCheckWeeklyStamp_DailyClaim(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		stampType string
+		added     bool
+	}{
+		{name: "HL added", stampType: "hl", added: true},
+		{name: "EX already added", stampType: "ex"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := createMockServer()
+			session := createMockSession(42, server)
+			before := stampPeriodStart(TimeAdjusted())
+			var claimedPeriod time.Time
+			server.stampRepo = &mockStampRepoForItems{
+				claimDaily: func(charID uint32, kind string, period time.Time) (uint16, uint16, bool, error) {
+					if charID != 42 || kind != tc.stampType {
+						t.Fatalf("claim character/type = %d/%s", charID, kind)
+					}
+					claimedPeriod = period
+					return 12, 8, tc.added, nil
+				},
+			}
 
-	pkt := &mhfpacket.MsgMhfCheckWeeklyStamp{
-		AckHandle: 100,
-		StampType: "hl",
-	}
-
-	handleMsgMhfCheckWeeklyStamp(session, pkt)
-
-	if !stampMock.initCalled {
-		t.Error("Init should be called on first check")
-	}
-
-	select {
-	case p := <-session.sendPackets:
-		if len(p.data) < 14 {
-			t.Errorf("Response too short: %d bytes", len(p.data))
-		}
-	default:
-		t.Error("No response packet queued")
-	}
-}
-
-func TestCheckWeeklyStamp_WithinWeek(t *testing.T) {
-	server := createMockServer()
-	stampMock := &mockStampRepoForItems{
-		checkedTime: TimeAdjusted(), // checked right now (within this week)
-		totals:      [2]uint16{3, 1},
-	}
-	server.stampRepo = stampMock
-	session := createMockSession(1, server)
-
-	pkt := &mhfpacket.MsgMhfCheckWeeklyStamp{
-		AckHandle: 100,
-		StampType: "hl",
-	}
-
-	handleMsgMhfCheckWeeklyStamp(session, pkt)
-
-	if stampMock.incrementCalled {
-		t.Error("IncrementTotal should not be called within same week")
-	}
-
-	select {
-	case <-session.sendPackets:
-	default:
-		t.Error("No response packet queued")
+			handleMsgMhfCheckWeeklyStamp(session, &mhfpacket.MsgMhfCheckWeeklyStamp{
+				AckHandle: 100,
+				StampType: tc.stampType,
+				Unk1:      true, // native login request
+			})
+			after := stampPeriodStart(TimeAdjusted())
+			if !claimedPeriod.Equal(before) && !claimedPeriod.Equal(after) {
+				t.Fatalf("claim period = %v, want current noon", claimedPeriod)
+			}
+			ack := readAck(t, session)
+			if ack.ErrorCode != 0 || ack.AckHandle != 100 || len(ack.Payload) != 14 {
+				t.Fatalf("unexpected ACK: %+v", ack)
+			}
+			bf := byteframe.NewByteFrameFromBytes(ack.Payload)
+			total, redeemed, updated := bf.ReadUint16(), bf.ReadUint16(), bf.ReadUint16()
+			bf.ReadUint32()
+			period := bf.ReadUint32()
+			if total != 12 || redeemed != 8 || (updated == 1) != tc.added || updated > 1 || period != uint32(claimedPeriod.Unix()) {
+				t.Fatalf("unexpected claim response: total=%d redeemed=%d updated=%d period=%d", total, redeemed, updated, period)
+			}
+		})
 	}
 }
 
-func TestCheckWeeklyStamp_WeekRollover(t *testing.T) {
+func TestCheckWeeklyStamp_ClaimError(t *testing.T) {
 	server := createMockServer()
-	stampMock := &mockStampRepoForItems{
-		checkedTime: TimeWeekStart().Add(-24 * time.Hour), // before this week
-		totals:      [2]uint16{5, 2},
+	server.stampRepo = &mockStampRepoForItems{
+		claimDaily: func(uint32, string, time.Time) (uint16, uint16, bool, error) {
+			return 0, 0, false, errNotFound
+		},
 	}
-	server.stampRepo = stampMock
 	session := createMockSession(1, server)
-
-	pkt := &mhfpacket.MsgMhfCheckWeeklyStamp{
-		AckHandle: 100,
-		StampType: "ex",
-	}
-
-	handleMsgMhfCheckWeeklyStamp(session, pkt)
-
-	if !stampMock.incrementCalled {
-		t.Error("IncrementTotal should be called after week rollover")
-	}
-
-	select {
-	case <-session.sendPackets:
-	default:
-		t.Error("No response packet queued")
-	}
-}
-
-func TestCheckWeeklyStamp_GetTotalsError(t *testing.T) {
-	server := createMockServer()
-	stampMock := &mockStampRepoForItems{
-		checkedTime: TimeAdjusted(),
-		totalsErr:   errNotFound,
-	}
-	server.stampRepo = stampMock
-	session := createMockSession(1, server)
-
-	pkt := &mhfpacket.MsgMhfCheckWeeklyStamp{
-		AckHandle: 100,
-		StampType: "hl",
-	}
-
-	// Should not panic; logs warning, returns zeros
-	handleMsgMhfCheckWeeklyStamp(session, pkt)
-
-	select {
-	case <-session.sendPackets:
-	default:
-		t.Error("No response packet queued")
+	handleMsgMhfCheckWeeklyStamp(session, &mhfpacket.MsgMhfCheckWeeklyStamp{AckHandle: 100, StampType: "hl"})
+	if ack := readAck(t, session); ack.AckHandle != 100 || !ack.IsBufferResponse || ack.ErrorCode == 0 {
+		t.Fatalf("unexpected ACK: %+v", ack)
 	}
 }
 

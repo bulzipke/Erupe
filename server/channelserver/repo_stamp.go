@@ -1,6 +1,7 @@
 package channelserver
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -17,34 +18,29 @@ func NewStampRepository(db *sqlx.DB) *StampRepository {
 	return &StampRepository{db: db}
 }
 
-// GetChecked returns the last check time for the given stamp type ("hl" or "ex").
-func (r *StampRepository) GetChecked(charID uint32, stampType string) (time.Time, error) {
-	var lastCheck time.Time
-	err := r.db.QueryRow(fmt.Sprintf("SELECT %s_checked FROM stamps WHERE character_id=$1", stampType), charID).Scan(&lastCheck)
-	return lastCheck, err
-}
-
-// Init inserts a new stamps record for a character with both check times set to now.
-func (r *StampRepository) Init(charID uint32, now time.Time) error {
-	_, err := r.db.Exec("INSERT INTO stamps (character_id, hl_checked, ex_checked) VALUES ($1, $2, $2)", charID, now)
-	return err
-}
-
-// SetChecked updates the check time for a given stamp type.
-func (r *StampRepository) SetChecked(charID uint32, stampType string, now time.Time) error {
-	_, err := r.db.Exec(fmt.Sprintf(`UPDATE stamps SET %s_checked=$1 WHERE character_id=$2`, stampType), now, charID)
-	return err
-}
-
-// IncrementTotal increments the total stamp count for a given stamp type.
-func (r *StampRepository) IncrementTotal(charID uint32, stampType string) error {
-	_, err := r.db.Exec(fmt.Sprintf("UPDATE stamps SET %s_total=%s_total+1 WHERE character_id=$1", stampType, stampType), charID)
-	return err
+// ClaimDaily adds one stamp if this character and type have not claimed the current period.
+func (r *StampRepository) ClaimDaily(charID uint32, stampType string, periodStart time.Time) (total, redeemed uint16, added bool, err error) {
+	if stampType != "hl" && stampType != "ex" {
+		return 0, 0, false, fmt.Errorf("invalid stamp type %q", stampType)
+	}
+	// The conflict check and increment share a row lock across channels and processes.
+	query := fmt.Sprintf(`
+		INSERT INTO stamps (character_id, %[1]s_checked, %[1]s_total) VALUES ($1, $2, 1)
+		ON CONFLICT (character_id) DO UPDATE
+		SET %[1]s_checked = EXCLUDED.%[1]s_checked, %[1]s_total = COALESCE(stamps.%[1]s_total, 0) + 1
+		WHERE stamps.%[1]s_checked IS NULL OR stamps.%[1]s_checked < EXCLUDED.%[1]s_checked
+		RETURNING %[1]s_total, COALESCE(%[1]s_redeemed, 0)`, stampType)
+	err = r.db.QueryRow(query, charID, periodStart).Scan(&total, &redeemed)
+	if err == sql.ErrNoRows {
+		total, redeemed, err = r.GetTotals(charID, stampType)
+		return total, redeemed, false, err
+	}
+	return total, redeemed, err == nil, err
 }
 
 // GetTotals returns the total and redeemed counts for a given stamp type.
 func (r *StampRepository) GetTotals(charID uint32, stampType string) (total, redeemed uint16, err error) {
-	err = r.db.QueryRow(fmt.Sprintf("SELECT %s_total, %s_redeemed FROM stamps WHERE character_id=$1", stampType, stampType), charID).Scan(&total, &redeemed)
+	err = r.db.QueryRow(fmt.Sprintf("SELECT COALESCE(%[1]s_total, 0), COALESCE(%[1]s_redeemed, 0) FROM stamps WHERE character_id=$1", stampType), charID).Scan(&total, &redeemed)
 	return
 }
 

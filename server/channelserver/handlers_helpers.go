@@ -116,6 +116,7 @@ func updateRights(s *Session) {
 	rightsInt |= s.server.erupeConfig.EnabledCourseBitmask()
 	s.courses, rightsInt = mhfcourse.GetCourseStruct(rightsInt, s.server.erupeConfig.DefaultCourses)
 	s.cafeCourse.Store(mhfcourse.CourseExists(cafeCourseID, s.courses))
+	s.dailyStampRights.Store(rightsInt)
 	update := &mhfpacket.MsgSysUpdateRight{
 		ClientRespAckHandle: 0,
 		Bitfield:            rightsInt,

@@ -212,6 +212,7 @@ func handleMsgSysLogin(s *Session, p mhfpacket.MHFPacket) {
 	doAckSimpleSucceed(s, pkt.AckHandle, bf.Data())
 
 	updateRights(s)
+	s.startDailyStamps()
 
 	s.server.BroadcastMHF(&mhfpacket.MsgSysInsertUser{CharID: s.charID}, s)
 }
@@ -896,10 +897,10 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 		guardianRunID := ""
 		guardianEarthID := s.server.erupeConfig.EarthID
 		guardianEligible := s.server.erupeConfig.EarthStatus == 21
+		towerDepartureConfirmed := s.questWeaponGeneration != 0 && s.towerDepartureGeneration == s.questWeaponGeneration
 		if s.server.erupeConfig.TowerRotation.Enabled {
 			guardianEarthID = s.towerDepartureEvent.ID
-			guardianEligible = s.towerDepartureGeneration == s.questWeaponGeneration && s.questWeaponGeneration != 0 &&
-				s.towerDepartureEvent.Active(s.towerDepartureStarted)
+			guardianEligible = towerDepartureConfirmed && s.towerDepartureEvent.Active(s.towerDepartureStarted)
 		}
 		if s.towerGuardianQuestID == questID {
 			guardianRunID = s.towerGuardianRunID
@@ -910,9 +911,15 @@ func handleMsgSysRecordLog(s *Session, p mhfpacket.MHFPacket) {
 		s.lifecycleMu.Unlock()
 		if pkt.Data[questResultCodeOffset] == questResultCodeCleared &&
 			guardianEligible && guardianRunID != "" && s.server.towerRepo != nil {
+			questBlock := towerGuardianQuestBlock(questID)
 			for i, killed := range guardianKilled {
 				if killed {
-					if err := s.server.towerRepo.RecordGuardianKill(guardianEarthID, uint8(i+1), guardianRunID, s.charID); err != nil {
+					block := uint8(i + 1)
+					var rewardWeapon *uint8
+					if towerDepartureConfirmed && block == questBlock {
+						rewardWeapon = questWeaponType
+					}
+					if err := s.server.towerRepo.RecordGuardianKill(guardianEarthID, block, guardianRunID, s.charID, rewardWeapon); err != nil {
 						s.logger.Error("Failed to record tower guardian kill", zap.Error(err), zap.Int("block", i+1))
 					}
 				}

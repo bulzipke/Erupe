@@ -20,86 +20,75 @@ func setupStampRepo(t *testing.T) (*StampRepository, *sqlx.DB, uint32) {
 func initStamp(t *testing.T, repo *StampRepository, charID uint32) {
 	t.Helper()
 	now := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
-	if err := repo.Init(charID, now); err != nil {
-		t.Fatalf("Stamp Init failed: %v", err)
+	if _, err := repo.db.Exec("INSERT INTO stamps (character_id, hl_checked, ex_checked) VALUES ($1,$2,$2)", charID, now); err != nil {
+		t.Fatalf("Stamp setup failed: %v", err)
 	}
 }
 
-func TestRepoStampInit(t *testing.T) {
+func TestRepoStampClaimDailyExisting(t *testing.T) {
 	repo, db, charID := setupStampRepo(t)
-
-	now := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
-	if err := repo.Init(charID, now); err != nil {
-		t.Fatalf("Init failed: %v", err)
+	noon := time.Date(2026, 11, 22, 3, 0, 0, 0, time.UTC)
+	if _, err := db.Exec(`INSERT INTO stamps (character_id, hl_total, hl_redeemed, hl_checked)
+		VALUES ($1, 12, 8, $2)`, charID, noon.Add(-time.Second)); err != nil {
+		t.Fatal(err)
 	}
-
-	var hlChecked, exChecked time.Time
-	if err := db.QueryRow("SELECT hl_checked, ex_checked FROM stamps WHERE character_id=$1", charID).Scan(&hlChecked, &exChecked); err != nil {
-		t.Fatalf("Verification query failed: %v", err)
-	}
-	if !hlChecked.Equal(now) {
-		t.Errorf("Expected hl_checked=%v, got: %v", now, hlChecked)
-	}
-	if !exChecked.Equal(now) {
-		t.Errorf("Expected ex_checked=%v, got: %v", now, exChecked)
-	}
-}
-
-func TestRepoStampGetChecked(t *testing.T) {
-	repo, _, charID := setupStampRepo(t)
-
-	now := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
-	if err := repo.Init(charID, now); err != nil {
-		t.Fatalf("Init failed: %v", err)
-	}
-
-	got, err := repo.GetChecked(charID, "hl")
-	if err != nil {
-		t.Fatalf("GetChecked failed: %v", err)
-	}
-	if !got.Equal(now) {
-		t.Errorf("Expected %v, got: %v", now, got)
+	for _, tc := range []struct {
+		name            string
+		kind            string
+		period          time.Time
+		total, redeemed uint16
+		added           bool
+	}{
+		{"same period as legacy claim", "hl", noon.AddDate(0, 0, -1), 12, 8, false},
+		{"next period as of noon", "hl", noon, 13, 8, true},
+		{"duplicate request", "hl", noon, 13, 8, false},
+		{"late request from prior period", "hl", noon.AddDate(0, 0, -1), 13, 8, false},
+		{"independent EX claim", "ex", noon, 1, 0, true},
+		{"one stamp after a gap", "hl", noon.AddDate(0, 0, 4), 14, 8, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			total, redeemed, added, err := repo.ClaimDaily(charID, tc.kind, tc.period)
+			if err != nil || total != tc.total || redeemed != tc.redeemed || added != tc.added {
+				t.Fatalf("ClaimDaily = %d, %d, %t, %v; want %d, %d, %t, nil", total, redeemed, added, err, tc.total, tc.redeemed, tc.added)
+			}
+		})
 	}
 }
 
-func TestRepoStampSetChecked(t *testing.T) {
+func TestRepoStampClaimDailyConcurrentNewCharacter(t *testing.T) {
 	repo, _, charID := setupStampRepo(t)
-	initStamp(t, repo, charID)
-
-	newTime := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
-	if err := repo.SetChecked(charID, "ex", newTime); err != nil {
-		t.Fatalf("SetChecked failed: %v", err)
+	noon := time.Date(2026, 11, 22, 3, 0, 0, 0, time.UTC)
+	const requests = 8
+	type result struct {
+		kind            string
+		total, redeemed uint16
+		added           bool
+		err             error
 	}
-
-	got, err := repo.GetChecked(charID, "ex")
-	if err != nil {
-		t.Fatalf("GetChecked failed: %v", err)
+	start := make(chan struct{})
+	results := make(chan result, requests)
+	kinds := [...]string{"hl", "ex"}
+	for i := range requests {
+		kind := kinds[i%len(kinds)]
+		go func() {
+			<-start
+			total, redeemed, added, err := repo.ClaimDaily(charID, kind, noon)
+			results <- result{kind, total, redeemed, added, err}
+		}()
 	}
-	if !got.Equal(newTime) {
-		t.Errorf("Expected %v, got: %v", newTime, got)
+	close(start)
+	granted := make(map[string]int)
+	for range requests {
+		got := <-results
+		if got.err != nil || got.total != 1 || got.redeemed != 0 {
+			t.Errorf("unexpected stamp result: %+v", got)
+		}
+		if got.added {
+			granted[got.kind]++
+		}
 	}
-}
-
-func TestRepoStampIncrementTotal(t *testing.T) {
-	repo, _, charID := setupStampRepo(t)
-	initStamp(t, repo, charID)
-
-	if err := repo.IncrementTotal(charID, "hl"); err != nil {
-		t.Fatalf("First IncrementTotal failed: %v", err)
-	}
-	if err := repo.IncrementTotal(charID, "hl"); err != nil {
-		t.Fatalf("Second IncrementTotal failed: %v", err)
-	}
-
-	total, redeemed, err := repo.GetTotals(charID, "hl")
-	if err != nil {
-		t.Fatalf("GetTotals failed: %v", err)
-	}
-	if total != 2 {
-		t.Errorf("Expected total=2, got: %d", total)
-	}
-	if redeemed != 0 {
-		t.Errorf("Expected redeemed=0, got: %d", redeemed)
+	if granted["hl"] != 1 || granted["ex"] != 1 {
+		t.Fatalf("number of grants = %v; want one of each", granted)
 	}
 }
 
@@ -199,11 +188,6 @@ func TestRepoStampSetMonthlyClaimed(t *testing.T) {
 func TestRepoStampExTypes(t *testing.T) {
 	repo, db, charID := setupStampRepo(t)
 	initStamp(t, repo, charID)
-
-	// Verify ex stamp type works too
-	if err := repo.IncrementTotal(charID, "ex"); err != nil {
-		t.Fatalf("IncrementTotal(ex) failed: %v", err)
-	}
 
 	if _, err := db.Exec("UPDATE stamps SET ex_total=16, ex_redeemed=0 WHERE character_id=$1", charID); err != nil {
 		t.Fatalf("Setup failed: %v", err)

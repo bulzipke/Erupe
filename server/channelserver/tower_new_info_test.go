@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	cfg "erupe-ce/config"
 	"erupe-ce/network/mhfpacket"
 )
 
@@ -50,13 +51,31 @@ func TestTowerGuardianRunIDsAreUnique(t *testing.T) {
 }
 
 func TestTowerAdvanceRewardsUseSeparateEvent(t *testing.T) {
-	s := createMockSession(1, createMockServer())
+	srv := createMockServer()
+	srv.erupeConfig.RealClientMode = cfg.ZZ
+	s := createMockSession(1, srv)
 	handleMsgMhfGetWeeklySeibatuRankingReward(s, &mhfpacket.MsgMhfGetWeeklySeibatuRankingReward{
 		AckHandle: 1, Unk1: 5, Unk2: 260001,
 	})
 	response := extractAckPayload(t, (<-s.sendPackets).data)
-	if got := binary.BigEndian.Uint32(response[12:16]); got != uint32(len(towerAdvanceRewards)) {
-		t.Errorf("advance reward count = %d", got)
+	want := [][6]uint32{
+		{1, 0, 0, 7201, 0x2CC7, 1},
+		{1, 0, 0, 0x544E4355, 0x101, 1},
+		{1, 0, 0, 0x544E4355, 0x102, 1},
+		{1, 0, 0, 0x544E4355, 0x103, 1},
+		{1, 0, 0, 0x544E4355, 0x201, 6},
+		{1, 0, 0, 0x544E4355, 0x202, 6},
+		{1, 0, 0, 0x544E4355, 0x203, 6},
+	}
+	if len(response) != 16+len(want)*24 || binary.BigEndian.Uint32(response[12:16]) != uint32(len(want)) {
+		t.Fatalf("unexpected advance reward response: %x", response)
+	}
+	for i, row := range want {
+		for j, field := range row {
+			if got := binary.BigEndian.Uint32(response[16+i*24+j*4:]); got != field {
+				t.Errorf("advance reward row %d field %d = %#x, want %#x", i, j, got, field)
+			}
+		}
 	}
 }
 

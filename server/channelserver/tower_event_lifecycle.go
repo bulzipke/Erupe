@@ -177,6 +177,7 @@ func adoptTowerManualRound(tx *sqlx.Tx, source, dest int32) error {
 			`INSERT INTO tower_daily_progress SELECT $2,character_id,day_start,floors,antiques,chests,cats,trp,slays FROM tower_daily_progress WHERE earth_id=$1`,
 			`INSERT INTO tower_guardian_kills(earth_id,block,run_id,character_id,before_casual) SELECT $2,block,run_id,character_id,before_casual FROM tower_guardian_kills WHERE earth_id=$1`,
 			`INSERT INTO tower_guardian_participants SELECT $2,block,run_id,character_id,before_casual,recorded_at FROM tower_guardian_participants WHERE earth_id=$1`,
+			`INSERT INTO tower_guardian_cuff_rewards (earth_id,character_id,block,weapon_type) SELECT $2,character_id,block,weapon_type FROM tower_guardian_cuff_rewards WHERE earth_id=$1`,
 			`INSERT INTO tower_reward_claims SELECT $2,character_id,reward_kind,reward_index,item_id,quantity,claimed_at FROM tower_reward_claims WHERE earth_id=$1`,
 		} {
 			if _, err := tx.Exec(q, source, dest); err != nil {

@@ -20,10 +20,16 @@ type TowerDailyCounters struct {
 }
 
 type TowerRewardState struct {
-	Floors          int32
-	Daily           []TowerDailyDay
-	AdvanceEligible bool
-	Claimed         map[uint64]bool
+	Floors              int32
+	Daily               []TowerDailyDay
+	AdvanceEligible     bool
+	GuardianCuffRewards []towerGuardianCuffReward
+	Claimed             map[uint64]bool
+}
+
+type towerGuardianCuffReward struct {
+	Block      uint8 `db:"block"`
+	WeaponType uint8 `db:"weapon_type"`
 }
 
 type TowerDailyDay struct {
@@ -167,6 +173,10 @@ func (r *TowerRepository) GetTowerRewardState(earthID int32, charID uint32, _ ti
 		WHERE earth_id=$1 AND character_id=$2 AND before_casual)`,
 		earthID, charID).Scan(&state.AdvanceEligible)
 	if err != nil {
+		return state, err
+	}
+	if err = r.db.Select(&state.GuardianCuffRewards, `SELECT block, weapon_type FROM tower_guardian_cuff_rewards
+		WHERE earth_id=$1 AND character_id=$2 ORDER BY block`, earthID, charID); err != nil {
 		return state, err
 	}
 	rows, err := r.db.Query(`SELECT reward_kind, reward_index FROM tower_reward_claims

@@ -1030,17 +1030,11 @@ func (m *mockUserRepoForItems) SetLanguage(_ uint32, _ string) error { return ni
 // --- mockStampRepoForItems ---
 
 type mockStampRepoForItems struct {
-	checkedTime     time.Time
-	checkedErr      error
-	totals          [2]uint16 // total, redeemed
-	totalsErr       error
-	initCalled      bool
-	incrementCalled bool
-	setCalled       bool
-	exchangeResult  [2]uint16
-	exchangeErr     error
-	yearlyResult    [2]uint16
-	yearlyErr       error
+	claimDaily     func(uint32, string, time.Time) (uint16, uint16, bool, error)
+	exchangeResult [2]uint16
+	exchangeErr    error
+	yearlyResult   [2]uint16
+	yearlyErr      error
 
 	// Monthly item fields
 	monthlyClaimed    time.Time
@@ -1049,27 +1043,8 @@ type mockStampRepoForItems struct {
 	monthlySetType    string
 }
 
-func (m *mockStampRepoForItems) GetChecked(_ uint32, _ string) (time.Time, error) {
-	return m.checkedTime, m.checkedErr
-}
-
-func (m *mockStampRepoForItems) Init(_ uint32, _ time.Time) error {
-	m.initCalled = true
-	return nil
-}
-
-func (m *mockStampRepoForItems) SetChecked(_ uint32, _ string, _ time.Time) error {
-	m.setCalled = true
-	return nil
-}
-
-func (m *mockStampRepoForItems) IncrementTotal(_ uint32, _ string) error {
-	m.incrementCalled = true
-	return nil
-}
-
-func (m *mockStampRepoForItems) GetTotals(_ uint32, _ string) (uint16, uint16, error) {
-	return m.totals[0], m.totals[1], m.totalsErr
+func (m *mockStampRepoForItems) ClaimDaily(charID uint32, kind string, periodStart time.Time) (uint16, uint16, bool, error) {
+	return m.claimDaily(charID, kind, periodStart)
 }
 
 func (m *mockStampRepoForItems) ExchangeYearly(_ uint32) (uint16, uint16, error) {
@@ -1451,7 +1426,7 @@ type mockTowerRepo struct {
 func (m *mockTowerRepo) GetGuardianKills(_ int32) (uint32, uint32, error) {
 	return m.guardianBlock1, m.guardianBlock2, nil
 }
-func (m *mockTowerRepo) RecordGuardianKill(_ int32, _ uint8, _ string, _ uint32) error {
+func (m *mockTowerRepo) RecordGuardianKill(_ int32, _ uint8, _ string, _ uint32, _ *uint8) error {
 	return nil
 }
 func (m *mockTowerRepo) RecordTowerRun(_ int32, _ uint32, _ uint8, _ time.Time, _ TowerMissionStats) error {

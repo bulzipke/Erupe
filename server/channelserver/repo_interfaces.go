@@ -410,7 +410,7 @@ type TowerRepo interface {
 	DepositTowerGem(charID uint32, runID string, slot int32, gem, quantity int32) error
 	SettleTowerRun(charID uint32, runID string, earthID int32, dayStart time.Time, receipt TowerSettlement) (int32, error)
 	GetGuardianKills(earthID int32) (uint32, uint32, error)
-	RecordGuardianKill(earthID int32, block uint8, runID string, charID uint32) error
+	RecordGuardianKill(earthID int32, block uint8, runID string, charID uint32, weaponType *uint8) error
 	RecordTowerRun(earthID int32, charID uint32, block uint8, dayStart time.Time, stats TowerMissionStats) error
 	RecordTowerDailyExtras(earthID int32, charID uint32, dayStart time.Time, stats TowerMissionStats) error
 	GetTowerScoutScores(earthID int32) (uint32, uint32, error)
@@ -474,11 +474,7 @@ type MailRepo interface {
 
 // StampRepo defines the contract for stamp card data access.
 type StampRepo interface {
-	GetChecked(charID uint32, stampType string) (time.Time, error)
-	Init(charID uint32, now time.Time) error
-	SetChecked(charID uint32, stampType string, now time.Time) error
-	IncrementTotal(charID uint32, stampType string) error
-	GetTotals(charID uint32, stampType string) (total, redeemed uint16, err error)
+	ClaimDaily(charID uint32, stampType string, periodStart time.Time) (total, redeemed uint16, added bool, err error)
 	ExchangeYearly(charID uint32) (total, redeemed uint16, err error)
 	Exchange(charID uint32, stampType string) (total, redeemed uint16, err error)
 	GetMonthlyClaimed(charID uint32, monthlyType string) (time.Time, error)

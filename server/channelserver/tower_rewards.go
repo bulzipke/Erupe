@@ -132,6 +132,64 @@ var towerAdvanceRewards = []WeeklySeibatuRankingReward{
 	{1, 0, 0, 7201, 0x2CC7, 1},
 }
 
+// TNCU rows are display metadata understood by the ZZ client patch. The
+// original renderer only draws types 7201–7203. Keep the document and these
+// rows in the same native reward group so they fit on a single page.
+const towerCuffPreviewType = 0x544E4355
+
+func towerAdvanceRewardPreview() []WeeklySeibatuRankingReward {
+	rewards := make([]WeeklySeibatuRankingReward, 0, len(towerAdvanceRewards)+2*towerCuffMaterialCount)
+	rewards = append(rewards, towerAdvanceRewards...)
+	for block := uint8(1); block <= 2; block++ {
+		for slot := range towerCuffMaterialCount {
+			rewards = append(rewards, WeeklySeibatuRankingReward{
+				Unk0: 1,
+				Unk3: towerCuffPreviewType,
+				Unk4: int32(block)<<8 | int32(slot+1), // zone and material, with no weapon selected yet
+				Unk5: int32(towerGuardianCuffQuantity(block)),
+			})
+		}
+	}
+	return rewards
+}
+
+func towerGuardianCuffQuantity(block uint8) uint16 {
+	if block == 2 {
+		return 6
+	}
+	return 1
+}
+
+// First of the three consecutive soul, ribbon, and medal material IDs for each
+// ZZ weapon type, in the same order as the saved equipment weapon type.
+var towerGuardianCuffFirstItem = [...]uint16{
+	0x3FF1, // Great Sword
+	0x400F, // Heavy Bowgun
+	0x3FF7, // Hammer
+	0x3FFD, // Lance
+	0x3FEB, // Sword and Shield
+	0x400C, // Light Bowgun
+	0x3FEE, // Dual Blades
+	0x3FF4, // Long Sword
+	0x3FFA, // Hunting Horn
+	0x4000, // Gunlance
+	0x4012, // Bow
+	0x4006, // Tonfa
+	0x4003, // Switch Axe F
+	0x4009, // Magnet Spike
+}
+
+func towerGuardianQuestBlock(questID uint16) uint8 {
+	switch questID {
+	case towerQuestGuardian1, towerQuestMilestone1:
+		return 1
+	case towerQuestGuardian2, towerQuestMilestone2:
+		return 2
+	default:
+		return towerQuestBlock(questID)
+	}
+}
+
 // Guild investigation rewards have no surviving complete item/quantity table.
 // These are conservative server-specific substitutes, NOT original data.
 var towerGuildRewards = []TenrouiraiReward{

@@ -51,7 +51,7 @@ func towerD463DB(t *testing.T) *sqlx.DB {
 	if _, err = db.Exec(ddl); err != nil {
 		t.Fatal(err)
 	}
-	for _, file := range []string{"0063_tower_gem_history.sql", "0064_tower_guardian_kills.sql", "0065_tower_event_rewards.sql", "0066_tower_daily_bin.sql", "0068_tower_guardian_milestones.sql", "0069_tower_settlements.sql", "0070_tower_gem_deposits.sql", "0071_tower_gem_notices.sql", "0073_tower_event_lifecycle.sql"} {
+	for _, file := range []string{"0063_tower_gem_history.sql", "0064_tower_guardian_kills.sql", "0065_tower_event_rewards.sql", "0066_tower_daily_bin.sql", "0068_tower_guardian_milestones.sql", "0069_tower_settlements.sql", "0070_tower_gem_deposits.sql", "0071_tower_gem_notices.sql", "0073_tower_event_lifecycle.sql", "0119_tower_guardian_cuff_rewards.sql"} {
 		b, e := os.ReadFile(filepath.Join("..", "migrations", "sql", file))
 		if e != nil {
 			t.Fatal(e)

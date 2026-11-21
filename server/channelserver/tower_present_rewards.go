@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	towerPresentAdvance uint32 = 260001
-	towerPresentDaily   uint32 = 260002 // legacy inferred type; never issues daily items
-	towerPresentFloor   uint32 = 260003
+	towerPresentAdvance    uint32 = 260001
+	towerPresentDaily      uint32 = 260002 // legacy inferred type; never issues daily items
+	towerPresentFloor      uint32 = 260003
+	towerCuffMaterialCount        = 3
 )
 
 type towerPresentReward struct {
@@ -60,6 +61,16 @@ func towerPendingRewards(state TowerRewardState, requested []uint32) []towerPres
 		add(towerRewardAdvance, 1, towerPresentAdvance,
 			uint16(reward.Unk4), uint16(reward.Unk5))
 	}
+	for _, reward := range state.GuardianCuffRewards {
+		// Advance row 1 remains the original document. Rows 2–4 and 5–7
+		// independently track the three materials of block 1 and block 2.
+		firstIndex := int32(2) + (int32(reward.Block)-1)*towerCuffMaterialCount
+		firstItem := towerGuardianCuffFirstItem[reward.WeaponType]
+		quantity := towerGuardianCuffQuantity(reward.Block)
+		for slot := range towerCuffMaterialCount {
+			add(towerRewardAdvance, firstIndex+int32(slot), towerPresentAdvance, firstItem+uint16(slot), quantity)
+		}
+	}
 	// Daily items use the native TINY_BIN 0/1/2 queue. The old inferred
 	// PRESENT_BOX type must not issue a second copy of those same rewards.
 	return out
@@ -84,7 +95,10 @@ func towerRoundRewardIDs(event TowerEvent, rewards []towerPresentReward) ([]towe
 			}
 			local = uint32(rewards[i].index)
 		case towerRewardAdvance:
-			local = 10000
+			if rewards[i].index < 1 || rewards[i].index > 1+2*towerCuffMaterialCount {
+				return nil, fmt.Errorf("invalid Tower advance reward")
+			}
+			local = 10000 + uint32(rewards[i].index-1)
 		case towerRewardDaily:
 			local = 16384 + uint32(rewards[i].index)%32768
 		default:

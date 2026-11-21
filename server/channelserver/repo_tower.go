@@ -26,7 +26,7 @@ func NewTowerRepository(db *sqlx.DB) *TowerRepository {
 
 // RecordGuardianKill credits a quest-stage instance only once, regardless of
 // how many party members send the same monster in their result logs.
-func (r *TowerRepository) RecordGuardianKill(earthID int32, block uint8, runID string, charID uint32) error {
+func (r *TowerRepository) RecordGuardianKill(earthID int32, block uint8, runID string, charID uint32, weaponType *uint8) error {
 	if block < 1 || block > 2 || runID == "" || charID == 0 {
 		return errors.New("invalid tower guardian kill receipt")
 	}
@@ -64,6 +64,13 @@ func (r *TowerRepository) RecordGuardianKill(earthID int32, block uint8, runID s
 		ON CONFLICT (earth_id, block, run_id, character_id) DO NOTHING`,
 		earthID, block, runID, charID, beforeCasual); err != nil {
 		return err
+	}
+	if weaponType != nil && int(*weaponType) < len(towerGuardianCuffFirstItem) {
+		if _, err := tx.Exec(`INSERT INTO tower_guardian_cuff_rewards (earth_id, character_id, block, weapon_type)
+			VALUES ($1,$2,$3,$4) ON CONFLICT (earth_id, character_id, block) DO NOTHING`,
+			earthID, charID, block, *weaponType); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

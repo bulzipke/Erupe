@@ -97,29 +97,17 @@ func handleMsgMhfCheckWeeklyStamp(s *Session, p mhfpacket.MHFPacket) {
 		doAckBufSucceed(s, pkt.AckHandle, make([]byte, 14))
 		return
 	}
-	var total, redeemed, updated uint16
-	lastCheck, err := s.server.stampRepo.GetChecked(s.charID, pkt.StampType)
+	periodStart := stampPeriodStart(TimeAdjusted())
+	total, redeemed, added, err := s.server.stampRepo.ClaimDaily(s.charID, pkt.StampType, periodStart)
 	if err != nil {
-		lastCheck = TimeAdjusted()
-		if err := s.server.stampRepo.Init(s.charID, TimeAdjusted()); err != nil {
-			s.logger.Error("Failed to insert stamps record", zap.Error(err))
-		}
-	} else {
-		if err := s.server.stampRepo.SetChecked(s.charID, pkt.StampType, TimeAdjusted()); err != nil {
-			s.logger.Error("Failed to update stamp check time", zap.Error(err))
-		}
+		s.logger.Error("Failed to claim daily stamp", zap.Error(err))
+		doAckBufFail(s, pkt.AckHandle, nil)
+		return
 	}
 
-	if lastCheck.Before(TimeWeekStart()) {
-		if err := s.server.stampRepo.IncrementTotal(s.charID, pkt.StampType); err != nil {
-			s.logger.Error("Failed to increment stamp total", zap.Error(err))
-		}
+	var updated uint16
+	if added {
 		updated = 1
-	}
-
-	total, redeemed, err = s.server.stampRepo.GetTotals(s.charID, pkt.StampType)
-	if err != nil {
-		s.logger.Warn("Failed to get stamp totals", zap.Error(err))
 	}
 	bf := byteframe.NewByteFrame()
 	bf.WriteUint16(total)
@@ -127,7 +115,7 @@ func handleMsgMhfCheckWeeklyStamp(s *Session, p mhfpacket.MHFPacket) {
 	bf.WriteUint16(updated)
 	bf.WriteUint16(0)
 	bf.WriteUint16(0)
-	bf.WriteUint32(uint32(TimeWeekStart().Unix()))
+	bf.WriteUint32(uint32(periodStart.Unix()))
 	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
 }
 
@@ -166,7 +154,7 @@ func handleMsgMhfExchangeWeeklyStamp(s *Session, p mhfpacket.MHFPacket) {
 	bf.WriteUint16(0)
 	bf.WriteUint16(tktStack.Item.ItemID)
 	bf.WriteUint16(tktStack.Quantity)
-	bf.WriteUint32(uint32(TimeWeekStart().Unix()))
+	bf.WriteUint32(uint32(stampPeriodStart(TimeAdjusted()).Unix()))
 	doAckBufSucceed(s, pkt.AckHandle, bf.Data())
 }
 

@@ -199,6 +199,9 @@ func handleMsgMhfGetWeeklySeibatuRankingReward(s *Session, p mhfpacket.MHFPacket
 			weeklySeibatuRankingRewards = towerFloorRewards
 		case 260001:
 			weeklySeibatuRankingRewards = towerAdvanceRewards
+			if s.server.erupeConfig.RealClientMode == cfg.ZZ {
+				weeklySeibatuRankingRewards = towerAdvanceRewardPreview()
+			}
 		}
 	}
 	for _, reward := range weeklySeibatuRankingRewards {
