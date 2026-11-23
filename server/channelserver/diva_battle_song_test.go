@@ -39,7 +39,7 @@ func TestDivaBattleSongEligibilityBoundaries(t *testing.T) {
 		total int64
 		uses  uint8
 	}{{-1, 0}, {0, 0}, {499999, 0}, {500000, 1}, {999999, 1}, {1000000, 2}, {100000000, 13}} {
-		if got := divaBattleSongEarned(tt.total); got != tt.uses {
+		if got := divaBattleSongEarned(tt.total, udMilestones); got != tt.uses {
 			t.Fatalf("%d=>%d want%d", tt.total, got, tt.uses)
 		}
 	}

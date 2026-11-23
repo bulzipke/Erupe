@@ -2,9 +2,8 @@ package channelserver
 
 import "erupe-ce/common/byteframe"
 
-// udMilestones grant song activations (native target type 0). Keep their
-// indices: the client displays each song's number as its wire slot + 1.
-var udMilestones = []uint64{
+// Original emulator targets used by historical and forced rounds.
+var udMilestones = []int64{
 	500000, 1000000, 2000000, 3000000, 5000000, 7000000, 10000000,
 	15000000, 20000000, 30000000, 50000000, 70000000, 100000000,
 }
@@ -13,12 +12,15 @@ var udMilestones = []uint64{
 // operator's 2026-11-03 policy, separate from song activation milestones.
 var udShopUnlockMilestones = [...]uint64{100000, 200000, 300000}
 
-func divaTotalPointPayload(total uint64) []byte {
+func divaTotalPointPayload(total uint64, songTargets []int64) []byte {
 	var targets [64]uint64
 	var types [64]uint8
-	copy(targets[:], udMilestones)
+	// The client displays each song's number as its wire slot + 1.
+	for i, threshold := range songTargets {
+		targets[i] = uint64(threshold)
+	}
 	for i, threshold := range udShopUnlockMilestones {
-		slot := len(udMilestones) + i
+		slot := len(songTargets) + i
 		targets[slot] = threshold
 		types[slot] = uint8(i + 1)
 	}

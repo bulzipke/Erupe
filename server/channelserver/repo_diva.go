@@ -110,6 +110,9 @@ func (r *DivaRepository) AssignBead(characterID, eventID uint32, beadIndex int, 
 	if err = tx.Get(&id, "SELECT id FROM characters WHERE id=$1 FOR UPDATE", characterID); err != nil {
 		return err
 	}
+	if err = checkDivaBeadLevelTx(tx, eventID, beadIndex, now); err != nil {
+		return err
+	}
 	day := divaNoon(now)
 	choice, err := loadDivaChoice(tx, characterID, eventID, day)
 	if err != nil {

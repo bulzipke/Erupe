@@ -82,7 +82,7 @@ func (r *DivaRepository) useDivaBattleSongAt(charID, eventID uint32, now time.Ti
 	// existence of an account, guild membership or a debug phase override.
 	var participated bool
 	err = tx.Get(&participated, `SELECT EXISTS(SELECT 1 FROM diva_song_records
-		WHERE char_id=$1 AND event_id=$2 AND quest_points+bonus_points>0
+		WHERE char_id=$1 AND event_id=$2 AND quest_points>0
 		AND bead_index BETWEEN 1 AND 4 AND submitted_at>=to_timestamp($3)
 		AND submitted_at<to_timestamp($4))`, charID, eventID, event.StartTime, event.phaseTime(1).Unix())
 	if err != nil {
@@ -98,13 +98,11 @@ func (r *DivaRepository) useDivaBattleSongAt(charID, eventID uint32, now time.Ti
 	if divaBattleSongActive(state, now) {
 		return state, tx.Commit()
 	}
-	var total int64
-	err = tx.Get(&total, `SELECT COALESCE(SUM(quest_points+bonus_points),0)
-		FROM diva_points WHERE event_id=$1`, eventID)
+	progress, err := loadDivaSongProgress(tx, event)
 	if err != nil {
 		return DivaBattleSongState{}, err
 	}
-	if state.Used >= divaBattleSongEarned(total) {
+	if state.Used >= divaBattleSongEarned(progress.Total, progress.Targets) {
 		return DivaBattleSongState{}, errDivaBattleSongUnavailable
 	}
 	round, err := divaEventBeadsTx(tx, eventID)

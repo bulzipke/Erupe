@@ -66,7 +66,7 @@ func handleMsgMhfGetUdSchedule(s *Session, p mhfpacket.MHFPacket) {
 		bf.WriteUint32(timestamps[i])
 	}
 
-	bf.WriteUint16(0x19) // Unk 00011001
+	bf.WriteUint16(divaFinalSongLimit)
 	bf.WriteUint16(0x2D) // Unk 00101101
 	bf.WriteUint16(0x02) // Unk 00000010
 	bf.WriteUint16(0x02) // Unk 00000010
@@ -174,16 +174,18 @@ func handleMsgMhfAddUdPoint(s *Session, p mhfpacket.MHFPacket) {
 	pkt := p.(*mhfpacket.MsgMhfAddUdPoint)
 
 	// Find the current diva event to associate points with.
-	eventID := uint32(0)
+	var event DivaEvent
+	var err error
 	if s.server.divaRepo != nil {
-		event, err := s.divaEvent()
-		if err == nil {
-			eventID = event.ID
-		}
+		event, err = s.divaEvent()
 	}
-
-	if eventID != 0 && s.charID != 0 && (pkt.QuestPoints > 0 || pkt.BonusPoints > 0) {
-		if err := s.server.divaRepo.RecordDivaPoints(s.charID, eventID, pkt.QuestPoints, pkt.BonusPoints, TimeAdjusted()); err != nil {
+	now := TimeAdjusted()
+	if err != nil || event.ID == 0 || now.Before(event.phaseTime(0)) || !now.Before(event.phaseTime(1)) {
+		doAckSimpleFail(s, pkt.AckHandle, []byte{1})
+		return
+	}
+	if s.charID != 0 && pkt.QuestPoints > 0 {
+		if err := s.server.divaRepo.RecordDivaPoints(s.charID, event.ID, pkt.QuestPoints, pkt.BonusPoints, now); err != nil {
 			s.logger.Warn("Failed to add diva points",
 				zap.Uint32("charID", s.charID),
 				zap.Uint32("questPoints", pkt.QuestPoints),
@@ -193,14 +195,7 @@ func handleMsgMhfAddUdPoint(s *Session, p mhfpacket.MHFPacket) {
 			return
 		}
 		s.logger.Info("Diva song points saved", zap.Uint32("charID", s.charID),
-			zap.Uint32("eventID", eventID), zap.Uint32("questPoints", pkt.QuestPoints), zap.Uint32("bonusPoints", pkt.BonusPoints))
-	} else {
-		s.logger.Warn("Diva song points not recorded", zap.Uint32("charID", s.charID),
-			zap.Uint32("eventID", eventID), zap.Uint32("questPoints", pkt.QuestPoints), zap.Uint32("bonusPoints", pkt.BonusPoints))
-		if eventID == 0 {
-			doAckSimpleFail(s, pkt.AckHandle, []byte{1})
-			return
-		}
+			zap.Uint32("eventID", event.ID), zap.Uint32("questPoints", pkt.QuestPoints), zap.Uint32("bonusPoints", pkt.BonusPoints))
 	}
 
 	doAckSimpleSucceed(s, pkt.AckHandle, []byte{0x00, 0x00, 0x00, 0x00})
@@ -231,13 +226,20 @@ func handleMsgMhfGetUdTotalPointInfo(s *Session, p mhfpacket.MHFPacket) {
 		doAckBufFail(s, pkt.AckHandle, []byte{1})
 		return
 	}
-	questTotal, bonusTotal, err := s.server.divaRepo.GetTotalPoints(event.ID)
+	var progress divaSongProgress
+	if repo, ok := s.server.divaRepo.(divaSongProgressRepository); ok {
+		progress, err = repo.GetDivaSongProgress(event)
+	} else {
+		var questTotal, bonusTotal int64
+		questTotal, bonusTotal, err = s.server.divaRepo.GetTotalPoints(event.ID)
+		progress = divaSongProgress{Total: questTotal + bonusTotal, Targets: udMilestones}
+	}
 	if err != nil {
 		s.logger.Warn("Failed to get total bead points", zap.Error(err))
 		doAckBufFail(s, pkt.AckHandle, []byte{1})
 		return
 	}
-	doAckBufSucceed(s, pkt.AckHandle, divaTotalPointPayload(uint64(questTotal+bonusTotal)))
+	doAckBufSucceed(s, pkt.AckHandle, divaTotalPointPayload(uint64(progress.Total), progress.Targets))
 }
 
 func handleMsgMhfGetUdSelectedColorInfo(s *Session, p mhfpacket.MHFPacket) {

@@ -48,13 +48,10 @@ func divaBattleSongActive(state DivaBattleSongState, now time.Time) bool {
 // Count the type-0 targets advertised by GET_UD_TOTAL_POINT_INFO only.
 // Shop unlock targets (types 1..3) and the schedule's 0x19 field must not
 // grant song activations or lower their thresholds.
-func divaBattleSongEarned(total int64) uint8 {
+func divaBattleSongEarned(total int64, targets []int64) uint8 {
 	var count uint8
-	for i, threshold := range udMilestones {
-		if i == 64 {
-			break
-		}
-		if threshold != 0 && total >= 0 && uint64(total) >= threshold {
+	for _, threshold := range targets {
+		if threshold > 0 && total >= threshold {
 			count++
 		}
 	}

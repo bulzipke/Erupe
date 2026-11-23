@@ -22,6 +22,9 @@ func TestRepoDivaGuildRankingHistoricalMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, row := range []struct{ charID, points uint32 }{{a, 10}, {b, 10}, {c, 15}} {
+		if err := r.AssignBead(row.charID, event.ID, 1, now); err != nil {
+			t.Fatal(err)
+		}
 		if err := r.RecordDivaPoints(row.charID, event.ID, row.points, 0, now); err != nil {
 			t.Fatal(err)
 		}
@@ -85,6 +88,9 @@ func TestRepoDivaGuildRankingOwnOutsideTop100(t *testing.T) {
 	now := divaTestTime(21, 11, 0)
 	event, err := r.EnsureDivaSongEvent(now)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.AssignBead(cid, event.ID, 1, now); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.RecordDivaPoints(cid, event.ID, 1, 0, now); err != nil {

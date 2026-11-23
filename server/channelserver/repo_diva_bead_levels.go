@@ -6,8 +6,47 @@ import (
 	"errors"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 )
+
+// A completed day's wins can close a color to new choices and contributions.
+func checkDivaBeadLevelTx(tx *sqlx.Tx, eventID uint32, color int, now time.Time) error {
+	var event DivaEvent
+	if err := tx.Get(&event, `SELECT EXTRACT(epoch FROM start_time)::bigint start_time,diva_continuous
+		FROM events WHERE id=$1 AND event_type='diva'`, eventID); err != nil {
+		return err
+	}
+	if !event.Continuous {
+		return nil
+	}
+	round, err := divaEventBeadsTx(tx, eventID)
+	if err != nil {
+		return err
+	}
+	if color < 1 || color > len(round.Effects) {
+		return errDivaBeadLocked
+	}
+	bead, valid := divaBeadDefinitionFor(int(round.Effects[color-1]))
+	if !valid {
+		return errDivaBeadLocked
+	}
+	firstDay := divaNoon(event.phaseTime(0))
+	colors, err := getDivaWinningColors(context.Background(), tx, eventID, firstDay, divaNoon(now))
+	if err != nil {
+		return err
+	}
+	wins := 0
+	for _, winner := range colors {
+		if int(winner) == color {
+			wins++
+		}
+	}
+	if wins >= bead.MaxLevel {
+		return errDivaBeadLocked
+	}
+	return nil
+}
 
 // GetDashboardDivaBeadLevels only reads the immutable slot selection and the
 // same winners sent to the client. Dashboard requests never create snapshots.

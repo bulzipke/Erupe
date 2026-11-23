@@ -61,6 +61,8 @@ type divaChoice struct {
 	Second int `db:"second_color"`
 }
 
+var errDivaBeadUnselected = errors.New("diva bead must be selected before contributing")
+
 func (c divaChoice) active() int {
 	if c.Second != 0 {
 		return c.Second
@@ -140,12 +142,16 @@ func (r *DivaRepository) RecordDivaPoints(charID, eventID, questPoints, bonusPoi
 		return err
 	}
 	color := choice.active()
-	if color != 0 {
-		_, err = tx.Exec(`INSERT INTO diva_song_choices(char_id,event_id,day_start,first_color,second_color)
-			VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, charID, eventID, day, choice.First, choice.Second)
-		if err != nil {
-			return err
-		}
+	if color == 0 {
+		return errDivaBeadUnselected
+	}
+	if err = checkDivaBeadLevelTx(tx, eventID, color, now); err != nil {
+		return err
+	}
+	_, err = tx.Exec(`INSERT INTO diva_song_choices(char_id,event_id,day_start,first_color,second_color)
+		VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, charID, eventID, day, choice.First, choice.Second)
+	if err != nil {
+		return err
 	}
 	_, err = tx.Exec(`INSERT INTO diva_points(char_id,event_id,quest_points,bonus_points,updated_at)
 		VALUES($1,$2,$3,$4,$5) ON CONFLICT(char_id,event_id) DO UPDATE SET
@@ -156,16 +162,14 @@ func (r *DivaRepository) RecordDivaPoints(charID, eventID, questPoints, bonusPoi
 		return err
 	}
 	_, err = tx.Exec(`INSERT INTO diva_song_records(char_id,event_id,day_start,bead_index,quest_points,bonus_points,submitted_at,guild_id)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, charID, eventID, divaNoon(now), color, questPoints, bonusPoints, now, guildID)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, charID, eventID, day, color, questPoints, bonusPoints, now, guildID)
 	if err != nil {
 		return err
 	}
-	if color != 0 {
-		_, err = tx.Exec("INSERT INTO diva_beads_points(character_id,bead_index,points,timestamp) VALUES($1,$2,$3,$4)",
-			charID, color, int64(questPoints)+int64(bonusPoints), now)
-		if err != nil {
-			return err
-		}
+	_, err = tx.Exec("INSERT INTO diva_beads_points(character_id,bead_index,points,timestamp) VALUES($1,$2,$3,$4)",
+		charID, color, int64(questPoints)+int64(bonusPoints), now)
+	if err != nil {
+		return err
 	}
 	return tx.Commit()
 }
@@ -214,19 +218,23 @@ func (r *DivaRepository) GetDivaWinningColors(eventID uint32, firstDay, now time
 }
 
 func (r *DivaRepository) GetDivaWinningColorsContext(ctx context.Context, eventID uint32, firstDay, now time.Time) ([]byte, error) {
+	return getDivaWinningColors(ctx, r.db, eventID, firstDay, now)
+}
+
+func getDivaWinningColors(ctx context.Context, q sqlx.QueryerContext, eventID uint32, firstDay, now time.Time) ([]byte, error) {
 	var rows []struct {
 		Index int `db:"day_index"`
 		Color int `db:"color"`
 	}
-	err := r.db.SelectContext(ctx, &rows, `WITH days AS (
-		SELECT n day_index,$2::timestamptz+n*interval '1 day' day_start FROM generate_series(0,7) n
+	err := sqlx.SelectContext(ctx, q, &rows, `WITH days AS (
+		SELECT n day_index,$2::timestamptz+n*interval '24 hours' day_start FROM generate_series(0,7) n
 	), scores AS (
 		SELECT day_start,bead_index,SUM(quest_points) points FROM diva_song_records
 		WHERE event_id=$1 AND bead_index BETWEEN 1 AND 4 GROUP BY day_start,bead_index
 	)
 	SELECT d.day_index,COALESCE((SELECT s.bead_index FROM scores s WHERE s.day_start=d.day_start
 		ORDER BY s.points DESC,s.bead_index LIMIT 1),0) color
-	FROM days d WHERE d.day_start+interval '1 day'<=$3`, eventID, firstDay, now)
+	FROM days d WHERE d.day_start+interval '24 hours'<=$3`, eventID, firstDay, now)
 	if err != nil {
 		return nil, err
 	}

@@ -134,6 +134,11 @@ func ensureDivaEventTx(tx *sqlx.Tx, now time.Time, override int) (DivaEvent, err
 	if err = ensureDivaBeadRotationTx(tx, event.ID, previousID, override); err != nil {
 		return DivaEvent{}, err
 	}
+	if override == -1 {
+		if err = ensureDivaSongGoalsTx(tx, event, now); err != nil {
+			return DivaEvent{}, err
+		}
+	}
 	if _, err = tx.Exec(`INSERT INTO diva_event_lifecycle(mode,event_id) VALUES($1,$2)
 		ON CONFLICT(mode) DO UPDATE SET event_id=EXCLUDED.event_id`, override, event.ID); err != nil {
 		return DivaEvent{}, err

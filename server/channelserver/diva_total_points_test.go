@@ -63,7 +63,7 @@ func TestDivaTotalPointInfoUnlockAndSongBoundaries(t *testing.T) {
 		{199999, 1, 0}, {200000, 2, 0}, {299999, 2, 0}, {300000, 3, 0},
 		{499999, 3, 0}, {500000, 3, 1}, {999999, 3, 1}, {1000000, 3, 2}, {100000000, 3, 13},
 	} {
-		p := divaTotalPointPayload(tt.total)
+		p := divaTotalPointPayload(tt.total, udMilestones)
 		var level, songs uint8
 		for i := 0; i < 64; i++ {
 			target, kind := binary.BigEndian.Uint64(p[1+i*8:]), p[513+i]
@@ -76,7 +76,7 @@ func TestDivaTotalPointInfoUnlockAndSongBoundaries(t *testing.T) {
 				level = kind
 			}
 		}
-		if level != tt.level || songs != tt.songs || divaBattleSongEarned(int64(tt.total)) != tt.songs {
+		if level != tt.level || songs != tt.songs || divaBattleSongEarned(int64(tt.total), udMilestones) != tt.songs {
 			t.Fatalf("total %d: shop level=%d songs=%d, want level=%d songs=%d", tt.total, level, songs, tt.level, tt.songs)
 		}
 	}

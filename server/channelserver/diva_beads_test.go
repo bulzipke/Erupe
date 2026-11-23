@@ -55,8 +55,8 @@ func TestDivaBeadRetailCatalog(t *testing.T) {
 		if len(encodedName)+1 > 32 {
 			t.Fatalf("effect %d name overflows native field", w.id)
 		}
-		if bytes.Count([]byte(b.DescriptionKO), []byte{'\n'}) > 2 {
-			t.Fatalf("effect %d description exceeds three lines", w.id)
+		if bytes.Count([]byte(b.DescriptionKO), []byte{'\n'}) > 1 {
+			t.Fatalf("effect %d introduction exceeds two body lines", w.id)
 		}
 		for _, line := range bytes.Split([]byte(b.DescriptionKO), []byte{'\n'}) {
 			s, _, err := transform.String(korean.EUCKR.NewEncoder(), string(line))
@@ -92,9 +92,12 @@ func TestDivaBeadEveryRetailEffectUsesFourSlotWire(t *testing.T) {
 			entry := p[1+slot*546 : 1+(slot+1)*546]
 			b, _ := divaBeadDefinitionFor(id)
 			if !bytes.Equal(entry[:32], stringsupport.PaddedString(b.KO, 32, true)) ||
-				!bytes.Equal(entry[32:544], stringsupport.PaddedString(b.DescriptionKO, 512, true)) ||
 				entry[544] != byte(slot+1) || entry[545] != byte(id) {
 				t.Fatalf("slot %d: effect ID %d confused with slot/color identity", slot+1, id)
+			}
+			wantDescription := stringsupport.PaddedString("\n"+b.DescriptionKO, 512, true)
+			if !bytes.Equal(entry[32:544], wantDescription) {
+				t.Fatalf("effect %d: expected an empty reading followed by the full introduction", id)
 			}
 		}
 		// The existing 22-byte song reply and its four per-effect counters

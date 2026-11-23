@@ -188,6 +188,11 @@ func TestRepoDivaGuildRewardFinalMembership(t *testing.T) {
 	if _, err := db.Exec(`UPDATE diva_guild_membership_history SET valid_from=$1`, start.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
+	for _, char := range []uint32{a, b} {
+		if err := r.AssignBead(char, event, 1, start); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := r.RecordDivaPoints(a, event, 20, 0, start.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
