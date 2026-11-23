@@ -17,7 +17,8 @@ import (
 const mezWeek = 7 * 24 * time.Hour
 const mezWeeklyRequest uint32 = 0xff4d0000
 const mezWalletCap = 9_999_999
-const mezMaxWeeklyGP = 11_000
+const mezMaxWeeklyGP = 25_000
+const mezNonparticipantNotice = "메제포르타 페스타 정산이 종료됐습니다. 참여 시 대량의 길드 공헌 포인트를 얻을 수 있습니다."
 
 var errMezWalletFull = errors.New("insufficient room for the full MezFes reward")
 
@@ -85,7 +86,7 @@ func mezAwardNotice(rows []mezAward) ([]string, int) {
 	if total == 0 {
 		return nil, 0
 	}
-	return append([]string{fmt.Sprintf("메제포르타 페스타 참여로 길드 공헌도를 %d 받았습니다.", total)}, lines...), total
+	return append([]string{fmt.Sprintf("메제포르타 페스타 참여로 길드 공헌 포인트를 %d 받았습니다.", total)}, lines...), total
 }
 
 // Only the round that ended at the most recent Monday noon is payable.
@@ -182,6 +183,47 @@ func (s *Session) sendMezLoginNotice() {
 	}
 }
 
+func (s *Session) sendMezNonparticipantNotice(ctx context.Context, now time.Time) {
+	if !s.mezChatReady || !s.mezWalletLoaded {
+		return
+	}
+	start := mezWeekStart(now).Add(-mezWeek)
+	if s.mezNoticeChecked.Equal(start) {
+		return
+	}
+	var outcome struct{ Settled, Claimed bool }
+	err := s.server.db.GetContext(ctx, &outcome, `WITH closed_round AS (
+		SELECT week_start, notify_nonparticipants FROM mezfes_settlements WHERE week_start=$1
+	), receipt AS (
+		INSERT INTO mezfes_weekly_notices (week_start, character_id)
+		SELECT week_start,$2 FROM closed_round
+		WHERE notify_nonparticipants AND clock_timestamp() < $3
+		  AND NOT EXISTS (SELECT 1 FROM mezfes_weekly_awards WHERE week_start=$1 AND character_id=$2)
+		ON CONFLICT DO NOTHING RETURNING 1
+	)
+	SELECT EXISTS (SELECT 1 FROM closed_round) AS settled, EXISTS (SELECT 1 FROM receipt) AS claimed`,
+		start, s.charID, start.Add(2*mezWeek))
+	if err != nil {
+		s.logger.Warn("Failed to check MezFes settlement notice", zap.Error(err))
+		return
+	}
+	if outcome.Settled {
+		s.mezNoticeChecked = start
+	}
+	if outcome.Claimed {
+		sendServerChatMessages(s, []string{mezNonparticipantNotice})
+	}
+}
+
+func (s *Session) sendMezLoginNotices() {
+	s.sendMezLoginNotice()
+	if s.mezChatReady && s.mezWalletLoaded {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		s.sendMezNonparticipantNotice(ctx, TimeAdjusted())
+	}
+}
+
 // Reuse the buffered request used by other custom in-game listings. A
 // read-only booth request does not consume a reward.
 func handleMezWeekly(s *Session, p *mhfpacket.MsgMhfEnumerateItem) {
@@ -191,6 +233,7 @@ func handleMezWeekly(s *Session, p *mhfpacket.MsgMhfEnumerateItem) {
 	op := uint16(p.CampaignID)
 	now := TimeAdjusted()
 	start := mezWeekStart(now)
+	walletPoll := op >= 0x8000 && op <= 0x8000+mezMaxWeeklyGP
 	b.WriteUint32(0x4d5a5731) // MZW1
 	b.WriteUint32(uint32(start.Add(mezWeek).Unix() - now.Unix()))
 	var err error
@@ -210,12 +253,12 @@ func handleMezWeekly(s *Session, p *mhfpacket.MsgMhfEnumerateItem) {
 			b.WriteUint32(r.GP)
 			b.WriteBytes(stringsupport.PaddedString(r.Name, 32, true))
 		}
-		if MezFesGameIsGroup(op) {
-			b.WriteUint32(500)
-		} else {
-			b.WriteUint32(100)
+		if err == nil {
+			var participation uint32
+			err = s.server.db.GetContext(ctx, &participation, "SELECT mezfes_weekly_reward($1::smallint,NULL)", op)
+			b.WriteUint32(participation)
 		}
-	case op >= 0x8000 && op <= 0x8000+mezMaxWeeklyGP && s.mezWalletLoaded:
+	case walletPoll && s.mezWalletLoaded:
 		if s.mezUnseenGP == 0 {
 			var rows []mezAward
 			_, rows, err = s.creditMezWeek(ctx, now, int(op-0x8000))
@@ -242,6 +285,9 @@ func handleMezWeekly(s *Session, p *mhfpacket.MsgMhfEnumerateItem) {
 		return
 	}
 	doAckBufSucceed(s, p.AckHandle, b.Data())
+	if walletPoll {
+		s.sendMezNonparticipantNotice(ctx, now)
+	}
 	if op == 1 && len(s.mezNotice) > 0 {
 		sendServerChatMessages(s, s.mezNotice)
 		s.mezNotice = nil

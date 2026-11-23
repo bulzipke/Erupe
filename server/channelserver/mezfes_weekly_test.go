@@ -23,12 +23,12 @@ func TestMezWeeklyNoonAndNotices(t *testing.T) {
 			t.Fatalf("start at %v: %v", tc.now, got)
 		}
 	}
-	lines, total := mezAwardNotice([]mezAward{{467, 2, 800}, {464, 4, 100}, {465, 1, 3000}})
-	if total != 3900 || len(lines) != 4 ||
-		lines[0] != "메제포르타 페스타 참여로 길드 공헌도를 3900 받았습니다." ||
-		!strings.HasPrefix(lines[1], " ▷ 다같이 볼뻐끔") || !strings.HasSuffix(lines[1], "1위: 3000") ||
-		!strings.HasPrefix(lines[2], " ▶ 울키 새총") || !strings.HasSuffix(lines[2], "참가상: 100") ||
-		!strings.HasPrefix(lines[3], " ▷ 냥련도") || !strings.HasSuffix(lines[3], "2위: 800") {
+	lines, total := mezAwardNotice([]mezAward{{467, 2, 2000}, {464, 4, 500}, {465, 1, 5000}})
+	if total != 7500 || len(lines) != 4 ||
+		lines[0] != "메제포르타 페스타 참여로 길드 공헌 포인트를 7500 받았습니다." ||
+		!strings.HasPrefix(lines[1], " ▷ 다같이 볼뻐끔") || !strings.HasSuffix(lines[1], "1위: 5000") ||
+		!strings.HasPrefix(lines[2], " ▶ 울키 새총") || !strings.HasSuffix(lines[2], "참가상: 500") ||
+		!strings.HasPrefix(lines[3], " ▷ 냥련도") || !strings.HasSuffix(lines[3], "2위: 2000") {
 		t.Fatalf("award %v: %q", total, lines)
 	}
 	if lines, _ := mezAwardNotice(nil); len(lines) != 0 {
@@ -64,7 +64,7 @@ func TestMezWeeklyBoothAndWalletPackets(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if board := query(live, 465); len(board) != 16 || binary.BigEndian.Uint32(board[8:]) != 0 || binary.BigEndian.Uint32(board[12:]) != 500 {
+	if board := query(live, 465); len(board) != 16 || binary.BigEndian.Uint32(board[8:]) != 0 || binary.BigEndian.Uint32(board[12:]) != 1000 {
 		t.Fatalf("empty board %x", board)
 	}
 	for i, id := range []uint32{liveID, offlineID} {
@@ -75,14 +75,15 @@ func TestMezWeeklyBoothAndWalletPackets(t *testing.T) {
 	}
 	board := query(live, 464)
 	if len(board) != 104 || binary.BigEndian.Uint32(board[8:]) != 2 || binary.BigEndian.Uint32(board[12:]) != 1 ||
-		binary.BigEndian.Uint32(board[16:]) != 2 || !bytes.HasPrefix(board[24:], []byte("Offline\x00")) ||
-		binary.BigEndian.Uint32(board[100:]) != 100 {
+		binary.BigEndian.Uint32(board[16:]) != 2 || binary.BigEndian.Uint32(board[20:]) != 3000 ||
+		!bytes.HasPrefix(board[24:], []byte("Offline\x00")) || binary.BigEndian.Uint32(board[100:]) != 500 {
 		t.Fatalf("ranked board %x", board)
 	}
 	// This session already loaded its wallet before the weekly cutoff.
 	live.mezWalletLoaded = true
+	live.mezChatReady = true
 	for i := 0; i < 2; i++ {
-		if delta := binary.BigEndian.Uint32(query(live, 0x8000|mezMaxWeeklyGP)[8:]); delta != 1000 {
+		if delta := binary.BigEndian.Uint32(query(live, 0x8000|mezMaxWeeklyGP)[8:]); delta != 3000 {
 			t.Fatalf("unacknowledged delta %d", delta)
 		}
 	}
@@ -92,19 +93,19 @@ func TestMezWeeklyBoothAndWalletPackets(t *testing.T) {
 	}
 	save(13)
 	balance, err := readCharacterInt(live, "gcp")
-	if err != nil || balance != 1013 {
+	if err != nil || balance != 3013 {
 		t.Fatalf("stale save lost reward: %d %v", balance, err)
 	}
 	query(live, 1)
 	if !bytes.Contains((<-live.sendPackets).data, stringsupport.UTF8ToSJIS("울키 새총")) {
 		t.Fatal("missing live chat")
 	}
-	save(1011)
+	save(3011)
 	if binary.BigEndian.Uint32(query(live, 0x8000|mezMaxWeeklyGP)[8:]) != 0 {
 		t.Fatal("repeated credit")
 	}
 	balance, err = readCharacterInt(live, "gcp")
-	if err != nil || balance != 1011 {
+	if err != nil || balance != 3011 {
 		t.Fatalf("post-ack save added the reward again: %d %v", balance, err)
 	}
 	offline := createMockSession(offlineID, server)
@@ -112,19 +113,60 @@ func TestMezWeeklyBoothAndWalletPackets(t *testing.T) {
 	login := func() {
 		handleMsgMhfReadMercenaryW(offline, &mhfpacket.MsgMhfReadMercenaryW{})
 		data := assertMercenaryAck(t, offline, 0).AckData
-		if len(data) < 16 || !bytes.HasSuffix(data, []byte("MZW1RAP1RGE1")) || binary.BigEndian.Uint32(data[len(data)-16:]) != 800 {
+		if len(data) < 20 || !bytes.HasSuffix(data, []byte("MZW2MZW1RAP1RGE1")) || binary.BigEndian.Uint32(data[len(data)-20:]) != 2000 {
 			t.Fatalf("login wallet %x", data)
 		}
 	}
 	login()
 	offline.mezChatReady = true
-	offline.sendMezLoginNotice()
+	offline.sendMezLoginNotices()
 	if !bytes.Contains((<-offline.sendPackets).data, stringsupport.UTF8ToSJIS("울키 새총")) {
 		t.Fatal("missing login chat")
 	}
 	login()
 	if len(offline.sendPackets) != 0 {
 		t.Fatal("duplicate login chat")
+	}
+
+	// The same one-time notice goes to an online character and to a
+	// nonparticipant who first logs in after settlement.
+	for _, online := range []bool{true, false} {
+		name := "DidNotPlay"
+		if online {
+			name = "OnlineNoPlay"
+		}
+		id := CreateTestCharacter(t, db, uid, name)
+		idle := createMockSession(id, server)
+		idle.userID = uid
+		if online {
+			idle.mezWalletLoaded, idle.mezChatReady = true, true
+			if delta := binary.BigEndian.Uint32(query(idle, 0x8000|mezMaxWeeklyGP)[8:]); delta != 0 {
+				t.Fatalf("nonparticipant received %d GP", delta)
+			}
+		} else {
+			handleMsgMhfReadMercenaryW(idle, &mhfpacket.MsgMhfReadMercenaryW{})
+			assertMercenaryAck(t, idle, 0)
+			if len(idle.sendPackets) != 0 {
+				t.Fatal("notice sent before chat is ready")
+			}
+			idle.mezChatReady = true
+			idle.sendMezLoginNotices()
+		}
+		select {
+		case notice := <-idle.sendPackets:
+			if !bytes.Contains(notice.data, stringsupport.UTF8ToSJIS(mezNonparticipantNotice)) {
+				t.Fatal("incorrect settlement notice")
+			}
+		default:
+			t.Fatal("missing settlement notice")
+		}
+		reconnect := createMockSession(id, server)
+		reconnect.userID = uid
+		reconnect.mezWalletLoaded, reconnect.mezChatReady = true, true
+		query(reconnect, 0x8000|mezMaxWeeklyGP)
+		if len(reconnect.sendPackets) != 0 {
+			t.Fatal("duplicate notice on reconnect")
+		}
 	}
 }
 
@@ -154,7 +196,7 @@ func TestMezWeeklyPostgres(t *testing.T) {
 		play(3, stage, 900, start.Add(mezWeek), false)
 		play(3, stage, 700, start, true)
 	}
-	for i, want := range []int{11000, 8000, 4500, 1500, 1500} {
+	for i, want := range []int{mezMaxWeeklyGP, 18000, 11000, 4500, 4500} {
 		s := &Session{server: &Server{db: db}, charID: ids[i], userID: uid}
 		ctx := context.Background()
 		if i == 0 {

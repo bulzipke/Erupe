@@ -380,8 +380,10 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	s.startDailyCoins()
 	s.startCafeBonus()
 	s.startDashboardCoinNotices()
-	s.mezChatReady = true
-	s.sendMezLoginNotice()
+	if !s.mezChatReady {
+		s.mezChatReady = true
+		s.sendMezLoginNotices()
+	}
 	// Queue every transition packet before the database write, so statistics
 	// cannot hold up the client's stage transition.
 	if recordWeaponDeparture {

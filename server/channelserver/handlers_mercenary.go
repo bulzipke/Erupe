@@ -335,7 +335,7 @@ func handleMsgMhfReadMercenaryW(s *Session, p mhfpacket.MHFPacket) {
 				s.mezWalletLoaded = true
 				gcpErr = nil
 				s.mezLoginNotice, _ = mezAwardNotice(awards)
-				defer s.sendMezLoginNotice()
+				defer s.sendMezLoginNotices()
 			} else {
 				gcp, gcpErr = readCharacterInt(s, "gcp")
 				gcp = max(0, gcp-s.mezUnseenGP)
@@ -359,6 +359,9 @@ func handleMsgMhfReadMercenaryW(s *Session, p mhfpacket.MHFPacket) {
 			}
 			bf.WriteUint32(uint32(gcp))
 			// Preserve the native wallet and the existing terminal Rasta markers.
+			if s.mezWalletLoaded && len(bf.Data())+16 <= 0x400 {
+				bf.WriteBytes([]byte("MZW2"))
+			}
 			if s.mezWalletLoaded && len(bf.Data())+12 <= 0x400 {
 				bf.WriteBytes([]byte("MZW1"))
 			}

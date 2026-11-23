@@ -79,6 +79,7 @@ type Session struct {
 	mezNotice              []string
 	mezChatReady           bool
 	mezLoginNotice         []string
+	mezNoticeChecked       time.Time
 	logKey                 []byte
 	sessionStart           int64
 	courses                []mhfcourse.Course
