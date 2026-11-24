@@ -147,18 +147,24 @@ func handleMsgMhfGetUdTacticsRewardList(s *Session, p mhfpacket.MHFPacket) {
 	}
 	var hrGuild []DivaPrize
 	if s.server.erupeConfig.RealClientMode == cfg.ZZ {
-		ranks, ok := s.server.divaRepo.(DivaRewardRankRepository)
+		repo, ok := s.server.divaRepo.(DivaInterceptionRewardListRepository)
 		if !ok {
 			doAckBufFail(s, pkt.AckHandle, nil)
 			return
 		}
-		hr, gr, err := ranks.GetDivaRewardRanks(s.charID)
+		hr, gr, err := repo.GetDivaRewardRanks(s.charID)
 		if err != nil {
 			doAckBufFail(s, pkt.AckHandle, nil)
 			return
 		}
+		melody, err := repo.GetDivaMelodyPrizes(TimeAdjusted(), s.server.erupeConfig.DebugOptions.DivaOverride)
+		if err != nil {
+			s.logger.Warn("Failed to get melody prizes", zap.Error(err))
+			doAckBufFail(s, pkt.AckHandle, nil)
+			return
+		}
 		personal = append(append([]DivaPrize(nil), personal...), divaHRInterceptionDisplay(hr, gr)...)
-		personal = append(personal, divaMelodyDisplay()...)
+		personal = append(personal, melody...)
 		sort.SliceStable(personal, func(i, j int) bool { return personal[i].PointsReq < personal[j].PointsReq })
 		hrGuild = divaHRGuildDisplay(hr, gr)
 	}

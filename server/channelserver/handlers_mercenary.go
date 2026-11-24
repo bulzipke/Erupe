@@ -359,6 +359,9 @@ func handleMsgMhfReadMercenaryW(s *Session, p mhfpacket.MHFPacket) {
 			}
 			bf.WriteUint32(uint32(gcp))
 			// Preserve the native wallet and the existing terminal Rasta markers.
+			if s.mezWalletLoaded && len(bf.Data())+20 <= 0x400 {
+				bf.WriteBytes([]byte("MZW3"))
+			}
 			if s.mezWalletLoaded && len(bf.Data())+16 <= 0x400 {
 				bf.WriteBytes([]byte("MZW2"))
 			}

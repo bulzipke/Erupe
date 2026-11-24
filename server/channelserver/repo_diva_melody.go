@@ -8,14 +8,44 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+func divaMelodyUsesSharedHR(q sqlx.Queryer, event DivaEvent) (bool, error) {
+	if event.ID == 0 {
+		return true, nil
+	}
+	var sharedHR bool
+	err := sqlx.Get(q, &sharedHR, `SELECT EXISTS(SELECT 1 FROM diva_hr_melody_cutover
+		WHERE singleton AND installed_at < $1)`, event.phaseTime(0))
+	return sharedHR, err
+}
+
+func (r *DivaRepository) GetDivaMelodyPrizes(now time.Time, override int) ([]DivaPrize, error) {
+	var scheduled DivaEvent
+	if override == -1 || override == 2 {
+		var err error
+		scheduled, err = r.EnsureDivaEvent(now, override)
+		if err != nil {
+			return nil, err
+		}
+	}
+	event, err := r.GetDivaInterceptionRewardEvent(now)
+	if err != nil {
+		return nil, err
+	}
+	// While an actual interception owns the reward page, show its rows.
+	// Before the first one, preview the scheduled round when available.
+	if event.ID == 0 {
+		event = scheduled
+	}
+	sharedHR, err := divaMelodyUsesSharedHR(r.db, event)
+	if err != nil {
+		return nil, err
+	}
+	return divaMelodyDisplay(sharedHR), nil
+}
+
 // Caller holds the character and lifecycle locks. Offering a cap is not a
 // credit: only an explicit type-29 receipt claim changes the shared wallet.
-func offerDivaMelodyTx(tx *sqlx.Tx, charID, eventID uint32, now time.Time) error {
-	var event DivaEvent
-	if err := tx.QueryRow(`SELECT id,EXTRACT(epoch FROM start_time)::bigint,diva_continuous FROM events
-		WHERE id=$1 AND event_type='diva'`, eventID).Scan(&event.ID, &event.StartTime, &event.Continuous); err != nil {
-		return err
-	}
+func offerDivaMelodyTx(tx *sqlx.Tx, charID uint32, event DivaEvent, now time.Time) error {
 	clock, err := divaMapClock(tx, now)
 	if err != nil || !divaMelodyUnexpired(event, clock) {
 		return err
@@ -23,15 +53,19 @@ func offerDivaMelodyTx(tx *sqlx.Tx, charID, eventID uint32, now time.Time) error
 	var gr uint16
 	var points int64
 	if err = tx.QueryRow(`SELECT COALESCE(gr,0),COALESCE((SELECT SUM(points) FROM diva_interception_runs
-		WHERE char_id=$1 AND event_id=$2),0) FROM characters WHERE id=$1`, charID, eventID).Scan(&gr, &points); err != nil {
+		WHERE char_id=$1 AND event_id=$2),0) FROM characters WHERE id=$1`, charID, event.ID).Scan(&gr, &points); err != nil {
 		return err
 	}
-	for _, r := range divaMelodyRewards() {
+	sharedHR, err := divaMelodyUsesSharedHR(tx, event)
+	if err != nil {
+		return err
+	}
+	for _, r := range divaMelodyRewards(sharedHR) {
 		if r.GR != (gr > 0) || points < int64(r.Threshold) {
 			continue
 		}
 		if _, err = tx.Exec(`INSERT INTO diva_reward_receipts(char_id,event_id,reward_type,catalog_key,item_type,item_id,quantity)
-			VALUES($1,$2,6,$3,29,0,$4) ON CONFLICT(char_id,event_id,reward_type,catalog_key) DO NOTHING`, charID, eventID, r.Key, r.Quantity); err != nil {
+			VALUES($1,$2,6,$3,29,0,$4) ON CONFLICT(char_id,event_id,reward_type,catalog_key) DO NOTHING`, charID, event.ID, r.Key, r.Quantity); err != nil {
 			return err
 		}
 	}
@@ -42,7 +76,8 @@ func validDivaMelodyReceipt(r DivaRewardOffer) bool {
 	if r.RewardType != 6 || r.ItemType != divaMelodyItemType || r.ItemID != 0 {
 		return false
 	}
-	for _, rule := range divaMelodyRewards() {
+	// The legacy catalog includes every receipt key and quantity ever issued.
+	for _, rule := range divaMelodyRewards(false) {
 		if rule.Key == r.CatalogKey && rule.Quantity == r.Quantity {
 			return true
 		}

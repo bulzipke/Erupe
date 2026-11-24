@@ -1757,6 +1757,11 @@ func (m *mockDivaRepo) GetTopBeadPerDay(_ int) (int, error)     { return 0, nil 
 func (m *mockDivaRepo) CleanupBeads() error                     { return nil }
 func (m *mockDivaRepo) GetPersonalPrizes() ([]DivaPrize, error) { return nil, nil }
 func (m *mockDivaRepo) GetGuildPrizes() ([]DivaPrize, error)    { return nil, nil }
+
+func (m *mockDivaRepo) GetDivaMelodyPrizes(time.Time, int) ([]DivaPrize, error) {
+	return divaMelodyDisplay(true), nil
+}
+
 func (m *mockDivaRepo) GetCharacterInterceptionPoints(_ uint32) (map[string]int, error) {
 	return map[string]int{}, nil
 }

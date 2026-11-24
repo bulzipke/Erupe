@@ -23,11 +23,15 @@ type DivaMelodyRepository interface {
 }
 
 // GR: lower milestones follow round 19 (1..4) and round 38 (5); 6..10
-// are directly visible in round-40 screenshots. HR is a user-approved server
-// custom rule at half those thresholds, NOT a recovered historical HR table.
-func divaMelodyRewards() []DivaRewardCatalogEntry {
+// are directly visible in round-40 screenshots. The server's HR rules use
+// the first three GR thresholds from the cutover, and half thresholds before it.
+func divaMelodyRewards(sharedHR bool) []DivaRewardCatalogEntry {
 	points := [...]uint32{14000, 34000, 54000, 75000, 84000, 94000, 104000, 114000, 124000, 134000}
-	rows := make([]DivaRewardCatalogEntry, 2*len(points))
+	hrPoints := points[:]
+	if sharedHR {
+		hrPoints = hrPoints[:3]
+	}
+	rows := make([]DivaRewardCatalogEntry, len(points)+len(hrPoints))
 	for i, p := range points {
 		basis := "round40-direct"
 		if i < 4 {
@@ -37,17 +41,22 @@ func divaMelodyRewards() []DivaRewardCatalogEntry {
 		}
 		rows[i] = DivaRewardCatalogEntry{Key: fmt.Sprintf("melody-cap-%d", i+1), RewardType: 6,
 			Threshold: p, GR: true, ItemType: divaMelodyItemType, Quantity: uint16(i + 1), Basis: basis}
-		// Keep the existing GR keys and immutable receipts unchanged. Both
-		// ranks credit the same account cap, never additive per-rank balances.
+	}
+	for i, p := range hrPoints {
+		basis := "server-custom-hr-shared-gr"
+		if !sharedHR {
+			basis = "server-custom-hr-half-gr"
+			p /= 2
+		}
 		rows[len(points)+i] = DivaRewardCatalogEntry{Key: fmt.Sprintf("custom-hr-melody-cap-%d", i+1), RewardType: 6,
-			Threshold: p / 2, ItemType: divaMelodyItemType, Quantity: uint16(i + 1), Basis: "server-custom-hr-half-gr"}
+			Threshold: p, ItemType: divaMelodyItemType, Quantity: uint16(i + 1), Basis: basis}
 	}
 	return rows
 }
 
-func divaMelodyDisplay() []DivaPrize {
+func divaMelodyDisplay(sharedHR bool) []DivaPrize {
 	var rows []DivaPrize
-	for _, r := range divaMelodyRewards() {
+	for _, r := range divaMelodyRewards(sharedHR) {
 		rows = append(rows, DivaPrize{Type: "personal", PointsReq: int(r.Threshold),
 			ItemType: int(divaMelodyItemType), Quantity: int(r.Quantity), GR: r.GR})
 	}

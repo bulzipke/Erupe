@@ -13,7 +13,7 @@ import (
 )
 
 func TestDivaMelodyCatalogAndWire(t *testing.T) {
-	rows := divaMelodyRewards()
+	rows := divaMelodyRewards(false)
 	if len(rows) != 20 || rows[0].Threshold != 14000 || rows[4].Threshold != 84000 || rows[9].Threshold != 134000 {
 		t.Fatal(rows)
 	}
@@ -69,7 +69,7 @@ func TestDivaMelodyCatalogAndWire(t *testing.T) {
 
 func TestDivaMelodyHRCustomMilestonesAndPreservedGRKeys(t *testing.T) {
 	wantHR := [...]uint32{7000, 17000, 27000, 37500, 42000, 47000, 52000, 57000, 62000, 67000}
-	rows, display := divaMelodyRewards(), divaMelodyDisplay()
+	rows, display := divaMelodyRewards(false), divaMelodyDisplay(false)
 	if len(rows) != 2*len(wantHR) || len(display) != len(rows) {
 		t.Fatal(rows, display)
 	}
@@ -98,6 +98,25 @@ func TestDivaMelodyHRCustomMilestonesAndPreservedGRKeys(t *testing.T) {
 		receipt.Quantity = uint16(rule.Quantity%uint16(divaMelodyMax)) + 1
 		if validDivaMelodyReceipt(receipt) {
 			t.Fatal("changed cap accepted", receipt)
+		}
+	}
+}
+
+func TestDivaMelodySharedHRMilestones(t *testing.T) {
+	legacy := divaMelodyRewards(false)
+	rows := divaMelodyRewards(true)
+	if len(rows) != 13 {
+		t.Fatal(rows)
+	}
+	for i := range 10 {
+		if rows[i] != legacy[i] {
+			t.Fatal("GR rule changed", rows[i], legacy[i])
+		}
+	}
+	for i, threshold := range [...]uint32{14000, 34000, 54000} {
+		hr := rows[10+i]
+		if hr.GR || hr.Threshold != threshold || hr.Key != legacy[10+i].Key || hr.Quantity != uint16(i+1) {
+			t.Fatal("HR should match the first three GR steps", hr)
 		}
 	}
 }

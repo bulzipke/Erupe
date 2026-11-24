@@ -162,11 +162,28 @@ func TestDivaHRInterceptionDisplayHandler(t *testing.T) {
 		s.server.divaRepo = &divaHRDisplayRepo{hr: tt.hr, gr: tt.gr}
 		handleMsgMhfGetUdTacticsRewardList(s, &mhfpacket.MsgMhfGetUdTacticsRewardList{AckHandle: 55})
 		ack := readAck(t, s)
-		if ack.ErrorCode != 0 || len(ack.Payload) != 7+(5+20+10+2)*11 || binary.BigEndian.Uint16(ack.Payload[1:3]) != 25 {
+		const personalCount = 5 + 10 + 3
+		if ack.ErrorCode != 0 || len(ack.Payload) != 7+(personalCount+10+2)*11 || binary.BigEndian.Uint16(ack.Payload[1:3]) != personalCount {
 			t.Fatalf("HR preview failed: %+v", ack)
 		}
 		if binary.BigEndian.Uint16(ack.Payload[10:12]) != tt.quantity || ack.Payload[12] != 0 || ack.Payload[13] != 0 {
 			t.Fatalf("wrong HR quantity/flags: %x", ack.Payload)
+		}
+		hrPoints := [...]uint32{14000, 34000, 54000}
+		hrMelodies := 0
+		for i := range personalCount {
+			row := ack.Payload[3+i*11 : 3+(i+1)*11]
+			if row[4] != divaMelodyItemType || row[9] != 0 {
+				continue
+			}
+			if hrMelodies >= len(hrPoints) || binary.BigEndian.Uint32(row) != hrPoints[hrMelodies] ||
+				binary.BigEndian.Uint16(row[7:9]) != uint16(hrMelodies+1) {
+				t.Fatalf("wrong HR melody row: %x", row)
+			}
+			hrMelodies++
+		}
+		if hrMelodies != len(hrPoints) {
+			t.Fatalf("got %d HR melody rows", hrMelodies)
 		}
 	}
 	s := createMockSession(1, createMockServer())

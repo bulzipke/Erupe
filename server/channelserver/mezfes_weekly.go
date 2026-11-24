@@ -16,8 +16,10 @@ import (
 
 const mezWeek = 7 * 24 * time.Hour
 const mezWeeklyRequest uint32 = 0xff4d0000
+const mezWeeklyWalletRequest uint32 = 0xff4e0000
 const mezWalletCap = 9_999_999
-const mezMaxWeeklyGP = 25_000
+const mezLegacyWalletLimit = 25_000
+const mezMaxWeeklyGP = 45_000
 const mezNonparticipantNotice = "메제포르타 페스타 정산이 종료됐습니다. 참여 시 대량의 길드 공헌 포인트를 얻을 수 있습니다."
 
 var errMezWalletFull = errors.New("insufficient room for the full MezFes reward")
@@ -233,12 +235,21 @@ func handleMezWeekly(s *Session, p *mhfpacket.MsgMhfEnumerateItem) {
 	op := uint16(p.CampaignID)
 	now := TimeAdjusted()
 	start := mezWeekStart(now)
-	walletPoll := op >= 0x8000 && op <= 0x8000+mezMaxWeeklyGP
+	// The original wallet operation uses the top bit of the 16-bit subtype.
+	// The expanded wallet request has its own ID and uses all 16 bits for room.
+	expandedWallet := p.CampaignID&0xffff0000 == mezWeeklyWalletRequest
+	walletRoom := -1
+	if expandedWallet && op <= mezMaxWeeklyGP {
+		walletRoom = int(op)
+	} else if !expandedWallet && op >= 0x8000 && op <= 0x8000+mezLegacyWalletLimit {
+		walletRoom = int(op - 0x8000)
+	}
+	confirm := !expandedWallet && op == 1
 	b.WriteUint32(0x4d5a5731) // MZW1
 	b.WriteUint32(uint32(start.Add(mezWeek).Unix() - now.Unix()))
 	var err error
 	switch {
-	case op >= 463 && op <= 469:
+	case !expandedWallet && op >= 463 && op <= 469:
 		var rows []struct {
 			Name             string
 			Score, Place, GP uint32
@@ -258,10 +269,10 @@ func handleMezWeekly(s *Session, p *mhfpacket.MsgMhfEnumerateItem) {
 			err = s.server.db.GetContext(ctx, &participation, "SELECT mezfes_weekly_reward($1::smallint,NULL)", op)
 			b.WriteUint32(participation)
 		}
-	case walletPoll && s.mezWalletLoaded:
+	case walletRoom >= 0 && s.mezWalletLoaded:
 		if s.mezUnseenGP == 0 {
 			var rows []mezAward
-			_, rows, err = s.creditMezWeek(ctx, now, int(op-0x8000))
+			_, rows, err = s.creditMezWeek(ctx, now, walletRoom)
 			if errors.Is(err, errMezWalletFull) {
 				// Allow a full wallet to collect as soon as spending makes space.
 				b = byteframe.NewByteFrame()
@@ -274,7 +285,7 @@ func handleMezWeekly(s *Session, p *mhfpacket.MsgMhfEnumerateItem) {
 			}
 		}
 		b.WriteUint32(uint32(s.mezUnseenGP))
-	case op == 1 && s.mezWalletLoaded:
+	case confirm && s.mezWalletLoaded:
 		s.mezUnseenGP = 0
 		b.WriteUint32(0)
 	default:
@@ -285,10 +296,10 @@ func handleMezWeekly(s *Session, p *mhfpacket.MsgMhfEnumerateItem) {
 		return
 	}
 	doAckBufSucceed(s, p.AckHandle, b.Data())
-	if walletPoll {
+	if walletRoom >= 0 {
 		s.sendMezNonparticipantNotice(ctx, now)
 	}
-	if op == 1 && len(s.mezNotice) > 0 {
+	if confirm && len(s.mezNotice) > 0 {
 		sendServerChatMessages(s, s.mezNotice)
 		s.mezNotice = nil
 	}

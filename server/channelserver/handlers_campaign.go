@@ -325,7 +325,8 @@ func handleMsgMhfEnumerateItem(s *Session, p mhfpacket.MHFPacket) {
 		return
 	}
 	if pkt.CampaignID&campaignPreviewFlag != 0 {
-		if pkt.CampaignID&0xffff0000 == mezWeeklyRequest && s.charID != 0 && s.userID != 0 {
+		family := pkt.CampaignID & 0xffff0000
+		if (family == mezWeeklyRequest || family == mezWeeklyWalletRequest) && s.charID != 0 && s.userID != 0 {
 			handleMezWeekly(s, pkt)
 			return
 		}

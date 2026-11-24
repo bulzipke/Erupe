@@ -23,12 +23,12 @@ func TestMezWeeklyNoonAndNotices(t *testing.T) {
 			t.Fatalf("start at %v: %v", tc.now, got)
 		}
 	}
-	lines, total := mezAwardNotice([]mezAward{{467, 2, 2000}, {464, 4, 500}, {465, 1, 5000}})
-	if total != 7500 || len(lines) != 4 ||
-		lines[0] != "메제포르타 페스타 참여로 길드 공헌 포인트를 7500 받았습니다." ||
-		!strings.HasPrefix(lines[1], " ▷ 다같이 볼뻐끔") || !strings.HasSuffix(lines[1], "1위: 5000") ||
-		!strings.HasPrefix(lines[2], " ▶ 울키 새총") || !strings.HasSuffix(lines[2], "참가상: 500") ||
-		!strings.HasPrefix(lines[3], " ▷ 냥련도") || !strings.HasSuffix(lines[3], "2위: 2000") {
+	lines, total := mezAwardNotice([]mezAward{{467, 2, 4000}, {464, 4, 100}, {465, 1, 10000}})
+	if total != 14100 || len(lines) != 4 ||
+		lines[0] != "메제포르타 페스타 참여로 길드 공헌 포인트를 14100 받았습니다." ||
+		!strings.HasPrefix(lines[1], " ▷ 다같이 볼뻐끔") || !strings.HasSuffix(lines[1], "1위: 10000") ||
+		!strings.HasPrefix(lines[2], " ▶ 울키 새총") || !strings.HasSuffix(lines[2], "참가상: 100") ||
+		!strings.HasPrefix(lines[3], " ▷ 냥련도") || !strings.HasSuffix(lines[3], "2위: 4000") {
 		t.Fatalf("award %v: %q", total, lines)
 	}
 	if lines, _ := mezAwardNotice(nil); len(lines) != 0 {
@@ -48,14 +48,20 @@ func TestMezWeeklyBoothAndWalletPackets(t *testing.T) {
 	offlineID := CreateTestCharacter(t, db, uid, "Offline")
 	live := createMockSession(liveID, server)
 	live.userID = uid
-	query := func(s *Session, op uint32) []byte {
+	exchange := func(s *Session, campaignID uint32) []byte {
 		t.Helper()
-		handleMsgMhfEnumerateItem(s, &mhfpacket.MsgMhfEnumerateItem{AckHandle: 7, CampaignID: mezWeeklyRequest | op})
+		handleMsgMhfEnumerateItem(s, &mhfpacket.MsgMhfEnumerateItem{AckHandle: 7, CampaignID: campaignID})
 		data := assertMercenaryAck(t, s, 0).AckData
 		if len(data) < 12 || string(data[:4]) != "MZW1" {
 			t.Fatalf("bad weekly response %x", data)
 		}
 		return data
+	}
+	query := func(s *Session, op uint32) []byte {
+		return exchange(s, mezWeeklyRequest|op)
+	}
+	wallet := func(s *Session, room uint32) uint32 {
+		return binary.BigEndian.Uint32(exchange(s, mezWeeklyWalletRequest|room)[8:])
 	}
 	week := mezWeekStart(time.Now())
 	for i, id := range []uint32{liveID, offlineID} {
@@ -64,7 +70,13 @@ func TestMezWeeklyBoothAndWalletPackets(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if board := query(live, 465); len(board) != 16 || binary.BigEndian.Uint32(board[8:]) != 0 || binary.BigEndian.Uint32(board[12:]) != 1000 {
+	for _, stage := range []int{463, 465, 466, 467, 468, 469} {
+		if _, err := db.Exec(`INSERT INTO mezfes_plays(character_id,event_id,ticket_kind,stage_id,points,raw_score,scored_at)
+			VALUES ($1,1,0,$2,1,17,$3)`, liveID, stage, week.Add(-time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if board := query(live, 465); len(board) != 16 || binary.BigEndian.Uint32(board[8:]) != 0 || binary.BigEndian.Uint32(board[12:]) != 3000 {
 		t.Fatalf("empty board %x", board)
 	}
 	for i, id := range []uint32{liveID, offlineID} {
@@ -75,15 +87,23 @@ func TestMezWeeklyBoothAndWalletPackets(t *testing.T) {
 	}
 	board := query(live, 464)
 	if len(board) != 104 || binary.BigEndian.Uint32(board[8:]) != 2 || binary.BigEndian.Uint32(board[12:]) != 1 ||
-		binary.BigEndian.Uint32(board[16:]) != 2 || binary.BigEndian.Uint32(board[20:]) != 3000 ||
-		!bytes.HasPrefix(board[24:], []byte("Offline\x00")) || binary.BigEndian.Uint32(board[100:]) != 500 {
+		binary.BigEndian.Uint32(board[16:]) != 2 || binary.BigEndian.Uint32(board[20:]) != 5000 ||
+		!bytes.HasPrefix(board[24:], []byte("Offline\x00")) || binary.BigEndian.Uint32(board[100:]) != 100 {
 		t.Fatalf("ranked board %x", board)
 	}
 	// This session already loaded its wallet before the weekly cutoff.
 	live.mezWalletLoaded = true
 	live.mezChatReady = true
+	if delta := binary.BigEndian.Uint32(query(live, 0x8000|mezLegacyWalletLimit)[8:]); delta != 0 {
+		t.Fatalf("legacy client received an oversized delta: %d", delta)
+	}
+	for _, room := range []uint32{1, 464, 32768, mezMaxWeeklyGP - 1} {
+		if delta := wallet(live, room); delta != 0 {
+			t.Fatalf("wallet room %d received an award of %d", room, delta)
+		}
+	}
 	for i := 0; i < 2; i++ {
-		if delta := binary.BigEndian.Uint32(query(live, 0x8000|mezMaxWeeklyGP)[8:]); delta != 3000 {
+		if delta := wallet(live, mezMaxWeeklyGP); delta != 45000 {
 			t.Fatalf("unacknowledged delta %d", delta)
 		}
 	}
@@ -93,19 +113,19 @@ func TestMezWeeklyBoothAndWalletPackets(t *testing.T) {
 	}
 	save(13)
 	balance, err := readCharacterInt(live, "gcp")
-	if err != nil || balance != 3013 {
+	if err != nil || balance != 45013 {
 		t.Fatalf("stale save lost reward: %d %v", balance, err)
 	}
 	query(live, 1)
 	if !bytes.Contains((<-live.sendPackets).data, stringsupport.UTF8ToSJIS("울키 새총")) {
 		t.Fatal("missing live chat")
 	}
-	save(3011)
-	if binary.BigEndian.Uint32(query(live, 0x8000|mezMaxWeeklyGP)[8:]) != 0 {
+	save(45011)
+	if wallet(live, mezMaxWeeklyGP) != 0 {
 		t.Fatal("repeated credit")
 	}
 	balance, err = readCharacterInt(live, "gcp")
-	if err != nil || balance != 3011 {
+	if err != nil || balance != 45011 {
 		t.Fatalf("post-ack save added the reward again: %d %v", balance, err)
 	}
 	offline := createMockSession(offlineID, server)
@@ -113,7 +133,7 @@ func TestMezWeeklyBoothAndWalletPackets(t *testing.T) {
 	login := func() {
 		handleMsgMhfReadMercenaryW(offline, &mhfpacket.MsgMhfReadMercenaryW{})
 		data := assertMercenaryAck(t, offline, 0).AckData
-		if len(data) < 20 || !bytes.HasSuffix(data, []byte("MZW2MZW1RAP1RGE1")) || binary.BigEndian.Uint32(data[len(data)-20:]) != 2000 {
+		if len(data) < 24 || !bytes.HasSuffix(data, []byte("MZW3MZW2MZW1RAP1RGE1")) || binary.BigEndian.Uint32(data[len(data)-24:]) != 4000 {
 			t.Fatalf("login wallet %x", data)
 		}
 	}
@@ -140,7 +160,7 @@ func TestMezWeeklyBoothAndWalletPackets(t *testing.T) {
 		idle.userID = uid
 		if online {
 			idle.mezWalletLoaded, idle.mezChatReady = true, true
-			if delta := binary.BigEndian.Uint32(query(idle, 0x8000|mezMaxWeeklyGP)[8:]); delta != 0 {
+			if delta := wallet(idle, mezMaxWeeklyGP); delta != 0 {
 				t.Fatalf("nonparticipant received %d GP", delta)
 			}
 		} else {
@@ -163,7 +183,7 @@ func TestMezWeeklyBoothAndWalletPackets(t *testing.T) {
 		reconnect := createMockSession(id, server)
 		reconnect.userID = uid
 		reconnect.mezWalletLoaded, reconnect.mezChatReady = true, true
-		query(reconnect, 0x8000|mezMaxWeeklyGP)
+		wallet(reconnect, mezMaxWeeklyGP)
 		if len(reconnect.sendPackets) != 0 {
 			t.Fatal("duplicate notice on reconnect")
 		}
@@ -196,7 +216,7 @@ func TestMezWeeklyPostgres(t *testing.T) {
 		play(3, stage, 900, start.Add(mezWeek), false)
 		play(3, stage, 700, start, true)
 	}
-	for i, want := range []int{mezMaxWeeklyGP, 18000, 11000, 4500, 4500} {
+	for i, want := range []int{45000, 34000, 25000, 6500, 6500} {
 		s := &Session{server: &Server{db: db}, charID: ids[i], userID: uid}
 		ctx := context.Background()
 		if i == 0 {

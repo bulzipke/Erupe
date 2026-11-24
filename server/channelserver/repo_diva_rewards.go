@@ -18,8 +18,9 @@ type DivaRewardRepository interface {
 	PrepareDivaRewardClaims(charID uint32, kind uint8, ids []uint32) ([]DivaRewardOffer, error)
 }
 
-type DivaRewardRankRepository interface {
+type DivaInterceptionRewardListRepository interface {
 	GetDivaRewardRanks(charID uint32) (hr, gr uint16, err error)
+	GetDivaMelodyPrizes(now time.Time, override int) ([]DivaPrize, error)
 }
 
 func (r *DivaRepository) GetDivaRewardRanks(charID uint32) (hr, gr uint16, err error) {
@@ -152,15 +153,16 @@ func (r *DivaRepository) offerDivaRewardsWithRotationAt(charID, eventID uint32, 
 		rotationProgress = &progress
 		rewards = eligibleDivaSongRewards(1, progress)
 	}
+	var interceptionEvent DivaEvent
 	if kind == 6 {
-		current, err := lockDivaInterceptionRewardWindow(tx, now, modes...)
+		interceptionEvent, err = lockDivaInterceptionRewardWindow(tx, now, modes...)
 		if err != nil {
 			return nil, err
 		}
-		if current.ID == 0 || current.ID != eventID {
+		if interceptionEvent.ID == 0 || interceptionEvent.ID != eventID {
 			return nil, ErrDivaInterceptionRewardExpired
 		}
-		if err := offerDivaMelodyTx(tx, charID, eventID, now); err != nil {
+		if err := offerDivaMelodyTx(tx, charID, interceptionEvent, now); err != nil {
 			return nil, err
 		}
 	}
@@ -205,9 +207,8 @@ func (r *DivaRepository) offerDivaRewardsWithRotationAt(charID, eventID uint32, 
 		// when a later catalog edit removed the original row from the UI list.
 		err = tx.Select(&offers, `SELECT id,event_id,reward_type,catalog_key,item_type,item_id,quantity
 			FROM diva_reward_receipts WHERE char_id=$1 AND event_id=$2 AND reward_type=6
-			AND claimed_at IS NULL AND (item_type<>29 OR EXISTS(
-				SELECT 1 FROM events e WHERE e.id=$2 AND e.event_type='diva'
-				AND e.start_time+CASE WHEN e.diva_continuous THEN INTERVAL '21 days' ELSE INTERVAL '1810800 seconds' END>$3)) ORDER BY id LIMIT 32`, charID, eventID, clock)
+			AND claimed_at IS NULL AND (item_type<>29 OR $3) ORDER BY id LIMIT 32`,
+			charID, eventID, divaMelodyUnexpired(interceptionEvent, clock))
 		if err != nil {
 			return nil, err
 		}
