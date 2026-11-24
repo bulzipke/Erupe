@@ -136,7 +136,7 @@ func TestRepoDivaSongGoalsRoundSnapshotAndActivation(t *testing.T) {
 			t.Fatalf("wrong song goal in slot %d", i)
 		}
 	}
-	for i, target := range udShopUnlockMilestones {
+	for i, target := range [...]uint64{11000, 19000, 27000} {
 		slot := len(progress.Targets) + i
 		if binary.BigEndian.Uint64(payload[1+slot*8:]) != target || payload[513+slot] != byte(i+1) {
 			t.Fatalf("wrong shop goal in slot %d", slot)

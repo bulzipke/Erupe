@@ -51,7 +51,7 @@ func TestDivaTotalPointInfoShopUnlockWire(t *testing.T) {
 }
 
 func TestDivaTotalPointInfoUnlockAndSongBoundaries(t *testing.T) {
-	if len(udMilestones)+len(udShopUnlockMilestones) > 64 {
+	if len(udMilestones)+len(legacyDivaShopUnlockMilestones) > 64 {
 		t.Fatal("total-point targets exceed the native 64-slot table")
 	}
 	for _, tt := range []struct {
@@ -79,6 +79,48 @@ func TestDivaTotalPointInfoUnlockAndSongBoundaries(t *testing.T) {
 		if level != tt.level || songs != tt.songs || divaBattleSongEarned(int64(tt.total), udMilestones) != tt.songs {
 			t.Fatalf("total %d: shop level=%d songs=%d, want level=%d songs=%d", tt.total, level, songs, tt.level, tt.songs)
 		}
+	}
+}
+
+func TestDivaTotalPointInfoAdaptiveGauge(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		accounts    int64
+		points      int64
+		shopTargets [3]uint64
+		endpoint    uint64
+	}{
+		{"active round", 5, 104882, [3]uint64{39000, 65000, 91000}, 131000},
+		{"next round projection", 5, 158050, [3]uint64{59000, 98500, 138000}, 197000},
+		{"minimum goals", 0, 0, [3]uint64{7500, 12500, 17500}, 25000},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			songTargets := divaSongTargets(tt.accounts, tt.points)
+			p := divaTotalPointPayload(0, songTargets)
+			var largest uint64
+			for i := range 64 {
+				target := binary.BigEndian.Uint64(p[1+i*8:])
+				largest = max(largest, target)
+				switch {
+				case i < len(songTargets):
+					if target != uint64(songTargets[i]) || p[513+i] != 0 {
+						t.Fatalf("song goal %d changed: %d, kind %d", i+1, target, p[513+i])
+					}
+				case i < len(songTargets)+len(tt.shopTargets):
+					level := i - len(songTargets)
+					if target != tt.shopTargets[level] || p[513+i] != byte(level+1) {
+						t.Fatalf("shop level %d: %d, kind %d", level+1, target, p[513+i])
+					}
+				default:
+					if target != 0 || p[513+i] != 0 {
+						t.Fatalf("unexpected target in slot %d", i)
+					}
+				}
+			}
+			if largest != tt.endpoint || largest != uint64(songTargets[len(songTargets)-1]) {
+				t.Fatalf("gauge endpoint %d, want the last song goal %d", largest, tt.endpoint)
+			}
+		})
 	}
 }
 

@@ -8,9 +8,8 @@ var udMilestones = []int64{
 	15000000, 20000000, 30000000, 50000000, 70000000, 100000000,
 }
 
-// Server-wide prayer totals for shop unlock levels 1, 2 and 3. This is the
-// operator's 2026-11-03 policy, separate from song activation milestones.
-var udShopUnlockMilestones = [...]uint64{100000, 200000, 300000}
+// Older 13-target rounds use the original fixed GP shop unlock levels.
+var legacyDivaShopUnlockMilestones = [...]uint64{100000, 200000, 300000}
 
 func divaTotalPointPayload(total uint64, songTargets []int64) []byte {
 	var targets [64]uint64
@@ -19,7 +18,17 @@ func divaTotalPointPayload(total uint64, songTargets []int64) []byte {
 	for i, threshold := range songTargets {
 		targets[i] = uint64(threshold)
 	}
-	for i, threshold := range udShopUnlockMilestones {
+	shopTargets := legacyDivaShopUnlockMilestones
+	if len(songTargets) == divaFinalSongLimit {
+		// The native gauge uses the largest target as its endpoint. Put each
+		// shop level halfway between the same song marks as in the retail UI.
+		for i := range shopTargets {
+			lower := songTargets[5*(i+1)-1]
+			upper := songTargets[5*(i+2)-1]
+			shopTargets[i] = uint64(lower + (upper-lower)/2)
+		}
+	}
+	for i, threshold := range shopTargets {
 		slot := len(songTargets) + i
 		targets[slot] = threshold
 		types[slot] = uint8(i + 1)
