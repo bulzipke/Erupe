@@ -146,6 +146,8 @@ func TestHandleMsgMhfAcquireCafeItem(t *testing.T) {
 		wantOK      bool
 	}{
 		{"listed price", 500, mhfpacket.MsgMhfAcquireCafeItem{ItemID: 0x30B2, Quant: 2, PointCost: 200}, 300, true},
+		{"Gorgeous Crest at 240 NP each", 500, mhfpacket.MsgMhfAcquireCafeItem{ItemID: 0x2F58, Quant: 2, PointCost: 480}, 20, true},
+		{"underpaid Gorgeous Crest", 500, mhfpacket.MsgMhfAcquireCafeItem{ItemID: 0x2F58, Quant: 1, PointCost: 239}, 500, false},
 		{"higher table price", 2500, mhfpacket.MsgMhfAcquireCafeItem{ItemID: 0x30B2, Quant: 2, PointCost: 2000}, 500, true},
 		{"underpaid", 500, mhfpacket.MsgMhfAcquireCafeItem{ItemID: 0x30B2, Quant: 2, PointCost: 199}, 500, false},
 		{"free", 500, mhfpacket.MsgMhfAcquireCafeItem{ItemID: 0x30B2, Quant: 2, PointCost: 0}, 500, false},

@@ -32,6 +32,10 @@ type ShopItem struct {
 // that follows it.
 const gachaNameMax = 31
 
+// The G10+/ZZ shop-detail parser stores each prize in a fixed record. The
+// lineup shows up to five items per prize, independently of what a draw awards.
+const gachaDetailItemsPerEntry = 5
+
 // writeGachaName writes a gacha name for the shop list in the client's text
 // encoding (EUC-KR, stringsupport.UTF8ToSJIS) with a uint8 length prefix and a
 // terminator, cut at a whole character within the client's gachaNameMax limit.
@@ -212,12 +216,12 @@ func handleMsgMhfEnumerateShop(s *Session, p mhfpacket.MHFPacket) {
 			bf.WriteUint8(ge.Rarity)
 			bf.WriteUint8(ge.Rolls)
 
-			items, err := s.server.gachaRepo.GetItemsForEntry(ge.ID)
+			items, err = s.server.gachaRepo.GetItemsForEntry(ge.ID)
 			if err != nil {
-				bf.WriteUint8(0)
-			} else {
-				bf.WriteUint8(uint8(len(items)))
+				items = nil
 			}
+			items = items[:min(len(items), gachaDetailItemsPerEntry)]
+			bf.WriteUint8(uint8(len(items)))
 
 			bf.WriteUint16(ge.FrontierPoints)
 			bf.WriteUint8(ge.DailyLimit)

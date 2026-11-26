@@ -72,7 +72,7 @@ func (r *GachaRepository) GetRewardPool(gachaID uint32) ([]GachaEntry, error) {
 func (r *GachaRepository) GetItemsForEntry(entryID uint32) ([]GachaItem, error) {
 	var items []GachaItem
 	rows, err := r.db.Queryx(
-		`SELECT item_type, item_id, quantity FROM gacha_items WHERE entry_id = $1`,
+		`SELECT item_type, item_id, quantity FROM gacha_items WHERE entry_id = $1 ORDER BY id`,
 		entryID,
 	)
 	if err != nil {
@@ -88,7 +88,7 @@ func (r *GachaRepository) GetItemsForEntry(entryID uint32) ([]GachaItem, error) 
 		}
 		items = append(items, item)
 	}
-	return items, nil
+	return items, rows.Err()
 }
 
 // GetGuaranteedItems returns items for the entry matching a roll type and gacha ID.

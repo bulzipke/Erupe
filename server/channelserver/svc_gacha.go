@@ -163,14 +163,14 @@ func (svc *GachaService) resolveRewards(entries []GachaEntry, rolls int, isBox b
 				zap.Uint32("entryID", rewardEntries[i].ID), zap.Error(err))
 			continue
 		}
-		for _, item := range entryItems {
-			rewards = append(rewards, GachaReward{
-				ItemType: item.ItemType,
-				ItemID:   item.ItemID,
-				Quantity: item.Quantity,
-				Rarity:   rewardEntries[i].Rarity,
-			})
-		}
+		rewards = appendGachaRewards(rewards, entryItems, rewardEntries[i].Rarity)
+	}
+	return rewards
+}
+
+func appendGachaRewards(rewards []GachaReward, items []GachaItem, rarity uint8) []GachaReward {
+	for _, item := range items {
+		rewards = append(rewards, GachaReward{ItemType: item.ItemType, ItemID: item.ItemID, Quantity: item.Quantity, Rarity: rarity})
 	}
 	return rewards
 }
@@ -198,8 +198,6 @@ func (svc *GachaService) saveGachaItems(charID uint32, items []GachaItem) {
 		data = nil
 	}
 
-	oldRecords := 0
-	var oldPayload []byte
 	if len(data) > 0 {
 		declared, actual, trailing, valid := inspectGachaItemBlob(data)
 		if !valid {
@@ -210,21 +208,27 @@ func (svc *GachaService) saveGachaItems(charID uint32, items []GachaItem) {
 				zap.Int("trailing_bytes", trailing))
 			return
 		}
-		oldRecords = actual
+	}
+	if err := svc.charRepo.SaveColumn(charID, "gacha_items", prependGachaItems(data, items)); err != nil {
+		svc.logger.Error("Failed to update gacha items", zap.Error(err))
+	}
+}
+
+// data is either empty or a previously validated pending-items blob.
+func prependGachaItems(data []byte, items []GachaItem) []byte {
+	var oldPayload []byte
+	if len(data) > 0 {
 		oldPayload = data[1:]
 	}
-
 	newItem := byteframe.NewByteFrame()
-	newItem.WriteUint8(uint8(len(items) + oldRecords))
+	newItem.WriteUint8(uint8(len(items) + len(oldPayload)/gachaItemRecordBytes))
 	for i := range items {
 		newItem.WriteUint8(items[i].ItemType)
 		newItem.WriteUint16(items[i].ItemID)
 		newItem.WriteUint16(items[i].Quantity)
 	}
 	newItem.WriteBytes(oldPayload)
-	if err := svc.charRepo.SaveColumn(charID, "gacha_items", newItem.Data()); err != nil {
-		svc.logger.Error("Failed to update gacha items", zap.Error(err))
-	}
+	return newItem.Data()
 }
 
 // rewardsToItems converts GachaReward slices to GachaItem slices for storage.
@@ -256,6 +260,13 @@ func (svc *GachaService) PlayNormalGacha(userID, charID, gachaID uint32, rollTyp
 	}
 	if len(entries) == 0 {
 		return nil, errors.New("gacha has no valid reward entries")
+	}
+	if gachaID == specialGachaID {
+		store, ok := svc.gachaRepo.(specialGachaStore)
+		if !ok {
+			return nil, errors.New("special gacha storage is unavailable")
+		}
+		return svc.playSpecialGacha(store, userID, charID, rollType, entries)
 	}
 	if err := svc.checkPendingItems(charID); err != nil {
 		return nil, err
