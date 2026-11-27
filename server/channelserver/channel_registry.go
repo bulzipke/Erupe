@@ -38,6 +38,9 @@ type ChannelRegistry interface {
 	// returning up to max snapshot results.
 	SearchStages(stagePrefix string, max int) []StageSnapshot
 
+	// SearchMezFesRooms returns open rooms in the source channel's world.
+	SearchMezFesRooms(source *Server, stagePrefix string, max int) []mezFesMatchRoom
+
 	// NotifyMailToCharID finds the session for charID and sends a mail notification.
 	NotifyMailToCharID(charID uint32, sender *Session, mail *Mail)
 }

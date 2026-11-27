@@ -1036,7 +1036,8 @@ func handleMsgMhfTransitMessage(s *Session, p mhfpacket.MHFPacket) {
 			case 2:
 				return strings.Contains(snap.Name, term)
 			case 3:
-				return snap.ServerIP.String() == ip && snap.ServerPort == port && snap.StageID == term
+				addressMatches := snap.ServerIP.String() == ip || (local && ip == "127.0.0.1")
+				return addressMatches && snap.ServerPort == port && snap.StageID == term
 			}
 			return false
 		}
@@ -1089,6 +1090,12 @@ func handleMsgMhfTransitMessage(s *Session, p mhfpacket.MHFPacket) {
 		maxResults = bf.ReadUint16()
 		for i := uint8(0); i < numParams; i++ {
 			switch bf.ReadUint8() {
+			case mezFesMatchFilter:
+				// Group minigames send this filter alone with their native game index.
+				if numParams == 1 && s.server.erupeConfig.RealClientMode >= cfg.Z2 {
+					handleMezFesRoomSearch(s, pkt.AckHandle, local, maxResults, bf)
+					return
+				}
 			case 0:
 				values := bf.ReadUint8()
 				for i := uint8(0); i < values; i++ {

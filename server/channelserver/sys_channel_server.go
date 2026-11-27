@@ -41,6 +41,7 @@ type Config struct {
 	Enable         bool
 	CollabEvent    string
 	WorldType      uint8
+	WorldNumber    int
 	WorldName      string
 	ChannelNumber  int
 	CollabRotation *CollabRotation
@@ -117,6 +118,7 @@ type Server struct {
 	collabOnlyEvents   bool
 	excludeCollab      bool
 	worldType          uint8
+	worldNumber        int
 	worldName          string
 	channelNumber      int
 	questDelivery      *questdelivery.Catalog
@@ -195,6 +197,7 @@ func (s *Server) configureChannelContent(config *Config) {
 	s.worldType, s.collabEvent = config.WorldType, config.CollabEvent
 	s.collabOnlyEvents = config.CollabOnlyEventQuests
 	s.excludeCollab = !s.collabOnlyEvents && config.ErupeConfig != nil && config.ErupeConfig.Entrance.HasCollabOnlyQuestWorld()
+	s.worldNumber = config.WorldNumber
 	s.worldName, s.channelNumber = config.WorldName, config.ChannelNumber
 	if config.ErupeConfig != nil {
 		s.questDelivery = config.ErupeConfig.QuestDeliveryCatalog

@@ -482,6 +482,7 @@ func main() {
 					DiscordBot:     discordBot,
 					CollabEvent:    collabEvent,
 					WorldType:      ee.Type,
+					WorldNumber:    j + 1,
 					WorldName:      ee.Name,
 					ChannelNumber:  i + 1,
 					CollabRotation: collabRotation,

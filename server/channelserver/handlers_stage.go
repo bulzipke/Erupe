@@ -143,8 +143,22 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 	}
 	var stage *Stage
 	var created bool
+	mezFesRoom := s.server.worldType == 6 && isMezFesMatchRoom(stageID)
 	for {
-		stage, created = s.server.stages.GetOrCreate(stageID)
+		if mezFesRoom {
+			// A matching room must have been created by its host. A guest
+			// acting on an expired result must not recreate that room.
+			var exists bool
+			stage, exists = s.server.stages.Get(stageID)
+			if !exists {
+				s.lifecycleMu.Unlock()
+				lifecycleHeld = false
+				doAckSimpleFail(s, ackHandle, make([]byte, 4))
+				return false
+			}
+		} else {
+			stage, created = s.server.stages.GetOrCreate(stageID)
+		}
 		stage.Lock()
 		// Empty-stage cleanup removes the map entry while holding this same
 		// stage lock. If it won the race after our lookup, retry against the
@@ -168,8 +182,9 @@ func doStageTransfer(s *Session, ackHandle uint32, stageID string) bool {
 			return false
 		}
 	}
-	if !alreadyClient && !hasReservation &&
-		len(stage.clients)+len(stage.reservedClientSlots) >= int(stage.maxPlayers) {
+	matchClosed := mezFesRoom && (stage.locked || stage.password != "" || (len(stage.clients) == 0 && stage.host != s))
+	noFreeSlot := !hasReservation && len(stage.clients)+len(stage.reservedClientSlots) >= int(stage.maxPlayers)
+	if !alreadyClient && (matchClosed || noFreeSlot) {
 		stage.Unlock()
 		if created {
 			s.server.stages.CompareAndDelete(stageID, stage)
