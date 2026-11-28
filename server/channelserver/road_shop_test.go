@@ -58,8 +58,54 @@ func TestRoadShopFiltersBeforePacketLimit(t *testing.T) {
 	}
 }
 
+func TestRoadShopMedalFollowsQuestPublication(t *testing.T) {
+	s := deliveryTestSession(t, `[{"quest_id":55519,"profiles":["normal"],"schedule":"once"}]`)
+	s.server.erupeConfig.QuestDelivery.Enabled = true
+	repo := s.server.eventRepo.(*mockEventRepo)
+	at := deliveryTestTime()
+	repo.eventQuests = []EventQuest{{QuestID: 55519, QuestType: 43}, {QuestID: 55586, QuestType: 28, ListHidden: true}}
+	if !s.roadShopMedalAvailable(at) {
+		t.Fatal("the published Rathalos report should open the medal exchange")
+	}
+	if s.roadShopMedalAvailable(at.Add(3 * 24 * time.Hour)) {
+		t.Fatal("an expired report and a hidden ordinary listing should not open the exchange")
+	}
+	s.server.channelNumber = 2
+	if s.roadShopMedalAvailable(at) {
+		t.Fatal("the managed report is unavailable in this channel")
+	}
+	items := []ShopItem{{ItemID: roadShopPurpleMedal}, {ItemID: 14445}}
+	if got := filterRoadShopItems(s, items); len(got) != 1 || got[0].ItemID != 14445 {
+		t.Fatalf("items outside the medal period: %v", got)
+	}
+	repo.eventQuests = append(repo.eventQuests, EventQuest{QuestID: 55635, QuestType: 43})
+	if got := filterRoadShopItems(s, items); len(got) != 2 || got[0].ItemID != roadShopPurpleMedal {
+		t.Fatalf("items while an unmanaged Zenith quest is active: %v", got)
+	}
+}
+
+func TestRoadShopWeekKeyNoonKST(t *testing.T) {
+	noon := time.Date(2026, time.November, 30, 3, 0, 0, 0, time.UTC)
+	legacyKey := noon.Add(-12 * time.Hour)
+	for _, test := range []struct {
+		at   time.Time
+		want time.Time
+	}{
+		{noon.Add(-12 * time.Hour), legacyKey.AddDate(0, 0, -7)},
+		{noon.Add(-time.Nanosecond), legacyKey.AddDate(0, 0, -7)},
+		{noon, legacyKey},
+		{noon.Add(time.Nanosecond), legacyKey},
+		{noon.AddDate(0, 0, 7), legacyKey.AddDate(0, 0, 7)},
+	} {
+		if got := roadShopWeekKey(test.at); !got.Equal(test.want) {
+			t.Errorf("at %v: week key=%v want=%v", test.at, got, test.want)
+		}
+	}
+}
+
 func TestRepoRoadShopWeeklyLimits(t *testing.T) {
 	repo, db, charID := setupShopRepo(t)
+	week := roadShopWeekKey(TimeAdjusted())
 	_, err := db.Exec(`INSERT INTO shop_items
         (id,shop_type,shop_id,item_id,cost,quantity,min_hr,min_sr,min_gr,
          store_level,max_quantity,road_floors,road_fatalis,road_weekly_limit)
@@ -101,7 +147,7 @@ func TestRepoRoadShopWeeklyLimits(t *testing.T) {
 	if err != nil || len(other) != 1 || other[0].UsedQuantity != 0 {
 		t.Fatalf("another character shares receipt: items=%v err=%v", other, err)
 	}
-	if _, err := db.Exec("UPDATE shop_items_bought SET week_start=$1 WHERE character_id=$2", TimeWeekStart().Add(-7*24*time.Hour), charID); err != nil {
+	if _, err := db.Exec("UPDATE shop_items_bought SET week_start=$1 WHERE character_id=$2", week.AddDate(0, 0, -7), charID); err != nil {
 		t.Fatal(err)
 	}
 	read(10, 7, 90001, 0)
@@ -121,7 +167,7 @@ func TestRepoRoadShopWeeklyLimits(t *testing.T) {
 		t.Fatal(err)
 	}
 	read(10, 8, 90002, 1)
-	if _, err := db.Exec("UPDATE shop_items_bought SET week_start=$1 WHERE shop_item_id=90001", TimeWeekStart().Add(-7*24*time.Hour)); err != nil {
+	if _, err := db.Exec("UPDATE shop_items_bought SET week_start=$1 WHERE shop_item_id=90001", week.AddDate(0, 0, -7)); err != nil {
 		t.Fatal(err)
 	}
 	var workers sync.WaitGroup
@@ -142,7 +188,7 @@ func TestRepoRoadShopWeeklyLimits(t *testing.T) {
 	}
 	read(10, 7, 90001, 16) // Exactly one reset, with no concurrent count loss.
 	// Simulate a new-week receipt followed by a delayed old-week request.
-	futureWeek := TimeWeekStart().Add(7 * 24 * time.Hour)
+	futureWeek := week.AddDate(0, 0, 7)
 	if _, err := db.Exec("UPDATE shop_items_bought SET week_start=$1 WHERE shop_item_id=90001", futureWeek); err != nil {
 		t.Fatal(err)
 	}

@@ -100,6 +100,11 @@ func (r *ShopRepository) recordExchangeShopPurchasesAt(charID uint32, purchases 
 	if len(purchases) == 0 {
 		return nil
 	}
+	roadNow := now
+	if roadNow.IsZero() {
+		roadNow = TimeAdjusted()
+	}
+	roadWeek := roadShopWeekKey(roadNow)
 	tx, err := r.db.Beginx()
 	if err != nil {
 		return err
@@ -161,7 +166,7 @@ func (r *ShopRepository) recordExchangeShopPurchasesAt(charID uint32, purchases 
 			if count != 1 {
 				return errDivaShopUnavailable
 			}
-		} else if err = recordShopPurchase(tx, charID, p.ItemHash, p.Quantity, TimeWeekStart()); err != nil {
+		} else if err = recordShopPurchase(tx, charID, p.ItemHash, p.Quantity, roadWeek); err != nil {
 			return err
 		}
 	}

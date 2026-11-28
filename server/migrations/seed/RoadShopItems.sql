@@ -1,7 +1,7 @@
 -- ZZ's native catalog has 889 rows in tabs 0..6, NONE in tabs 7/8.
 -- Supply only server-delivered products and three absent decorations.
--- Quantity is always one. Original weekly limits are opt-in via migration 0072;
--- the server uses Monday 00:00 UTC+9, as requested by this server's operator.
+-- Quantity is always one. Original weekly limits are opt-in via migration 0072.
+-- Migration 0124 adds Hunter Medal Purple to fresh and existing databases.
 -- Evidence/conflicts: docs/road-shop-original-catalog.md.
 -- ID/price/condition: https://ferias.life.coocan.jp/sozai/other_sozai.js
 -- Limits: https://w.atwiki.jp/giurasu/pages/1464.html

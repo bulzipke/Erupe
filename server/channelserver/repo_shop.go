@@ -34,12 +34,12 @@ func (r *ShopRepository) getShopItems(shopType uint8, shopID uint32, charID uint
         FROM shop_items si LEFT JOIN shop_items_bought b
           ON b.shop_item_id=si.id AND b.character_id=$3
         WHERE shop_type=$1 AND shop_id=$2 ORDER BY si.id
-        `, shopType, shopID, charID, TimeWeekStart())
+        `, shopType, shopID, charID, roadShopWeekKey(TimeAdjusted()))
 	return result, err
 }
 
 // RecordPurchase keeps ordinary shop counts cumulative. Opt-in Road limits use
-// the server's Monday 00:00 UTC+9 week. An expired receipt starts a fresh count;
+// the Road shop's Monday 12:00 UTC+9 week. An expired receipt starts a fresh count;
 // the upsert is atomic, including simultaneous purchases after a rollover.
 // A delayed pre-rollover request must not rewind a newer receipt's week.
 func (r *ShopRepository) RecordPurchase(charID, shopItemID, quantity uint32) error {

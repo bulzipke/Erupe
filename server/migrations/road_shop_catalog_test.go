@@ -20,16 +20,17 @@ func TestRoadShopServerCatalog(t *testing.T) {
 		query string
 		want  int
 	}{
-		{"SELECT count(*) FROM shop_items WHERE shop_type=10", 61},
+		{"SELECT count(*) FROM shop_items WHERE shop_type=10", 62},
 		{"SELECT count(*) FROM shop_items WHERE shop_type=10 AND shop_id=4", 3},
-		{"SELECT count(*) FROM shop_items WHERE shop_type=10 AND shop_id=7", 47},
+		{"SELECT count(*) FROM shop_items WHERE shop_type=10 AND shop_id=7", 48},
 		{"SELECT count(*) FROM shop_items WHERE shop_type=10 AND shop_id=8", 11},
-		{"SELECT count(*) FROM shop_items WHERE road_weekly_limit", 58},
+		{"SELECT count(*) FROM shop_items WHERE road_weekly_limit", 59},
 		{"SELECT count(*) FROM shop_items WHERE shop_type=10 AND quantity<>1", 0},
 		{"SELECT count(*) FROM shop_items WHERE shop_type=10 AND shop_id NOT IN (4,7,8)", 0},
 		{"SELECT sum(cost*max_quantity) FROM shop_items WHERE shop_type=10 AND shop_id=8 AND item_id<>14446", 19800},
 		{"SELECT sum(cost*max_quantity) FROM shop_items WHERE shop_type=10 AND shop_id=7 AND item_id BETWEEN 12460 AND 12469", 547500},
 		{"SELECT count(*) FROM shop_items WHERE shop_type=10 AND item_id=9958", 0},
+		{"SELECT count(*) FROM shop_items WHERE shop_type=10 AND shop_id=7 AND item_id=9665 AND cost=500 AND quantity=1 AND min_gr=200 AND max_quantity=30 AND road_floors=11 AND road_fatalis=0 AND road_weekly_limit", 1},
 		{"SELECT count(*) FROM shop_items WHERE shop_type=10 AND shop_id=7 AND cost=1000 AND quantity=1 AND min_gr=1 AND max_quantity=5 AND road_weekly_limit AND ((item_id=14433 AND road_floors=100) OR (item_id=14434 AND road_floors=110))", 2},
 		{"SELECT count(*) FROM shop_items WHERE shop_type=10 AND item_id IN (16340,16341) AND road_floors=50 AND max_quantity=46", 2},
 		{"SELECT count(*) FROM shop_items WHERE shop_type=10 AND item_id=15093 AND road_floors=11", 1},
@@ -69,13 +70,13 @@ func TestRoadShopServerCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	var withoutCoupons int
-	if err := db.Get(&withoutCoupons, "SELECT count(*) FROM shop_items WHERE shop_type=10"); err != nil || withoutCoupons != 59 {
+	if err := db.Get(&withoutCoupons, "SELECT count(*) FROM shop_items WHERE shop_type=10"); err != nil || withoutCoupons != 60 {
 		t.Fatalf("coupon-only undo changed previous catalog: rows=%d err=%v", withoutCoupons, err)
 	}
 	if _, err := db.Exec("INSERT INTO shop_items SELECT * FROM road_shop_live_coupons_added_20261003"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec("CREATE TABLE road_shop_catalog_added_20261003 AS SELECT * FROM shop_items WHERE shop_type=10"); err != nil {
+	if _, err := db.Exec("CREATE TABLE road_shop_catalog_added_20261003 AS SELECT * FROM shop_items WHERE shop_type=10 AND item_id<>9665"); err != nil {
 		t.Fatal(err)
 	}
 	undo, err := os.ReadFile("manual/undo_road_shop_catalog_20261003.sql")
@@ -111,7 +112,7 @@ func TestRoadShopServerCatalog(t *testing.T) {
 	runUndo(false)
 	runUndo(false)
 	var remaining int
-	if err := db.Get(&remaining, "SELECT count(*) FROM shop_items WHERE shop_type=10"); err != nil || remaining != 0 {
-		t.Fatalf("restored rows remain after undo: %d err=%v", remaining, err)
+	if err := db.Get(&remaining, "SELECT count(*) FROM shop_items WHERE shop_type=10"); err != nil || remaining != 1 {
+		t.Fatalf("only the later medal should remain after undo: %d err=%v", remaining, err)
 	}
 }

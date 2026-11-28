@@ -19,7 +19,7 @@ func TestRoadShopNativeCatalogRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	var count int
-	if err := db.Get(&count, "SELECT count(*) FROM shop_items WHERE shop_type=10"); err != nil || count != 61 {
+	if err := db.Get(&count, "SELECT count(*) FROM shop_items WHERE shop_type=10"); err != nil || count != 62 {
 		t.Fatalf("fresh seed must supply only absent Road products: count=%d err=%v", count, err)
 	}
 	// Exercise the historical override-removal script against its original
